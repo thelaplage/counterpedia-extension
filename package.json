@@ -1,0 +1,26 @@
+{
+  "name": "counterpedia-extension",
+  "version": "0.1.0",
+  "description": "Counterpedia Chrome extension — source-match side panel v0.1",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "package": "npm run build && cd dist && zip -r ../counterpedia-extension.zip ."
+  },
+  "keywords": [
+    "chrome-extension",
+    "counterpedia"
+  ],
+  "author": "thelaplage",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.2.5",
+    "@types/node": "^26.1.2",
+    "@vitest/ui": "^4.1.10",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Counterpedia",
+  "version": "0.1.0",
+  "description": "Find Counterpedia governed records matching the current page or selected text.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "activeTab", "storage", "contextMenus"],
+  "background": {
+    "service_worker": "dist/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "dist/popup/index.html",
+    "default_title": "Counterpedia"
+  },
+  "side_panel": {
+    "default_path": "dist/panel/index.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

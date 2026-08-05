@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Counterpedia</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header class="panel-header">
+    <h1>Counterpedia</h1>
+    <span class="version">v0.1</span>
+  </header>
+
+  <main class="panel-content">
+    <!-- Idle state -->
+    <div id="state-idle" class="state-view active">
+      <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
+    </div>
+
+    <!-- Loading state -->
+    <div id="state-loading" class="state-view">
+      <div class="loading-indicator">
+        <div class="spinner"></div>
+        <span>Checking Counterpedia…</span>
+      </div>
+    </div>
+
+    <!-- Results state -->
+    <div id="state-results" class="state-view">
+      <div class="query-display-label">Checking</div>
+      <div id="query-display" class="query-display"></div>
+      <div id="results-header" class="results-header"></div>
+      <div id="results-list"></div>
+    </div>
+
+    <!-- No match state -->
+    <div id="state-no-match" class="state-view">
+      <div class="query-display-label">Checked</div>
+      <div id="no-match-query" class="query-display"></div>
+      <p class="status-message">No matching Counterpedia records found. This is not a judgment about the page.</p>
+    </div>
+
+    <!-- Restricted page state -->
+    <div id="state-restricted" class="state-view">
+      <p class="status-message">
+        <strong>Cannot check this page</strong>
+        Counterpedia cannot check this page type (e.g. browser internal pages, local files).
+      </p>
+    </div>
+
+    <!-- Service unavailable state -->
+    <div id="state-unavailable" class="state-view">
+      <p class="status-message">
+        <strong>Counterpedia unavailable</strong>
+        Counterpedia is unavailable. Please try again.
+      </p>
+    </div>
+
+    <!-- Rate limited state -->
+    <div id="state-rate-limited" class="state-view">
+      <p class="status-message">
+        <strong>Too many requests</strong>
+        Too many requests. Please wait a moment.
+      </p>
+    </div>
+  </main>
+
+  <footer class="panel-footer">
+    <a href="https://www.garpedia.org/privacy" target="_blank" rel="noopener noreferrer" class="footer-link">Privacy</a>
+    <a href="https://www.garpedia.org" target="_blank" rel="noopener noreferrer" class="footer-link">Counterpedia</a>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
