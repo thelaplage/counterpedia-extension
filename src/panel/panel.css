@@ -198,6 +198,49 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* Capture bar */
+.capture-bar {
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.capture-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.capture-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.capture-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.capture-status {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-status.error {
+  color: #c0392b;
+}
+
 /* Footer */
 .panel-footer {
   padding: 10px 16px;

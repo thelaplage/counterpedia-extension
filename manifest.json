@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Find Counterpedia governed records matching the current page or selected text.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "activeTab", "storage", "contextMenus"],
+  "permissions": ["sidePanel", "activeTab", "storage", "contextMenus", "scripting"],
   "background": {
     "service_worker": "dist/background/service-worker.js",
     "type": "module"
