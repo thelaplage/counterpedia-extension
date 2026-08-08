@@ -66,6 +66,19 @@
     </div>
   </main>
 
+  <!-- Activity feed: a read-only projection over admitted PUBLIC activity
+       receipts. Independent of the current tab. Honest-empty until PUBLIC
+       receipts are projected. -->
+  <section id="activity-section" class="activity-section" aria-label="Recent Counterpedia activity">
+    <h2 class="activity-heading">Recent Counterpedia activity</h2>
+    <p id="activity-boundary" class="activity-boundary"></p>
+    <div id="activity-scope" class="activity-scope"></div>
+    <div id="activity-lanes"></div>
+    <p id="activity-empty" class="activity-empty"></p>
+    <p id="activity-no-aggregate" class="activity-note"></p>
+    <p id="activity-status" class="activity-status"></p>
+  </section>
+
   <footer class="panel-footer">
     <a href="https://www.garpedia.org/privacy" target="_blank" rel="noopener noreferrer" class="footer-link">Privacy</a>
     <a href="https://www.garpedia.org" target="_blank" rel="noopener noreferrer" class="footer-link">Counterpedia</a>
