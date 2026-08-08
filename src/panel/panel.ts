@@ -8,9 +8,17 @@
  */
 
 import { search } from "../lib/counterpediaClient";
+import { getActivityFeed } from "../lib/activityClient";
 import { normalizeUrl, isRestrictedUrl } from "../lib/search";
 import { validateMessage } from "../lib/messaging";
 import type { PanelState, SearchResult } from "../types";
+import type {
+  ActivityFeedProjection,
+  ActivityFeedLaneProjection,
+  LaneEmptyReason,
+} from "../lib/activityFeedModel";
+
+const COUNTERPEDIA_BASE_URL = "https://www.garpedia.org";
 
 // ---------------------------------------------------------------------------
 // State
@@ -185,6 +193,126 @@ chrome.runtime.onMessage.addListener((rawMessage, _sender, _sendResponse) => {
 });
 
 // ---------------------------------------------------------------------------
+// Activity feed rendering
+//
+// The feed is a read-only projection over admitted PUBLIC activity receipts,
+// independent of the current tab. It preserves the ACT2 invariants verbatim:
+// every line names its receipt basis and links to it; NO aggregate/score is
+// shown; an empty feed states which substrates and window it inspected, keeping
+// inspected-empty distinct from not-inspected. No activity is synthesized — the
+// real fetched index is rendered, honest-empty when it carries no receipts.
+// ---------------------------------------------------------------------------
+
+const EMPTY_REASON_LABEL: Record<LaneEmptyReason, string> = {
+  no_activity_recorded: "Inspected — no activity recorded",
+  not_inspected: "Not inspected",
+};
+
+function setActivityStatus(message: string): void {
+  const el = document.getElementById("activity-status");
+  if (el) el.textContent = message;
+}
+
+function renderActivityLane(lane: ActivityFeedLaneProjection): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "activity-lane";
+
+  const title = document.createElement("div");
+  title.className = "activity-lane-title";
+  title.textContent = lane.title;
+  section.appendChild(title);
+
+  if (lane.lines.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "activity-lane-empty";
+    // Absence discipline: state WHY the lane is empty, distinguishing
+    // inspected-empty from not-inspected.
+    const reason = lane.empty_reason ?? "not_inspected";
+    empty.textContent = EMPTY_REASON_LABEL[reason];
+    section.appendChild(empty);
+    return section;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "activity-line-list";
+  for (const line of lane.lines) {
+    const item = document.createElement("li");
+    item.className = "activity-line";
+
+    const summary = document.createElement("span");
+    summary.className = "activity-line-summary";
+    summary.textContent = line.summary;
+    item.appendChild(summary);
+
+    const time = document.createElement("span");
+    time.className = "activity-line-time";
+    time.textContent = line.event_time;
+    item.appendChild(time);
+
+    // basis-descent: every line names its receipt basis and links to it.
+    const basis = document.createElement("a");
+    basis.className = "activity-line-basis";
+    basis.href = `${COUNTERPEDIA_BASE_URL}${line.descend_ref}`;
+    basis.target = "_blank";
+    basis.rel = "noopener noreferrer";
+    basis.textContent = `Basis: ${line.basis_receipt_id}`;
+    item.appendChild(basis);
+
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+
+function renderActivityFeedView(feed: ActivityFeedProjection): void {
+  // Claim boundary, stated on the surface.
+  const boundary = document.getElementById("activity-boundary");
+  if (boundary) boundary.textContent = feed.claim_boundary;
+
+  // Inspection scope, so an empty feed is honest about what it looked at.
+  const scope = document.getElementById("activity-scope");
+  if (scope) {
+    scope.textContent = `Inspected ${feed.inspection.substrates.join(", ")} over window: ${feed.inspection.window} (${feed.inspection.receipts_inspected} public receipt${feed.inspection.receipts_inspected === 1 ? "" : "s"} inspected).`;
+  }
+
+  const lanesEl = document.getElementById("activity-lanes");
+  if (lanesEl) {
+    lanesEl.innerHTML = "";
+    for (const lane of feed.lanes) {
+      lanesEl.appendChild(renderActivityLane(lane));
+    }
+  }
+
+  const emptyEl = document.getElementById("activity-empty");
+  if (emptyEl) {
+    emptyEl.textContent = feed.is_empty
+      ? "No PUBLIC activity has been recorded in the inspected substrates yet."
+      : "";
+  }
+
+  // Explicit no-aggregate notice (C6 / ACT0 §3).
+  const note = document.getElementById("activity-no-aggregate");
+  if (note) note.textContent = feed.no_aggregate_notice;
+
+  setActivityStatus("");
+}
+
+async function loadActivityFeed(): Promise<void> {
+  setActivityStatus("Loading activity…");
+  try {
+    const feed = await getActivityFeed();
+    renderActivityFeedView(feed);
+  } catch (err) {
+    const error = err as Error;
+    if (error.name === "rate_limited" || error.message === "rate_limited") {
+      setActivityStatus("Activity feed: too many requests. Please wait a moment.");
+    } else {
+      setActivityStatus("Activity feed unavailable. Please try again.");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init: request current tab URL on load
 // ---------------------------------------------------------------------------
 
@@ -202,3 +330,4 @@ async function init(): Promise<void> {
 }
 
 void init();
+void loadActivityFeed();
