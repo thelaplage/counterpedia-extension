@@ -1,0 +1,27 @@
+{
+  "boundary": "Deterministic, disposable index over admitted PUBLIC srs.activity.* receipts. Rebuildable from the receipts alone; not a source of truth, not a database, and not an aggregate, score, or reputation over activity. Each entry addresses one receipt by its content-addressed identity. An empty index states which substrates and window it inspected.",
+  "entries": [
+    {
+      "event_time": "2026-08-09T00:00:00Z",
+      "profile": "srs.activity.governed_read.v0.1",
+      "profile_key": "governed_read",
+      "receipt_id": "sha256:e43967191a87d06ba35de54e3a918cded748861df55c9307f6d7aab4789d8ae5",
+      "visibility": "PUBLIC"
+    }
+  ],
+  "generated_by": "counterpedia-activity-index-exporter",
+  "inspection": {
+    "inspected": true,
+    "receipt_count": 1,
+    "substrates": [
+      "governed_read",
+      "reliance",
+      "edition_drift",
+      "reconsideration",
+      "admission_event"
+    ],
+    "window": "unbounded"
+  },
+  "schema_family": "counterpedia.activity_index",
+  "schema_version": 1
+}

@@ -6,6 +6,8 @@
  * and absence discipline (inspected-empty distinct from not-inspected).
  */
 
+import { readFileSync } from "fs";
+import { createHash } from "crypto";
 import { describe, it, expect } from "vitest";
 import {
   PINNED_ACTIVITY_INDEX_SCHEMA_FAMILY,
@@ -18,6 +20,33 @@ import {
   type ActivityIndex,
   type ActivityFeedProjection,
 } from "../src/lib/activityFeedModel";
+
+// ---------------------------------------------------------------------------
+// Vendored J1 artifact — exact bytes from the merged Counterpedia PR #230.
+//   source repo:   thelaplage/counterpedia
+//   source commit: d512f1edb17042a964e5c3d2ec8e07913bcc82bd
+//   source path:   public/counterpedia/activity-index.json
+// Do not hand-edit this fixture. Regenerate from source commit if updated.
+// ---------------------------------------------------------------------------
+
+const J1_FIXTURE_RAW = readFileSync(
+  new URL("./vendor/counterpedia_j1_activity_index_v0_1.json", import.meta.url),
+  "utf8",
+);
+const PINNED_J1_FIXTURE_SHA256 =
+  "81313f01a91153ba2b01bc8edb8b422bc9e96073044ba333daa917d050144125";
+
+const j1Index: ActivityIndex = validateActivityIndex(
+  JSON.parse(J1_FIXTURE_RAW) as unknown,
+);
+// Derived removal case: same inspection scope, entries cleared.
+// Represents the honest inspected-empty state, not a second source artifact.
+const j1EmptyIndex: ActivityIndex = {
+  ...j1Index,
+  inspection: { ...j1Index.inspection, receipt_count: 0 },
+  entries: [],
+};
+const J1_RECEIPT_ID = j1Index.entries[0]!.receipt_id;
 
 // The honest inspected-empty index, byte-shaped like the committed artifact.
 const emptyIndex: ActivityIndex = {
@@ -173,50 +202,12 @@ describe("projectIndexToFeed — populated, basis-descent preserved", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// J1 golden test — the exact Counterpedia activity-index.json produced by PR #230
-// ---------------------------------------------------------------------------
-
-const J1_RECEIPT_ID =
-  "sha256:e43967191a87d06ba35de54e3a918cded748861df55c9307f6d7aab4789d8ae5";
-
-const j1Index: ActivityIndex = {
-  schema_family: "counterpedia.activity_index",
-  schema_version: 1,
-  generated_by: "counterpedia-activity-index-exporter",
-  boundary:
-    "Deterministic, disposable index over admitted PUBLIC srs.activity.* receipts. Rebuildable from the receipts alone; not a source of truth, not a database, and not an aggregate, score, or reputation over activity. Each entry addresses one receipt by its content-addressed identity. An empty index states which substrates and window it inspected.",
-  inspection: {
-    substrates: [
-      "governed_read",
-      "reliance",
-      "edition_drift",
-      "reconsideration",
-      "admission_event",
-    ],
-    window: "unbounded",
-    receipt_count: 1,
-    inspected: true,
-  },
-  entries: [
-    {
-      receipt_id: J1_RECEIPT_ID,
-      profile_key: "governed_read",
-      profile: "srs.activity.governed_read.v0.1",
-      event_time: "2026-08-09T00:00:00Z",
-      visibility: "PUBLIC",
-    },
-  ],
-};
-
-// J1 with entries cleared — tests the inspected-empty removal path.
-const j1EmptyIndex: ActivityIndex = {
-  ...j1Index,
-  inspection: { ...j1Index.inspection, receipt_count: 0 },
-  entries: [],
-};
-
 describe("J1 golden test — genuine Counterpedia activity-index.json (PR #230)", () => {
+  it("raw fixture SHA-256 matches pinned provenance (thelaplage/counterpedia@d512f1e:public/counterpedia/activity-index.json)", () => {
+    const actual = createHash("sha256").update(J1_FIXTURE_RAW).digest("hex");
+    expect(actual).toBe(PINNED_J1_FIXTURE_SHA256);
+  });
+
   it("schema_family is counterpedia.activity_index", () => {
     expect(j1Index.schema_family).toBe("counterpedia.activity_index");
   });
