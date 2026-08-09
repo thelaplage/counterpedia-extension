@@ -378,3 +378,45 @@ function initCaptureButton(): void {
 }
 
 initCaptureButton();
+
+// ---------------------------------------------------------------------------
+// Demo panel — only active in demo builds (_demo_mode === true in manifest)
+// ---------------------------------------------------------------------------
+
+import { initDemoPanel } from "./panel.demo";
+
+/**
+ * Shared capture store. Updated by the demo capture listener below.
+ * initCaptureButton() is unchanged — the demo listener runs independently
+ * on the same button, sending its own CAPTURE_PAGE message to background.
+ */
+const demoCaptureStore: { latest: BrowserPageCapture | null } = { latest: null };
+
+initDemoPanel(demoCaptureStore);
+
+// Add a second click listener on capture-btn. When demo mode is active this
+// listener fires alongside the existing one and stores the capture result so
+// initDemoPanel can show the demo send UI. In production builds _demo_mode is
+// false so initDemoPanel() returns early and no network calls are made.
+(function wireDemo(): void {
+  const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "CAPTURE_PAGE" }) as CaptureResponse | undefined;
+      if (response?.type === "PAGE_CAPTURE_RESULT") {
+        demoCaptureStore.latest = response.capture;
+        // Ask the demo section to refresh its capture display
+        const section = document.getElementById("demo-section") as
+          | (HTMLElement & { refreshCaptureInfo?: () => Promise<void> })
+          | null;
+        if (section?.refreshCaptureInfo) {
+          await section.refreshCaptureInfo();
+        }
+      }
+    } catch {
+      // Demo listener: silently swallow errors
+    }
+  });
+})();

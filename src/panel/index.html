@@ -84,6 +84,40 @@
     <span id="capture-status" class="capture-status" aria-live="polite"></span>
   </section>
 
+  <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.
+       In production builds the host_permissions for 127.0.0.1:4317 are absent, so any
+       fetch attempt is blocked by Chrome. initDemoPanel() checks _demo_mode before
+       making section visible or wiring any buttons. -->
+  <section id="demo-section" class="demo-section" aria-label="Demo: Send to local Counterpedia demo" style="display:none">
+    <div class="demo-capture-info" id="demo-capture-info" style="display:none">
+      <div class="demo-capture-label" id="demo-capture-label"></div>
+      <div class="demo-capture-digest" id="demo-capture-digest"></div>
+      <div class="demo-observation-warning">&#9888; Browser observation &#8212; not HTTP evidence</div>
+      <button id="demo-send-btn" class="demo-send-btn" type="button">Send to local Counterpedia demo</button>
+      <span id="demo-send-status" class="demo-send-status" aria-live="polite"></span>
+    </div>
+
+    <div class="demo-session-info" id="demo-session-info" style="display:none">
+      <div id="demo-session-status-line"></div>
+      <div id="demo-http-capture-line" style="display:none"></div>
+      <div id="demo-http-digest-line" style="display:none"></div>
+      <div id="demo-proposal-line" style="display:none"></div>
+    </div>
+
+    <div class="demo-proposal-ready" id="demo-proposal-ready" style="display:none">
+      <div class="demo-proposed-badge" id="demo-proposed-badge">PROPOSED &#8212; NOT PUBLISHED</div>
+      <div id="demo-proposal-fields" class="demo-proposal-fields"></div>
+      <button id="demo-admit-btn" class="demo-admit-btn" type="button">ADMIT</button>
+      <div class="demo-admit-warning">&#9888; Requires confirmation</div>
+    </div>
+
+    <div class="demo-admitted" id="demo-admitted" style="display:none">
+      <div class="demo-admitted-badge">ADMITTED</div>
+      <div id="demo-admitted-digest"></div>
+      <div id="demo-admitted-link" class="demo-admitted-link"></div>
+    </div>
+  </section>
+
   <footer class="panel-footer">
     <a href="https://www.garpedia.org/privacy" target="_blank" rel="noopener noreferrer" class="footer-link">Privacy</a>
     <a href="https://www.garpedia.org" target="_blank" rel="noopener noreferrer" class="footer-link">Counterpedia</a>
