@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "build:demo": "npm run build && cp manifest.demo.json dist/manifest.json",
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "package": "npm run build && cd dist && zip -r ../counterpedia-extension.zip ."
