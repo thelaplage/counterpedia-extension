@@ -22,11 +22,18 @@ export type DemoTransportState =
   | "admitted"       // session has ADMITTED or beyond
   | "error";         // non-recoverable error
 
+/**
+ * GET /session response — frozen to the D2-B contract, exact field names:
+ *   { state, browserCaptureDigest, httpCaptureDigest, proposalSummary,
+ *     proposalReady, admissionEligible, admitted, publicationDigest,
+ *     evidenceComplete, sessionId }
+ * No `sessionState` / `proposalId` aliases — D2-B does not emit those.
+ */
 export interface DemoSessionSummary {
-  readonly sessionState: string;
+  readonly state: string;
   readonly browserCaptureDigest?: string;
   readonly httpCaptureDigest?: string;
-  readonly proposalId?: string;
+  readonly proposalSummary?: string;
   readonly proposalReady: boolean;
   readonly admissionEligible: boolean;
   readonly admitted: boolean;
@@ -61,10 +68,12 @@ export function isLoopbackEndpoint(url: string): boolean {
 /**
  * POST the BrowserPageCapture to the demo orchestrator's /capture endpoint.
  * Never sends to any non-loopback host.
+ *
+ * Response is frozen to the D2-B contract: { sessionId, browserCaptureDigest }.
  */
 export async function sendCaptureToDemo(
   capture: BrowserPageCapture,
-): Promise<DemoTransportResult<{ sessionId: string; digest: string }>> {
+): Promise<DemoTransportResult<{ sessionId: string; browserCaptureDigest: string }>> {
   if (!isLoopbackEndpoint(DEMO_ENDPOINT)) {
     return { ok: false, error: "Safety guard: DEMO_ENDPOINT is not a loopback address" };
   }
@@ -80,7 +89,7 @@ export async function sendCaptureToDemo(
       return { ok: false, error: `Demo orchestrator returned HTTP ${response.status}` };
     }
 
-    const data = (await response.json()) as { sessionId: string; digest: string };
+    const data = (await response.json()) as { sessionId: string; browserCaptureDigest: string };
     return { ok: true, data };
   } catch {
     return {

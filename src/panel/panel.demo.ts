@@ -12,12 +12,18 @@
  */
 
 import type { BrowserPageCapture } from "../lib/browserPageCapture";
+import { captureDigest } from "../lib/captureDigest";
 import {
+  DEMO_ENDPOINT,
   sendCaptureToDemo,
   fetchDemoSession,
   admitWithDemo,
   type DemoSessionSummary,
 } from "../lib/demoTransport";
+
+// The sessionId returned by POST /capture. Used to build the D2-D reader link
+// (/demo/session/<sessionId>) after admission.
+let currentSessionId: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Demo mode detection
@@ -30,18 +36,6 @@ function isDemoMode(): boolean {
   } catch {
     return false;
   }
-}
-
-// ---------------------------------------------------------------------------
-// SHA-256 digest helper (Web Crypto, available in extension contexts)
-// ---------------------------------------------------------------------------
-
-async function sha256Hex(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -134,11 +128,11 @@ function showSessionPolling(session: DemoSessionSummary): void {
     }
   }
 
-  if (session.proposalId) {
+  if (session.proposalSummary) {
     const proposalLine = document.getElementById("demo-proposal-line");
     if (proposalLine) {
       proposalLine.style.display = "";
-      proposalLine.textContent = `Proposal: ${session.proposalId}`;
+      proposalLine.textContent = `Proposal: ${session.proposalSummary}`;
     }
   }
 }
@@ -154,7 +148,7 @@ function showProposalReady(session: DemoSessionSummary): void {
   const fields = document.getElementById("demo-proposal-fields");
   if (fields) {
     const parts: string[] = [];
-    if (session.proposalId) parts.push(`Proposal ID: ${session.proposalId}`);
+    if (session.proposalSummary) parts.push(`Proposal: ${session.proposalSummary}`);
     if (session.browserCaptureDigest) parts.push(`Browser digest: ${session.browserCaptureDigest}`);
     if (session.httpCaptureDigest) parts.push(`HTTP digest: ${session.httpCaptureDigest}`);
     parts.push(`Evidence complete: ${session.evidenceComplete}`);
@@ -162,7 +156,7 @@ function showProposalReady(session: DemoSessionSummary): void {
   }
 }
 
-function showAdmitted(publicationDigest: string): void {
+function showAdmitted(sessionId: string | null, publicationDigest: string): void {
   // Hide proposal-ready section
   const proposalSection = document.getElementById("demo-proposal-ready");
   if (proposalSection) proposalSection.style.display = "none";
@@ -174,9 +168,15 @@ function showAdmitted(publicationDigest: string): void {
   const digestEl = document.getElementById("demo-admitted-digest");
   if (digestEl) digestEl.textContent = `publication digest: ${publicationDigest}`;
 
+  // Reader link points at the D2-D reader surface, /demo/session/<sessionId>.
+  // D2-B defines no /publication/<digest> endpoint, so we never link to one.
   const linkEl = document.getElementById("demo-admitted-link");
   if (linkEl) {
-    linkEl.textContent = `Open Counterpedia demo page: http://127.0.0.1:4317/publication/${publicationDigest}`;
+    if (sessionId) {
+      linkEl.textContent = `Open Counterpedia demo reader: ${DEMO_ENDPOINT}/demo/session/${sessionId}`;
+    } else {
+      linkEl.textContent = "Admitted. Reader link unavailable (no session id).";
+    }
   }
 }
 
@@ -205,11 +205,12 @@ function startPolling(onProposalReady: (session: DemoSessionSummary) => void): v
     }
 
     const session = result.data;
+    if (session.sessionId) currentSessionId = session.sessionId;
     showSessionPolling(session);
 
     if (session.admitted) {
       stopPolling();
-      showAdmitted(session.publicationDigest ?? "(unknown)");
+      showAdmitted(currentSessionId, session.publicationDigest ?? "(unknown)");
       return;
     }
 
@@ -250,7 +251,8 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
     const captureInfo = document.getElementById("demo-capture-info");
     if (!captureInfo) return;
 
-    const digest = await sha256Hex(JSON.stringify(capture));
+    // Digest over the EXACT reused CAP1 capture object — never a rebuilt copy.
+    const digest = await captureDigest(capture);
     showDemoCapture(capture, digest);
   };
 
@@ -285,6 +287,9 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
         sendBtn.disabled = false;
         return;
       }
+
+      // Carry the sessionId from POST /capture for the D2-D reader link.
+      currentSessionId = result.data?.sessionId ?? null;
 
       if (sendStatus) sendStatus.textContent = "Sent. Waiting for HTTP evidence…";
 
@@ -322,7 +327,7 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
         return;
       }
 
-      showAdmitted(result.data?.publicationDigest ?? "(unknown)");
+      showAdmitted(currentSessionId, result.data?.publicationDigest ?? "(unknown)");
     });
   }
 }

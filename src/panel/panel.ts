@@ -334,89 +334,52 @@ void init();
 void loadActivityFeed();
 
 // ---------------------------------------------------------------------------
-// Page capture — explicit user gesture only
+// Demo panel — only active in demo builds (_demo_mode === true in manifest)
 // ---------------------------------------------------------------------------
 
-type CaptureResponse =
-  | { type: "PAGE_CAPTURE_RESULT"; capture: BrowserPageCapture }
-  | { type: "PAGE_CAPTURE_ERROR"; reason: string };
+import { initDemoPanel } from "./panel.demo";
+import { wireCaptureButton, type CaptureResponse } from "./captureButton";
+
+/**
+ * Shared capture store. Populated by the SINGLE capture flow below — the demo
+ * panel reuses the exact BrowserPageCapture produced by that one request rather
+ * than issuing a second one. In production builds _demo_mode is false, so
+ * initDemoPanel() returns early and nothing here makes a network call.
+ */
+const demoCaptureStore: { latest: BrowserPageCapture | null } = { latest: null };
+
+// ---------------------------------------------------------------------------
+// Page capture — explicit user gesture only. Exactly ONE CAPTURE_PAGE request
+// per click; the result is reused by the demo panel (no recapture).
+// ---------------------------------------------------------------------------
 
 function initCaptureButton(): void {
   const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;
   const status = document.getElementById("capture-status");
   if (!btn || !status) return;
 
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    status.textContent = "Capturing…";
-    status.className = "capture-status";
-
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "CAPTURE_PAGE" }) as CaptureResponse | undefined;
-
-      if (!response) {
-        status.className = "capture-status error";
-        status.textContent = "No response from background.";
-        return;
+  wireCaptureButton({
+    button: btn,
+    setStatus: (text, isError) => {
+      status.textContent = text;
+      status.className = isError ? "capture-status error" : "capture-status";
+    },
+    sendMessage: (msg) =>
+      chrome.runtime.sendMessage(msg) as Promise<CaptureResponse | undefined>,
+    // Reuse the exact capture object from the single request. In production the
+    // demo section is never injected, so this only records the in-memory store.
+    onCapture: async (capture) => {
+      demoCaptureStore.latest = capture;
+      const section = document.getElementById("demo-section") as
+        | (HTMLElement & { refreshCaptureInfo?: () => Promise<void> })
+        | null;
+      if (section?.refreshCaptureInfo) {
+        await section.refreshCaptureInfo();
       }
-
-      if (response.type === "PAGE_CAPTURE_RESULT") {
-        const c = response.capture;
-        status.textContent = `Captured: ${c.document_title || c.current_url}`;
-        status.className = "capture-status";
-      } else {
-        status.className = "capture-status error";
-        status.textContent = `Error: ${response.reason}`;
-      }
-    } catch (err) {
-      status.className = "capture-status error";
-      status.textContent = `Error: ${String(err)}`;
-    } finally {
-      btn.disabled = false;
-    }
+    },
   });
 }
 
 initCaptureButton();
 
-// ---------------------------------------------------------------------------
-// Demo panel — only active in demo builds (_demo_mode === true in manifest)
-// ---------------------------------------------------------------------------
-
-import { initDemoPanel } from "./panel.demo";
-
-/**
- * Shared capture store. Updated by the demo capture listener below.
- * initCaptureButton() is unchanged — the demo listener runs independently
- * on the same button, sending its own CAPTURE_PAGE message to background.
- */
-const demoCaptureStore: { latest: BrowserPageCapture | null } = { latest: null };
-
 initDemoPanel(demoCaptureStore);
-
-// Add a second click listener on capture-btn. When demo mode is active this
-// listener fires alongside the existing one and stores the capture result so
-// initDemoPanel can show the demo send UI. In production builds _demo_mode is
-// false so initDemoPanel() returns early and no network calls are made.
-(function wireDemo(): void {
-  const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;
-  if (!btn) return;
-
-  btn.addEventListener("click", async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "CAPTURE_PAGE" }) as CaptureResponse | undefined;
-      if (response?.type === "PAGE_CAPTURE_RESULT") {
-        demoCaptureStore.latest = response.capture;
-        // Ask the demo section to refresh its capture display
-        const section = document.getElementById("demo-section") as
-          | (HTMLElement & { refreshCaptureInfo?: () => Promise<void> })
-          | null;
-        if (section?.refreshCaptureInfo) {
-          await section.refreshCaptureInfo();
-        }
-      }
-    } catch {
-      // Demo listener: silently swallow errors
-    }
-  });
-})();
