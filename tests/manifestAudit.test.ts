@@ -94,6 +94,7 @@ describe("manifest.json", () => {
         "activeTab",
         "storage",
         "contextMenus",
+        "scripting",  // CAP1: required for user-gesture executeScript; no host_permissions added
       ]);
       for (const perm of manifest.permissions ?? []) {
         expect(allowedPermissions.has(perm)).toBe(true);

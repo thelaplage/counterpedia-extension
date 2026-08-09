@@ -17,6 +17,7 @@ import type {
   ActivityFeedLaneProjection,
   LaneEmptyReason,
 } from "../lib/activityFeedModel";
+import type { BrowserPageCapture } from "../lib/browserPageCapture";
 
 const COUNTERPEDIA_BASE_URL = "https://www.garpedia.org";
 
@@ -331,3 +332,49 @@ async function init(): Promise<void> {
 
 void init();
 void loadActivityFeed();
+
+// ---------------------------------------------------------------------------
+// Page capture — explicit user gesture only
+// ---------------------------------------------------------------------------
+
+type CaptureResponse =
+  | { type: "PAGE_CAPTURE_RESULT"; capture: BrowserPageCapture }
+  | { type: "PAGE_CAPTURE_ERROR"; reason: string };
+
+function initCaptureButton(): void {
+  const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;
+  const status = document.getElementById("capture-status");
+  if (!btn || !status) return;
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    status.textContent = "Capturing…";
+    status.className = "capture-status";
+
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "CAPTURE_PAGE" }) as CaptureResponse | undefined;
+
+      if (!response) {
+        status.className = "capture-status error";
+        status.textContent = "No response from background.";
+        return;
+      }
+
+      if (response.type === "PAGE_CAPTURE_RESULT") {
+        const c = response.capture;
+        status.textContent = `Captured: ${c.document_title || c.current_url}`;
+        status.className = "capture-status";
+      } else {
+        status.className = "capture-status error";
+        status.textContent = `Error: ${response.reason}`;
+      }
+    } catch (err) {
+      status.className = "capture-status error";
+      status.textContent = `Error: ${String(err)}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+initCaptureButton();
