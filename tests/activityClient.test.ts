@@ -136,6 +136,73 @@ describe("getActivityFeed — error handling", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// J1 golden test — genuine Counterpedia activity-index.json (PR #230)
+// ---------------------------------------------------------------------------
+
+const J1_RECEIPT_ID =
+  "sha256:e43967191a87d06ba35de54e3a918cded748861df55c9307f6d7aab4789d8ae5";
+
+const j1IndexJson = {
+  schema_family: PINNED_ACTIVITY_INDEX_SCHEMA_FAMILY,
+  schema_version: PINNED_ACTIVITY_INDEX_SCHEMA_VERSION,
+  generated_by: "counterpedia-activity-index-exporter",
+  boundary:
+    "Deterministic, disposable index over admitted PUBLIC srs.activity.* receipts. Rebuildable from the receipts alone; not a source of truth, not a database, and not an aggregate, score, or reputation over activity. Each entry addresses one receipt by its content-addressed identity. An empty index states which substrates and window it inspected.",
+  inspection: {
+    substrates: [
+      "governed_read",
+      "reliance",
+      "edition_drift",
+      "reconsideration",
+      "admission_event",
+    ],
+    window: "unbounded",
+    receipt_count: 1,
+    inspected: true,
+  },
+  entries: [
+    {
+      receipt_id: J1_RECEIPT_ID,
+      profile_key: "governed_read",
+      profile: "srs.activity.governed_read.v0.1",
+      event_time: "2026-08-09T00:00:00Z",
+      visibility: "PUBLIC",
+    },
+  ],
+};
+
+// J1 with entries removed — tests honest inspected-empty removal path.
+const j1EmptyIndexJson = {
+  ...j1IndexJson,
+  inspection: { ...j1IndexJson.inspection, receipt_count: 0 },
+  entries: [],
+};
+
+describe("getActivityFeed — J1 golden test (genuine PR #230 index)", () => {
+  it("genuine J1 index → governed_read line appears in recall_activity lane", async () => {
+    (globalThis as any).fetch = vi.fn(async () => okResponse(j1IndexJson));
+
+    const feed = await getActivityFeed();
+    expect(feed.is_empty).toBe(false);
+    const recall = feed.lanes.find((l) => l.lane === "recall_activity")!;
+    expect(recall.lines).toHaveLength(1);
+    const line = recall.lines[0]!;
+    expect(line.basis_receipt_id).toBe(J1_RECEIPT_ID);
+    expect(line.profile_key).toBe("governed_read");
+    expect(line.descend_ref).toContain(J1_RECEIPT_ID);
+  });
+
+  it("inspected-empty J1 (entries removed) → is_empty true, honest empty state", async () => {
+    (globalThis as any).fetch = vi.fn(async () => okResponse(j1EmptyIndexJson));
+
+    const feed = await getActivityFeed();
+    expect(feed.is_empty).toBe(true);
+    expect(feed.inspection.inspected).toBe(true);
+    expect(feed.inspection.receipts_inspected).toBe(0);
+  });
+});
+
 describe("getActivityFeed — fail closed on schema mismatch", () => {
   it("rejects a wrong schema_version and does NOT cache it", async () => {
     const badIndex = { ...emptyIndexJson, schema_version: 2 };
