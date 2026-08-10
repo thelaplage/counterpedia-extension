@@ -1,0 +1,13 @@
+{
+  "kind": "workbench_session_import",
+  "schema_version": 2,
+  "locator": {
+    "current_url": "https://example.com/article?q=test"
+  },
+  "source_work": {
+    "available": true
+  },
+  "receipt": {
+    "available": true
+  }
+}

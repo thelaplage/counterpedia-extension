@@ -11,6 +11,13 @@ import { search } from "../lib/counterpediaClient";
 import { getActivityFeed } from "../lib/activityClient";
 import { normalizeUrl, isRestrictedUrl } from "../lib/search";
 import { validateMessage } from "../lib/messaging";
+import {
+  buildSourceWorkbenchPresentation,
+  OBSERVATION_LABEL,
+  SOURCE_WORK_LABEL,
+  RECEIPT_LABEL,
+  type SourceLocator,
+} from "../lib/sourceWorkbench";
 import type { PanelState, SearchResult } from "../types";
 import type {
   ActivityFeedProjection,
@@ -30,6 +37,107 @@ let currentState: PanelState = { kind: "idle" };
 /** Returns the current panel state. Useful for debugging. */
 export function getCurrentState(): PanelState {
   return currentState;
+}
+
+// ---------------------------------------------------------------------------
+// Source Workbench (EXT-BROWSER1)
+//
+// Source-first presentation over the active tab. Three postures are kept
+// plainly separate and NEVER synthesized from the browser observation:
+//   (i)   Observed in this browser (only after an EXPLICIT capture click).
+//   (ii)  Counterpedia source work: available / not yet available.
+//   (iii) Receipt: available / not yet available.
+//
+// HOLD (live transport): postures (ii) and (iii) can only advance from a valid,
+// matching, same-origin authoritative resolution. No stable public transport
+// for that resolution exists in this repo yet, so the live panel passes NO
+// resolution — both stay "not yet available". The deep-link handoff below is
+// plain navigation (a URL) and is always safe; it carries the page locator as a
+// HINT only, never as identity or proof of capture. The presentation/validation
+// model and its fixtures exercise the "available" path for when transport lands.
+// ---------------------------------------------------------------------------
+
+const swState: {
+  locator: SourceLocator | null;
+  observed: boolean;
+  publicMaterial: boolean;
+  visible: boolean;
+} = { locator: null, observed: false, publicMaterial: false, visible: false };
+
+function setAnchor(id: string, href: string | null, show: boolean): void {
+  const el = document.getElementById(id) as HTMLAnchorElement | null;
+  if (!el) return;
+  if (show && href) {
+    el.href = href;
+    el.style.display = "";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function renderSourceWorkbench(): void {
+  const section = document.getElementById("source-workbench");
+  if (!section) return;
+
+  if (!swState.visible || !swState.locator) {
+    section.style.display = "none";
+    return;
+  }
+  section.style.display = "";
+
+  const p = buildSourceWorkbenchPresentation({
+    locator: swState.locator,
+    observed: swState.observed,
+    publicMaterial: swState.publicMaterial,
+    // resolution intentionally omitted — see HOLD note above.
+  });
+
+  const titleEl = document.getElementById("sw-title");
+  if (titleEl) titleEl.textContent = p.locator.title ?? "(title available after you capture this source)";
+
+  const urlEl = document.getElementById("sw-url") as HTMLAnchorElement | null;
+  if (urlEl) {
+    const shown = p.locator.canonical_url ?? p.locator.current_url;
+    urlEl.textContent = shown;
+    urlEl.href = shown;
+  }
+
+  // Three plainly-separate postures. data-posture drives the dot color in CSS.
+  const obsRow = document.getElementById("sw-posture-observation");
+  if (obsRow) obsRow.dataset["posture"] = p.observation;
+  const obsLabel = document.getElementById("sw-observation-label");
+  if (obsLabel) obsLabel.textContent = OBSERVATION_LABEL[p.observation];
+
+  const swRow = document.getElementById("sw-posture-source-work");
+  if (swRow) swRow.dataset["posture"] = p.source_work;
+  const swLabel = document.getElementById("sw-source-work-label");
+  if (swLabel) swLabel.textContent = SOURCE_WORK_LABEL[p.source_work];
+
+  const rcRow = document.getElementById("sw-posture-receipt");
+  if (rcRow) rcRow.dataset["posture"] = p.receipt;
+  const rcLabel = document.getElementById("sw-receipt-label");
+  if (rcLabel) rcLabel.textContent = RECEIPT_LABEL[p.receipt];
+
+  // Sparse-corpus notice — only when no public material relates to the source.
+  const noRecord = document.getElementById("sw-no-record");
+  if (noRecord) {
+    if (p.no_public_record_copy) {
+      noRecord.textContent = p.no_public_record_copy;
+      noRecord.style.display = "";
+    } else {
+      noRecord.style.display = "none";
+    }
+  }
+
+  // BPC observation claim boundary — verbatim, always present.
+  const copyEl = document.getElementById("sw-observation-copy");
+  if (copyEl) copyEl.textContent = p.observation_copy;
+
+  // Deep-link handoff (always) + direct object/receipt links only when a valid
+  // authoritative resolution made them available (HELD in live → hidden).
+  setAnchor("sw-open-workbench", p.deep_link_url, true);
+  setAnchor("sw-open-object", p.workbench_object_url, p.source_work === "available");
+  setAnchor("sw-open-receipt", p.receipt_url, p.receipt === "available");
 }
 
 // ---------------------------------------------------------------------------
@@ -129,12 +237,15 @@ async function runSearch(query: string): Promise<void> {
       showState("results");
       renderResults(results, query);
       updateBadge(results.length);
+      swState.publicMaterial = true;
     } else {
       currentState = { kind: "no_match", query };
       showState("no_match");
       setNoMatchQuery(query);
       updateBadge(0);
+      swState.publicMaterial = false;
     }
+    renderSourceWorkbench();
   } catch (err) {
     const error = err as Error;
     if (error.name === "rate_limited" || error.message === "rate_limited") {
@@ -157,6 +268,10 @@ async function handleTabUrl(url: string): Promise<void> {
     currentState = { kind: "restricted" };
     showState("restricted");
     updateBadge(0);
+    // The workbench is not offered on pages Counterpedia cannot check.
+    swState.visible = false;
+    swState.locator = null;
+    renderSourceWorkbench();
     return;
   }
 
@@ -165,8 +280,19 @@ async function handleTabUrl(url: string): Promise<void> {
     currentState = { kind: "restricted" };
     showState("restricted");
     updateBadge(0);
+    swState.visible = false;
+    swState.locator = null;
+    renderSourceWorkbench();
     return;
   }
+
+  // New page: reset the observation (an observation is of a specific page).
+  // Pre-capture we only know the URL — canonical/title arrive after an explicit
+  // capture. publicMaterial is refined when the search resolves.
+  swState.locator = { current_url: normalized, canonical_url: null, title: null };
+  swState.observed = false;
+  swState.visible = true;
+  renderSourceWorkbench();
 
   await runSearch(normalized);
 }
@@ -370,6 +496,21 @@ function initCaptureButton(): void {
     // demo section is never injected, so this only records the in-memory store.
     onCapture: async (capture) => {
       demoCaptureStore.latest = capture;
+
+      // EXPLICIT capture happened → the source is now OBSERVED in this browser.
+      // This is the ONLY place `observed` is set true, and it is set only from a
+      // real user-gesture capture — never inferred. The canonical/title from the
+      // observation refine the locator (and the deep-link hint). This never
+      // advances the source-work or receipt postures.
+      swState.observed = true;
+      swState.locator = {
+        current_url: capture.current_url || swState.locator?.current_url || "",
+        canonical_url: capture.canonical_url,
+        title: capture.document_title || null,
+      };
+      swState.visible = true;
+      renderSourceWorkbench();
+
       const section = document.getElementById("demo-section") as
         | (HTMLElement & { refreshCaptureInfo?: () => Promise<void> })
         | null;

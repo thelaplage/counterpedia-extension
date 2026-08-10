@@ -13,6 +13,40 @@
   </header>
 
   <main class="panel-content">
+    <!-- Source Workbench (EXT-BROWSER1): source-first header. Shows the source
+         locator, the three plainly-separate postures (observation / Counterpedia
+         source work / receipt), the BPC observation claim boundary, and the
+         deep-link handoff. Postures are never synthesized from the observation. -->
+    <section id="source-workbench" class="source-workbench" aria-label="Source" style="display:none">
+      <h2 class="sw-heading">Source</h2>
+      <div id="sw-title" class="sw-title"></div>
+      <a id="sw-url" class="sw-url" target="_blank" rel="noopener noreferrer"></a>
+
+      <div class="sw-postures" aria-label="Source status">
+        <div class="sw-posture" id="sw-posture-observation" data-posture="not_observed">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-observation-label" class="sw-posture-label"></span>
+        </div>
+        <div class="sw-posture" id="sw-posture-source-work" data-posture="not_yet_available">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-source-work-label" class="sw-posture-label"></span>
+        </div>
+        <div class="sw-posture" id="sw-posture-receipt" data-posture="not_yet_available">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-receipt-label" class="sw-posture-label"></span>
+        </div>
+      </div>
+
+      <p id="sw-no-record" class="sw-no-record" style="display:none"></p>
+      <p id="sw-observation-copy" class="sw-observation-copy"></p>
+
+      <div class="sw-actions">
+        <a id="sw-open-workbench" class="sw-btn sw-btn-link" target="_blank" rel="noopener noreferrer">Open Source Workbench</a>
+        <a id="sw-open-object" class="sw-btn sw-btn-object" target="_blank" rel="noopener noreferrer" style="display:none">Open Counterpedia source work</a>
+        <a id="sw-open-receipt" class="sw-btn sw-btn-receipt" target="_blank" rel="noopener noreferrer" style="display:none">View receipt</a>
+      </div>
+    </section>
+
     <!-- Idle state -->
     <div id="state-idle" class="state-view active">
       <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
@@ -80,8 +114,9 @@
   </section>
 
   <section class="capture-bar" aria-label="Page capture">
-    <button id="capture-btn" class="capture-btn" type="button">Capture this page</button>
+    <button id="capture-btn" class="capture-btn" type="button">Capture this source</button>
     <span id="capture-status" class="capture-status" aria-live="polite"></span>
+    <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
   </section>
 
   <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.

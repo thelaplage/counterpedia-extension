@@ -373,3 +373,130 @@ body {
   color: var(--color-text-muted);
   margin-top: 6px;
 }
+
+/* ---------------------------------------------------------------------------
+   Source Workbench (EXT-BROWSER1)
+   --------------------------------------------------------------------------- */
+.source-workbench {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.sw-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+
+.sw-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.sw-url {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-primary);
+  word-break: break-all;
+  margin-top: 2px;
+  text-decoration: none;
+}
+.sw-url:hover { text-decoration: underline; }
+
+.sw-postures {
+  margin: 10px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sw-posture {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.sw-posture-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+/* Not-yet / not-observed states read as pending (muted), never as a verdict. */
+.sw-posture[data-posture="not_observed"] .sw-posture-dot,
+.sw-posture[data-posture="not_yet_available"] .sw-posture-dot {
+  background: var(--color-border);
+  border: 1px solid var(--color-text-muted);
+}
+.sw-posture[data-posture="observed_in_browser"] .sw-posture-dot {
+  background: var(--color-warning); /* observation, not a truth claim */
+}
+.sw-posture[data-posture="available"] .sw-posture-dot {
+  background: var(--color-accent);
+}
+
+.sw-no-record {
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-primary-light);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 8px 0;
+}
+
+.sw-observation-copy {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+  margin: 8px 0;
+}
+
+.sw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sw-btn {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sw-btn-link {
+  background: var(--color-primary);
+  color: #ffffff;
+}
+.sw-btn-link:hover { background: #1544b0; }
+
+.sw-btn-object,
+.sw-btn-receipt {
+  background: var(--color-bg);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.capture-observation-copy {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+  margin-top: 6px;
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "source_work_resolution",
+  "schema_version": 1,
+  "locator": {
+    "current_url": "https://example.com/article?q=test",
+    "canonical_url": "https://example.com/article"
+  },
+  "source_work": {
+    "available": false
+  },
+  "receipt": {
+    "available": false
+  }
+}
