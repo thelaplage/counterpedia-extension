@@ -122,3 +122,68 @@ describe("manifest.json", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// EXT-BROWSER1: the source-workbench lane must NOT widen the PRODUCTION manifest.
+// The deep-link handoff is plain navigation (a URL), so it requires no host
+// permission. This pins that the production manifest permission set is exactly
+// the pre-EXT-BROWSER1 set and that the demo host permission never leaks into it.
+// ---------------------------------------------------------------------------
+
+describe("manifest.json — EXT-BROWSER1 permission byte audit", () => {
+  it("permission set is EXACTLY the pre-existing minimal set (no additions)", () => {
+    const EXPECTED = ["sidePanel", "activeTab", "storage", "contextMenus", "scripting"];
+    expect([...(manifest.permissions ?? [])].sort()).toEqual([...EXPECTED].sort());
+  });
+
+  it("declares no host_permissions and no <all_urls> in production", () => {
+    expect(manifest.host_permissions).toBeUndefined();
+    const asText = JSON.stringify(manifest);
+    expect(asText).not.toContain("<all_urls>");
+    expect(asText).not.toContain("127.0.0.1");
+    expect(asText).not.toContain("_demo_mode");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Demo manifest separation: the loopback host permission lives ONLY in the demo
+// manifest, and the two manifests never converge.
+// ---------------------------------------------------------------------------
+
+describe("manifest.demo.json — demo separation", () => {
+  let demo: ManifestJson & {
+    _demo_mode?: boolean;
+    _demo_endpoint?: string;
+    _privacy_audit?: Record<string, unknown>;
+  };
+
+  beforeAll(() => {
+    const p = join(__dirname, "../manifest.demo.json");
+    demo = JSON.parse(readFileSync(p, "utf-8"));
+  });
+
+  it("is a DISTINCT file from the production manifest (different bytes)", () => {
+    const prodBytes = readFileSync(join(__dirname, "../manifest.json"), "utf-8");
+    const demoBytes = readFileSync(join(__dirname, "../manifest.demo.json"), "utf-8");
+    expect(demoBytes).not.toBe(prodBytes);
+  });
+
+  it("scopes host_permissions to loopback only — never <all_urls>", () => {
+    const hosts = demo.host_permissions ?? [];
+    expect(hosts).toEqual(["http://127.0.0.1:4317/*"]);
+    expect(hosts).not.toContain("<all_urls>");
+    expect(hosts).not.toContain("*://*/*");
+  });
+
+  it("marks itself demo mode; production never does", () => {
+    expect(demo._demo_mode).toBe(true);
+    expect((manifest as unknown as Record<string, unknown>)["_demo_mode"]).toBeUndefined();
+  });
+
+  it("carries a privacy audit asserting no passive capture / no broad host", () => {
+    const audit = demo._privacy_audit ?? {};
+    expect(audit["passive_capture"]).toBe(false);
+    expect(audit["all_urls_permission"]).toBe(false);
+    expect(audit["send_requires_explicit_click"]).toBe(true);
+  });
+});

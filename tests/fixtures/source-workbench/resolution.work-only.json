@@ -1,0 +1,15 @@
+{
+  "kind": "source_work_resolution",
+  "schema_version": 1,
+  "locator": {
+    "current_url": "https://example.com/article?q=test",
+    "canonical_url": "https://example.com/article"
+  },
+  "source_work": {
+    "available": true,
+    "workbench_ref": "/counterpedia/source/abc123"
+  },
+  "receipt": {
+    "available": false
+  }
+}
