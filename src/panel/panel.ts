@@ -465,6 +465,16 @@ void loadActivityFeed();
 
 import { initDemoPanel } from "./panel.demo";
 import { wireCaptureButton, type CaptureResponse } from "./captureButton";
+import {
+  selectAcquisitionClient,
+  readAcquisitionConfig,
+} from "../lib/acquisitionClient";
+import {
+  renderAcquisitionPending,
+  renderAcquisitionClientResult,
+  renderTransportError,
+  type AcquisitionRender,
+} from "../lib/acquisitionState";
 
 /**
  * Shared capture store. Populated by the SINGLE capture flow below — the demo
@@ -478,6 +488,46 @@ const demoCaptureStore: { latest: BrowserPageCapture | null } = { latest: null }
 // Page capture — explicit user gesture only. Exactly ONE CAPTURE_PAGE request
 // per click; the result is reused by the demo panel (no recapture).
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ACQ1-HTTP product/ingestion lane.
+//
+// After an explicit capture, if a localhost acquisition service is configured,
+// submit the exact BrowserPageCapture to the real producer and render its
+// result. This lane is INDEPENDENT of the demo ADMITTED path and of the
+// source-work/receipt postures: it only writes #acquisition-status, and a
+// successful capture is terminally UNADMITTED. When unconfigured (production
+// default) it stays silent. The browser sets the Origin header automatically.
+// ---------------------------------------------------------------------------
+
+function setAcquisitionStatus(render: AcquisitionRender | null): void {
+  const el = document.getElementById("acquisition-status");
+  if (!el) return;
+  if (!render) {
+    el.style.display = "none";
+    el.textContent = "";
+    el.dataset["state"] = "";
+    return;
+  }
+  el.style.display = "";
+  el.dataset["state"] = render.state;
+  el.textContent = render.capturedObjectAddress
+    ? `${render.label} — ${render.capturedObjectAddress}`
+    : render.label;
+}
+
+async function runAcquisition(capture: BrowserPageCapture): Promise<void> {
+  const config = await readAcquisitionConfig();
+  const client = selectAcquisitionClient(config);
+  if (client.kind === "not_configured") {
+    // Opt-in dev capability: stay silent rather than nag on every capture.
+    setAcquisitionStatus(null);
+    return;
+  }
+  setAcquisitionStatus(renderAcquisitionPending());
+  const result = await client.capture(capture);
+  setAcquisitionStatus(renderAcquisitionClientResult(result));
+}
 
 function initCaptureButton(): void {
   const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;
@@ -516,6 +566,14 @@ function initCaptureButton(): void {
         | null;
       if (section?.refreshCaptureInfo) {
         await section.refreshCaptureInfo();
+      }
+
+      // Product/ingestion lane: submit to a configured localhost acquisition
+      // service and render its UNADMITTED result. Never breaks the capture flow.
+      try {
+        await runAcquisition(capture);
+      } catch {
+        setAcquisitionStatus(renderTransportError());
       }
     },
   });

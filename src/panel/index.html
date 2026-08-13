@@ -117,6 +117,10 @@
     <button id="capture-btn" class="capture-btn" type="button">Capture this source</button>
     <span id="capture-status" class="capture-status" aria-live="polite"></span>
     <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
+    <!-- ACQ1-HTTP: acquisition submission status. Shown only when a localhost
+         acquisition service is configured. A successful capture is terminally
+         UNADMITTED — never admitted/verified/published/supported. -->
+    <span id="acquisition-status" class="acquisition-status" data-state="" aria-live="polite" style="display:none"></span>
   </section>
 
   <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.

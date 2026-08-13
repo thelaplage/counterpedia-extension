@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Counterpedia (Acquisition Dev)",
+  "version": "0.1.0-acqdev",
+  "description": "Counterpedia extension — local acquisition-dev build. Connects to the 127.0.0.1:8787 loopback acquisition transport only.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "storage",
+    "contextMenus",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Counterpedia"
+  },
+  "side_panel": {
+    "default_path": "panel/index.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "_acquisition_dev": true,
+  "_acquisition_endpoint": "http://127.0.0.1:8787",
+  "_privacy_audit": {
+    "passive_capture": false,
+    "cookies": false,
+    "history": false,
+    "telemetry": false,
+    "form_values": false,
+    "all_urls_permission": false,
+    "acquisition_host_permission": "http://127.0.0.1:8787/* only",
+    "send_requires_explicit_click": true,
+    "transport_token_is_transport_auth_only": true
+  }
+}
