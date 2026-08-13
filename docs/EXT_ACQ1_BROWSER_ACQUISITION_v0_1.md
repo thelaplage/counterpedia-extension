@@ -17,7 +17,7 @@ This draft is built against the current hardened ACQ1 candidate head:
 repo:   thelaplage/counterpedia-acquisition
 PR:     #34
 branch: repair/acq1-http-egress-v0-1
-head:   3cbf63a5b844bfb7b12b03fd95c4bc65aa2b7198
+head:   ef285bf447b19d8b5962bf0ea1f9bc1c3e3adb55
 base:   6002f26
 status: verified green at repair time
 ```

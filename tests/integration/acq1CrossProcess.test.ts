@@ -32,7 +32,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserPageCapture } from "../../src/lib/browserPageCapture";
 import { acquireBrowserPageCapture } from "../../src/lib/acquisitionTransport";
 
-const ACQUISITION_CANDIDATE_HEAD = "3cbf63a5b844bfb7b12b03fd95c4bc65aa2b7198";
+const ACQUISITION_CANDIDATE_HEAD = "ef285bf447b19d8b5962bf0ea1f9bc1c3e3adb55";
 const TEST_ORIGIN = "chrome-extension://extacq1integrationfixture";
 const TEST_TOKEN = "ext-acq1-integration-token";
 const SOURCE_BYTES = Buffer.from(
