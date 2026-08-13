@@ -16,7 +16,7 @@ This draft is built against the current hardened ACQ1 candidate head:
 ```text
 repo:   thelaplage/counterpedia-acquisition
 PR:     #30
-head:   84da042c3b422cad2128fe2a0b72055637328539
+head:   88e5ead658581a094ce5b0c3c2d1cf00db817d96
 status: DRAFT / UNMERGED at EXT-ACQ1 authoring time
 ```
 
@@ -62,6 +62,9 @@ Acquisition
   Acquisition capture receipt: available | failed | not configured
   exact bytes: sha256:...
 
+Counterpedia source work
+  Source-work receipt: available | not yet available
+
 SRS
   SRS source-capture receipt: not represented
 
@@ -75,6 +78,14 @@ that could be mistaken for SRS or source-work authority. It is specifically an
 
 The pre-existing EXT-BROWSER1 `Counterpedia source work` / receipt resolution
 lane remains independent and is not advanced by ACQ1.
+
+## Stale-result discipline
+
+A browser navigation or `CLEAR` event invalidates the current ACQ1 request
+generation and clears the stored BPC before a new source is rendered. A slow
+result for page A therefore cannot arrive after the panel has moved to page B and
+overwrite page B's acquisition state. This is a UI/source-coherence boundary, not
+an admission or verification rule.
 
 ## Token posture
 
