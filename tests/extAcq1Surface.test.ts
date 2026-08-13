@@ -33,6 +33,13 @@ describe("EXT-ACQ1 source-surface boundaries", () => {
     expect(html).toContain('type="password"');
   });
 
+  it("invalidates an in-flight acquisition when the tab changes or panel clears", () => {
+    expect(demoPanel).toContain('type !== "TAB_CHANGED" && type !== "CLEAR"');
+    expect(demoPanel).toContain("const myGeneration = ++generation");
+    expect(demoPanel).toContain("captureStore.latest = null");
+    expect(demoPanel).toContain("if (myGeneration !== generation) return");
+  });
+
   it("keeps localhost acquisition permission out of production manifest", () => {
     expect(productionManifest).not.toContain("127.0.0.1:8787");
     expect(productionManifest).not.toContain("_acquisition_endpoint");
