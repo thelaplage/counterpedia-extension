@@ -58,11 +58,6 @@ function material(): OperatorDraftMaterial {
   };
 }
 
-/**
- * A guarded acquisition result that is DELIBERATELY full of producer-owned facts,
- * so a "no copy" assertion is meaningful: if the client copied any of these into
- * the request, the recursive scan below would catch it.
- */
 function capturedResult(): AcquisitionCaptureResult {
   return {
     tool: "capture_url",
@@ -81,7 +76,6 @@ function capturedResult(): AcquisitionCaptureResult {
   };
 }
 
-/** Recursively collect all keys + all string values from a JSON tree. */
 function collect(node: unknown, keys: Set<string>, vals: Set<string>): void {
   if (Array.isArray(node)) {
     node.forEach((n) => collect(n, keys, vals));
@@ -102,7 +96,6 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
       { candidate_id: "operator-governed-source-1", url: SOURCE_URL },
     ]);
     expect(req.selected_candidate_ids).toEqual(["operator-governed-source-1"]);
-    // Operator claims pass through verbatim.
     expect(req.claims).toEqual(material().claims);
     expect(req.subject_seed).toBe("Portland Head Light");
     expect(req.depth).toBe("brief");
@@ -129,8 +122,6 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
   });
 
   it("copies NO producer-owned VALUE into the request (only the URL crosses over)", () => {
-    // The builder's only source input is the URL; prove the producer ids/digests
-    // never appear anywhere as a value.
     const req = buildDraftFromSourceRequest(SOURCE_URL, material());
     const keys = new Set<string>();
     const vals = new Set<string>();
@@ -138,7 +129,6 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
     expect(vals.has("cap-PRODUCER-OWNED-id")).toBe(false);
     expect(vals.has("src-PRODUCER-OWNED-id")).toBe(false);
     expect([...vals].some((v) => v.includes("sha256:"))).toBe(false);
-    // The governed URL is the ONE thing that legitimately crosses over.
     expect(vals.has(SOURCE_URL)).toBe(true);
   });
 });
@@ -213,7 +203,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
     expect(out.kind).toBe("assembled");
     expect(captured).not.toBeNull();
     const c = captured as unknown as { url: string; headers: Record<string, string>; body: string };
-    expect(c.url).toBe("http://127.0.0.1:8788/v0/draft-from-source");
+    expect(c.url).toBe("http://127.0.0.1:8788/v0/draft-from-url");
     expect(c.headers[TRANSPORT_TOKEN_HEADER]).toBe("tok-123");
     expect(c.headers["Origin"]).toBe("chrome-extension://unit");
     const sent = JSON.parse(c.body) as { candidates: Array<{ url: string }> };
@@ -272,7 +262,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
           schema_version: "authoring_admission_handoff.v0.1",
           producer: "counterpedia-authoring",
           authority_posture: "proposal_only",
-          proposal_package: { standing: "granted" }, // contamination
+          proposal_package: { standing: "granted" },
           evidence_bundle: {},
           claim_map: {},
           draft_proposal: { lifecycle: "proposal" },
