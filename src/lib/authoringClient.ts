@@ -1,25 +1,20 @@
 /**
- * AUTHOR-HTTP draft-from-source client.
+ * AUTHOR-HTTP URL-action client.
  *
- * A thin client that turns a GOVERNED SOURCE (the URL an acquisition already
+ * A thin client that turns a GOVERNED SOURCE URL (the URL an acquisition already
  * observed) plus OPERATOR-AUTHORED claim material into a real, terminal
  * `AuthoringAdmissionHandoff` (`authority_posture="proposal_only"`) by posting to
- * the localhost authoring producer over the constrained HTTP transport. It owns
- * HTTP concerns only: it builds the `DraftFromSourceRequest`, attaches the
- * transport token, and runs the response through the fail-closed guard. It
- * invents NO authoring semantics, no claims, and confers no admission authority.
+ * the localhost authoring producer over the constrained HTTP transport.
  *
- * CUSTODY FIREWALL (the point of the lane): the request-builder's ONLY source
- * input is a URL string. It has no structural access to the acquisition result's
- * producer-owned facts (`capture_id` / `source_id` / `capture_receipt` /
- * `captured_object_address` / byte digests). The authoring producer RE-FETCHES
- * the URL and mints its own facts; this client never claims ACQ1 bytes were
- * reused. Operator claim material is passed VERBATIM — the client never invents,
- * infers, or completes a claim.
+ * AUTH0-RECON1: this client performs the URL action. The producer RE-FETCHES the
+ * selected URL, creating a NEW observation. `/v0/draft-from-source` is reserved
+ * for historical resolver-backed reuse and this client never calls it.
  *
- * Client selection is honest: with a configured base URL + token you get the
- * HTTP client; otherwise you get the `notConfigured` client, which NEVER
- * fabricates a proposal.
+ * CUSTODY FIREWALL: the request-builder's ONLY source input is a URL string. It
+ * has no structural access to the acquisition result's producer-owned facts
+ * (`capture_id` / `source_id` / `capture_receipt` / captured-object digests).
+ * Operator claim material is passed VERBATIM — the client never invents, infers,
+ * or completes a claim.
  */
 
 import type { AcquisitionCaptureResult } from "./acquisitionResponseGuard";
@@ -31,8 +26,8 @@ import {
 
 /** Header carrying the local transport token (transport auth only). */
 export const TRANSPORT_TOKEN_HEADER = "X-Counterpedia-Transport-Token";
-/** The single POST path on the authoring transport. */
-export const DRAFT_FROM_SOURCE_PATH = "/v0/draft-from-source";
+/** URL-selection action: authoring-side producer re-fetches, yielding a NEW observation. */
+export const DRAFT_FROM_URL_PATH = "/v0/draft-from-url";
 
 export interface AuthoringConfig {
   /** e.g. "http://127.0.0.1:8788" — loopback only in v0.1. */
@@ -79,9 +74,8 @@ export interface OperatorCandidate {
 }
 
 /**
- * The wire request. A typed COMPOSITION of existing authoring contract inputs;
- * it mirrors the producer's `DraftFromSourceRequest` so the extension consumes
- * that contract without becoming a second schema authority.
+ * The URL-action wire request. A typed COMPOSITION of existing authoring inputs;
+ * the producer owns all runtime/acquisition facts and re-fetches the URL.
  */
 export interface DraftFromSourceRequest {
   subject_seed: string;
@@ -144,7 +138,7 @@ export function buildDraftFromSourceRequest(
 }
 
 /**
- * Result of a draft-from-source attempt. `not_configured` / `invalid_source` /
+ * Result of a URL-action draft attempt. `not_configured` / `invalid_source` /
  * `authoring_failed` never carry a proposal; `assembled` carries the guarded
  * proposal-only handoff and is terminally UNADMITTED.
  */
@@ -157,9 +151,9 @@ export type AuthoringClientResult =
 export interface AuthoringClient {
   readonly kind: "http" | "not_configured";
   /**
-   * Draft from a governed source. Reads ONLY `source_locator` off the
-   * acquisition result — never a producer fact — and passes it as a bare URL to
-   * the request builder.
+   * Draft via the URL action. Reads ONLY `source_locator` off the acquisition
+   * result — never a producer fact — and passes it as a bare URL to the request
+   * builder. Method name retained for compatibility with the existing panel.
    */
   draftFromSource(
     acquisitionResult: AcquisitionCaptureResult,
@@ -219,15 +213,13 @@ export function createHttpAuthoringClient(
   const fetchImpl: FetchLike =
     options.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
 
-  // Loopback-only guard, mirroring the acquisition client discipline: the client
-  // refuses to send anything anywhere but a localhost endpoint.
   if (!isLoopbackHttpUrl(config.baseUrl)) {
     throw new Error(
       `authoring baseUrl must be an http loopback URL; got ${config.baseUrl}`,
     );
   }
 
-  const endpoint = config.baseUrl.replace(/\/+$/, "") + DRAFT_FROM_SOURCE_PATH;
+  const endpoint = config.baseUrl.replace(/\/+$/, "") + DRAFT_FROM_URL_PATH;
 
   return {
     kind: "http",
@@ -236,8 +228,7 @@ export function createHttpAuthoringClient(
       material: OperatorDraftMaterial,
     ): Promise<AuthoringClientResult> {
       // CUSTODY: read ONLY the source URL off the acquisition result. Every
-      // other field (capture_id / source_id / capture_receipt / address /
-      // byte_count) is deliberately left untouched and never enters the request.
+      // producer-owned capture field is deliberately left untouched.
       const governedSourceUrl = acquisitionResult.source_locator;
       if (!governedSourceUrl) {
         return {
@@ -246,7 +237,6 @@ export function createHttpAuthoringClient(
         };
       }
       if (material.claims.length === 0) {
-        // No-claim-synthesis: refuse rather than manufacture a claim.
         return {
           kind: "invalid_source",
           detail: "no operator claims supplied",
@@ -275,7 +265,6 @@ export function createHttpAuthoringClient(
       }
 
       if (!response.ok) {
-        // Transport/pipeline-level rejection (4xx/5xx). Never a proposal.
         return {
           kind: "authoring_failed",
           status: response.status,
@@ -299,7 +288,6 @@ export function createHttpAuthoringClient(
         handoff = parseAuthoringHandoff(raw);
       } catch (err) {
         if (err instanceof AuthoringResponseError) {
-          // Contaminated / unauthorized response: refuse it even from localhost.
           return {
             kind: "authoring_failed",
             status: response.status,
@@ -335,8 +323,7 @@ export function selectAuthoringClient(
 
 /**
  * Read authoring config from chrome.storage.sync, mirroring the acquisition
- * `readAcquisitionConfig()` pattern. Returns null when not configured. Isolated
- * here so the pure client/guard modules stay Chrome-API-free and unit-testable.
+ * `readAcquisitionConfig()` pattern. Returns null when not configured.
  */
 export async function readAuthoringConfig(): Promise<AuthoringConfig | null> {
   try {
