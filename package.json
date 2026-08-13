@@ -7,6 +7,7 @@
     "build": "vite build",
     "build:demo": "npm run build && cp manifest.demo.json dist/manifest.json",
     "test": "vitest run",
+    "test:acq1:cross-process": "vitest run tests/integration/acq1CrossProcess.test.ts",
     "lint": "tsc --noEmit",
     "package": "npm run build && cd dist && zip -r ../counterpedia-extension.zip ."
   },
