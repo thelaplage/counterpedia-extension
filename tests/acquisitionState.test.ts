@@ -8,9 +8,12 @@ import {
   renderAcquisitionResult,
   renderNotConfigured,
   renderTransportError,
+  renderAcquisitionPending,
+  renderAcquisitionClientResult,
   FORBIDDEN_SUCCESS_STATES,
 } from "../src/lib/acquisitionState";
 import type { AcquisitionCaptureResult } from "../src/lib/acquisitionResponseGuard";
+import type { AcquisitionClientResult } from "../src/lib/acquisitionClient";
 
 const captured: AcquisitionCaptureResult = {
   tool: "acquisition.capture_url",
@@ -73,5 +76,61 @@ describe("success words are never rendered", () => {
 
   it("anchor is always UNAVAILABLE (capture lane has no anchor production)", () => {
     expect(renderAcquisitionResult(captured).anchorState).toBe("UNAVAILABLE");
+  });
+});
+
+describe("renderAcquisitionClientResult — panel mapping", () => {
+  it("captured -> UNADMITTED render", () => {
+    const result: AcquisitionClientResult = { kind: "captured", result: captured };
+    expect(renderAcquisitionClientResult(result)?.state).toBe("UNADMITTED");
+  });
+
+  it("capture_failed -> ACQUISITION_FAILED render", () => {
+    const result: AcquisitionClientResult = {
+      kind: "capture_failed",
+      result: failed,
+    };
+    expect(renderAcquisitionClientResult(result)?.state).toBe(
+      "ACQUISITION_FAILED",
+    );
+  });
+
+  it("transport_error -> unavailable render", () => {
+    const result: AcquisitionClientResult = {
+      kind: "transport_error",
+      status: 401,
+      detail: "http 401",
+    };
+    expect(renderAcquisitionClientResult(result)?.state).toBe(
+      "ACQUISITION_UNAVAILABLE",
+    );
+  });
+
+  it("not_configured -> null (stay silent)", () => {
+    expect(renderAcquisitionClientResult({ kind: "not_configured" })).toBeNull();
+  });
+
+  it("pending render is ACQUISITION_PENDING and not a success word", () => {
+    const r = renderAcquisitionPending();
+    expect(r.state).toBe("ACQUISITION_PENDING");
+    expect(FORBIDDEN_SUCCESS_STATES.has(r.label.toUpperCase())).toBe(false);
+  });
+
+  it("no mapped render ever carries a forbidden success state", () => {
+    const results: AcquisitionClientResult[] = [
+      { kind: "captured", result: captured },
+      { kind: "capture_failed", result: failed },
+      { kind: "transport_error", status: 500, detail: "x" },
+      { kind: "not_configured" },
+    ];
+    for (const result of results) {
+      const render = renderAcquisitionClientResult(result);
+      if (render) {
+        expect(FORBIDDEN_SUCCESS_STATES.has(render.state)).toBe(false);
+        expect(FORBIDDEN_SUCCESS_STATES.has(render.label.toUpperCase())).toBe(
+          false,
+        );
+      }
+    }
   });
 });

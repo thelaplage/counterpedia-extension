@@ -18,9 +18,8 @@
  * demo-only ADMITTED/PROPOSED surface.
  */
 
-import type {
-  AcquisitionCaptureResult,
-} from "./acquisitionResponseGuard";
+import type { AcquisitionCaptureResult } from "./acquisitionResponseGuard";
+import type { AcquisitionClientResult } from "./acquisitionClient";
 
 /** The ordered acquisition lifecycle. UNADMITTED is terminal for both outcomes. */
 export type AcquisitionState =
@@ -103,4 +102,35 @@ export function renderTransportError(): AcquisitionRender {
     anchorState: "UNAVAILABLE",
     capturedObjectAddress: null,
   };
+}
+
+/** The in-flight render shown between submit and the producer's response. */
+export function renderAcquisitionPending(): AcquisitionRender {
+  return {
+    state: "ACQUISITION_PENDING",
+    label: "Sending to acquisition…",
+    anchorState: "UNAVAILABLE",
+    capturedObjectAddress: null,
+  };
+}
+
+/**
+ * Map an acquisition client result to its terminal render for the panel.
+ *
+ * Returns `null` for the not-configured case: acquisition is an opt-in dev
+ * capability, so an unconfigured extension stays silent (no status shown) rather
+ * than nagging on every capture. All other outcomes render, and none admits.
+ */
+export function renderAcquisitionClientResult(
+  result: AcquisitionClientResult,
+): AcquisitionRender | null {
+  switch (result.kind) {
+    case "not_configured":
+      return null;
+    case "captured":
+    case "capture_failed":
+      return renderAcquisitionResult(result.result);
+    case "transport_error":
+      return renderTransportError();
+  }
 }
