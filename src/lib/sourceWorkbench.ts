@@ -350,6 +350,6 @@ export const SOURCE_WORK_LABEL: Record<SourceWorkPosture, string> = {
 };
 
 export const RECEIPT_LABEL: Record<ReceiptPosture, string> = {
-  not_yet_available: "Receipt: not yet available",
-  available: "Receipt: available",
+  not_yet_available: "Counterpedia source-work receipt: not yet available",
+  available: "Counterpedia source-work receipt: available",
 };
