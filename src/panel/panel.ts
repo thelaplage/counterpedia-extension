@@ -658,7 +658,7 @@ function readOperatorMaterial(): OperatorDraftMaterial | null {
     subjectSeed: subject,
     operatorObjective: `Produce a bounded proposal describing ${subject}.`,
     // Operator label for the governed source. NOT a producer id.
-    candidateId: "operator-governed-source-1",
+    candidateId: "src:operator-governed-source-1",
     claims: [
       {
         claim_id: claimId,

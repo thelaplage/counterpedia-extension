@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Counterpedia (Draft-from-source Dev)",
-  "version": "0.1.0-authdev",
+  "version": "0.1.0",
   "description": "Counterpedia extension — local draft-from-source dev build. Connects to the 127.0.0.1:8787 acquisition loopback and the 127.0.0.1:8788 authoring loopback only. A draft is a separate explicit act over an already-captured source; it never admits or publishes.",
   "minimum_chrome_version": "116",
   "permissions": [
