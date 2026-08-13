@@ -22,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -94,7 +94,7 @@ function assertPinnedAcquisitionCheckout(repo: string): void {
 }
 
 function startAcquisitionServer(repo: string): Promise<{
-  child: ChildProcessWithoutNullStreams;
+  child: ChildProcess;
   endpoint: string;
 }> {
   return new Promise((resolve, reject) => {
@@ -120,6 +120,13 @@ function startAcquisitionServer(repo: string): Promise<{
       child.kill("SIGTERM");
       reject(new Error(`timed out starting ACQ1 server; stdout=${stdout} stderr=${stderr}`));
     }, 10_000);
+
+    if (!child.stdout || !child.stderr) {
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      reject(new Error("ACQ1 subprocess did not expose stdout/stderr pipes"));
+      return;
+    }
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -152,7 +159,7 @@ function startAcquisitionServer(repo: string): Promise<{
   });
 }
 
-function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+function stopChild(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     if (child.exitCode !== null) {
       resolve();
@@ -193,7 +200,7 @@ integrationDescribe("EXT-ACQ1 cross-process", () => {
     async () => {
       assertPinnedAcquisitionCheckout(acquisitionRepo);
       const source = await startSourceServer();
-      let child: ChildProcessWithoutNullStreams | null = null;
+      let child: ChildProcess | null = null;
       try {
         const acquisition = await startAcquisitionServer(acquisitionRepo);
         child = acquisition.child;
@@ -226,11 +233,13 @@ integrationDescribe("EXT-ACQ1 cross-process", () => {
         // The BrowserPageCapture's rendered text must not become authoritative
         // bytes. If it had, this independent digest could not match SOURCE_BYTES.
         expect(expectedDigest).not.toBe(
-          `sha256:${createHash("sha256").update("THIS MUST NEVER BECOME SOURCE BYTES").digest("hex")}`,
+          `sha256:${createHash("sha256")
+            .update("THIS MUST NEVER BECOME SOURCE BYTES")
+            .digest("hex")}`,
         );
 
         const serialized = JSON.stringify(result).toLowerCase();
-        for (const forbidden of ["srs", "admitted", "standing", "publication", "trust_score"] ) {
+        for (const forbidden of ["srs", "admitted", "standing", "publication", "trust_score"]) {
           expect(serialized).not.toContain(forbidden);
         }
       } finally {
