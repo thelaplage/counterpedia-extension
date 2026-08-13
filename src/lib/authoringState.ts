@@ -14,8 +14,15 @@
  *
  * A captured acquisition NEVER auto-advances to DRAFT_PENDING — the transition
  * from DRAFT_READY is an explicit operator act. This module therefore emits no
- * success word (ADMITTED / PUBLISHED / VERIFIED / STANDING) as a state, and
- * every render carries an ever-present "Admission: not performed" line.
+ * authority-success word (ADMITTED / PUBLISHED / VERIFIED / STANDING) as a
+ * STATE LABEL, and every render carries an ever-present
+ * "Admission: not performed" line.
+ *
+ * REAL-CONTENT-VISIBLE0: an assembled handoff may also contribute a bounded
+ * human-readable preview (title + first lead paragraph) to the status line so a
+ * real source-derived draft is visible in the panel. That preview is CONTENT,
+ * not a state label or authority assertion. Ordinary proposal prose is not
+ * censored merely because it contains words such as "approved" or "verified".
  *
  * Pure; no Chrome APIs, no DOM.
  */
@@ -33,10 +40,11 @@ export type AuthoringState =
   | "DRAFT_FAILED";
 
 /**
- * Success words this lane must NEVER render as a state or label. A proposal is
- * not any of these; asserting on this set guards against a regression that would
- * collapse proposal_only into an authority posture. "ADMITTED-anything" is
- * covered by substring containment, not exact match.
+ * Authority-success words this lane must NEVER render as a STATE or STATIC
+ * STATUS LABEL. Proposal content is different: it may legitimately quote or
+ * discuss ordinary-language uses of these words, and is always prefixed
+ * "Draft preview:" while the separate proposal-only/admission-not-performed
+ * lines remain present.
  */
 export const FORBIDDEN_SUCCESS_STATES: ReadonlySet<string> = new Set([
   "ADMITTED",
@@ -51,11 +59,18 @@ export const FORBIDDEN_SUCCESS_STATES: ReadonlySet<string> = new Set([
 export const ADMISSION_LINE = "Admission: not performed";
 /** The authority line every render must show, verbatim. */
 export const AUTHORITY_LINE = "authority: proposal only";
+/** Content marker that keeps preview prose distinct from state language. */
+export const DRAFT_PREVIEW_PREFIX = "Draft preview:";
+const DRAFT_PREVIEW_MAX_CHARS = 360;
 
 /** A UI-facing view of the draft lane — labels only, zero authority. */
 export interface AuthoringRender {
   state: AuthoringState;
-  /** Human label for the panel. Never one of the FORBIDDEN_SUCCESS_STATES. */
+  /**
+   * Human label for the panel. Its STATIC status prefix never contains a
+   * FORBIDDEN_SUCCESS_STATE. On assembled handoffs it may append a clearly
+   * marked bounded draft preview.
+   */
   label: string;
   /** Always the AUTHORITY_LINE — this lane never confers standing. */
   authorityLine: string;
@@ -65,13 +80,15 @@ export interface AuthoringRender {
   lifecycle: string | null;
   /** The producer's handoff digest when assembled; else null. Opaque label. */
   handoffDigest: string | null;
+  /** Bounded producer-draft preview when available; content only, no authority. */
+  proposalPreview: string | null;
 }
 
 function assertNotSuccessWord(label: string): void {
   const upper = label.toUpperCase();
   for (const word of FORBIDDEN_SUCCESS_STATES) {
     if (upper.includes(word)) {
-      // Defensive: a programming error, never reachable from the mappings below.
+      // Defensive: a programming error in a STATE label, never proposal prose.
       throw new Error(
         `authoring state must not render success word '${word}' (label: '${label}')`,
       );
@@ -79,20 +96,71 @@ function assertNotSuccessWord(label: string): void {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length <= DRAFT_PREVIEW_MAX_CHARS
+    ? normalized
+    : `${normalized.slice(0, DRAFT_PREVIEW_MAX_CHARS - 1)}…`;
+}
+
+/**
+ * Project only display text from an already-guarded draft proposal.
+ *
+ * This does not reinterpret evidence, support, lifecycle, or authority. The
+ * response guard has already accepted the handoff; this function merely finds
+ * the producer's title suggestion and first lead paragraph for inspection.
+ */
+export function projectDraftPreview(
+  handoff: AuthoringHandoff,
+): string | null {
+  const draft = handoff.draft_proposal;
+  const title = boundedText(draft["title_suggestion"]);
+
+  let lead: string | null = null;
+  const leadBlocks = draft["lead_blocks"];
+  if (Array.isArray(leadBlocks)) {
+    for (const block of leadBlocks) {
+      if (!isPlainObject(block)) continue;
+      lead = boundedText(block["text"]);
+      if (lead) break;
+    }
+  }
+
+  if (title && lead) {
+    const combined = `${title} — ${lead}`;
+    return combined.length <= DRAFT_PREVIEW_MAX_CHARS
+      ? combined
+      : `${combined.slice(0, DRAFT_PREVIEW_MAX_CHARS - 1)}…`;
+  }
+  return title ?? lead;
+}
+
 function make(
   state: AuthoringState,
-  label: string,
+  statusLabel: string,
   lifecycle: string | null,
   handoffDigest: string | null,
+  proposalPreview: string | null = null,
 ): AuthoringRender {
-  assertNotSuccessWord(label);
+  // Check only the runtime-owned static state label. Proposal content is
+  // intentionally outside this assertion and is marked distinctly below.
+  assertNotSuccessWord(statusLabel);
   return {
     state,
-    label,
+    label: proposalPreview
+      ? `${statusLabel} — ${DRAFT_PREVIEW_PREFIX} ${proposalPreview}`
+      : statusLabel,
     authorityLine: AUTHORITY_LINE,
     admissionLine: ADMISSION_LINE,
     lifecycle,
     handoffDigest,
+    proposalPreview,
   };
 }
 
@@ -138,6 +206,7 @@ export function renderProposalAssembled(
     `Proposal assembled (${lifecycle}) — proposal only`,
     lifecycle,
     handoff.handoff_digest,
+    projectDraftPreview(handoff),
   );
 }
 
