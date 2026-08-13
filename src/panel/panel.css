@@ -260,6 +260,91 @@ body {
   color: #c0392b;
 }
 
+/* AUTHOR-HTTP draft-from-source lane (third governed act). Visually distinct
+   from the acquisition lane so the two state machines never read as one. */
+.authoring-section {
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.authoring-heading {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.authoring-copy {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.authoring-field-label {
+  display: block;
+  margin: 8px 0 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.authoring-input,
+.authoring-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.authoring-hint {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.authoring-draft-btn {
+  margin-top: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  background: var(--color-primary);
+  color: #fff;
+  cursor: pointer;
+}
+
+.authoring-draft-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.authoring-status {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.authoring-status-label {
+  font-weight: 600;
+}
+
+.authoring-status[data-state="PROPOSAL_ASSEMBLED"] .authoring-status-label {
+  color: var(--color-primary);
+}
+
+.authoring-status[data-state="DRAFT_FAILED"] .authoring-status-label {
+  color: #c0392b;
+}
+
+/* The admission line is always present and always reads "not performed". */
+.authoring-status-admission {
+  font-weight: 600;
+}
+
 /* Footer */
 .panel-footer {
   padding: 10px 16px;

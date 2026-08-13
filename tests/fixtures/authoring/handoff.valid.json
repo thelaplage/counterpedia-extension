@@ -1,0 +1,222 @@
+{
+  "schema_version": "authoring_admission_handoff.v0.1",
+  "producer": "counterpedia-authoring",
+  "authority_posture": "proposal_only",
+  "proposal_package": {
+    "schema_version": "authoring_proposal_package.v0.1",
+    "package_id": "pkg-ab9f76ae194c46cf969fa98f038d6c7f",
+    "created_at": "2026-08-13T18:42:43Z",
+    "job_id": "job-04756dc740224ff08984648c4ddc979a",
+    "job_digest": "sha256:595c1cb74f0756d3ef5e8a90ce584077a876deb00d1804f35332bd887cabde1b",
+    "claim_map_id": "claim-map-9fc6843ae9b4",
+    "claim_map_digest": "sha256:52a0cacc50a30108694429204ffada6a116fafd409ed1a5021a99d9b2dd22a25",
+    "evidence_bundle_id": "bundle-a86b82297c95",
+    "evidence_bundle_digest": "sha256:17c1c2558dbd00b40e8e3ef57646388c9c5fa0bcd736abe44ca9015e7a1b2556",
+    "draft_proposal_id": "prop-4dabab18abde",
+    "draft_proposal_digest": "sha256:8ef7c4f9d823cc5aacac094ef566ceb0479257130ff24574c2d9d59e9626afc0",
+    "draft_lifecycle": "proposal",
+    "bound_claim_ids": [
+      "claim-name",
+      "claim-location"
+    ],
+    "research_strategy_id": "strategy-f0a2d3b5ec984314927e2e206e60f6a0",
+    "research_strategy_digest": "sha256:fc312b2131b6d7e15c0d79e1c75ef80a28367e6c758e4e6d236afc7318b42178",
+    "critique_report_id": null,
+    "critique_report_digest": null,
+    "draft_lineage_id": null,
+    "draft_lineage_digest": null,
+    "notes": null,
+    "package_digest": "sha256:fc33ce5d710a14af224be59b1298bdc3cff79aa6660ea5487cf3875fc67c8baf"
+  },
+  "evidence_bundle": {
+    "schema_version": "evidence_bundle.v0.1",
+    "bundle_id": "bundle-a86b82297c95",
+    "items": [
+      {
+        "handle": "evidence:E001",
+        "kind": "acquisition_grounded_proposal",
+        "summary": "Captured source [src:lighthouse-registry]: Registry entry describing Portland Head Light.",
+        "source_label": "capture:cap:plh-http-001",
+        "content_digest": "sha256:4a14212badd659ab544ebdb4639b93f9d1e87db1e870819b560ce535e91c1cc1",
+        "cp_suggestion": null,
+        "metadata": {
+          "capture_ref": "cap:plh-http-001",
+          "source_id": "src:lighthouse-registry",
+          "url_captured": "https://www.example-lighthouse-registry.test/portland-head-light",
+          "capture_timestamp": "2026-08-13T00:00:00Z",
+          "publisher_note": "Example Lighthouse Registry",
+          "evidence_subkind": "exact_captured_source"
+        }
+      },
+      {
+        "handle": "evidence:E002",
+        "kind": "acquisition_grounded_proposal",
+        "summary": "The subject is known as Portland Head Light.",
+        "source_label": "capture:cap:plh-http-001",
+        "content_digest": "sha256:4a14212badd659ab544ebdb4639b93f9d1e87db1e870819b560ce535e91c1cc1",
+        "cp_suggestion": null,
+        "metadata": {
+          "claim_id": "claim:name",
+          "source_id": "src:lighthouse-registry",
+          "capture_ref": "cap:plh-http-001",
+          "source_excerpt": "Portland Head Light",
+          "confidence_note": null,
+          "evidence_subkind": "grounded_extractive_proposal",
+          "is_governed_claim": false
+        }
+      },
+      {
+        "handle": "evidence:E003",
+        "kind": "acquisition_grounded_proposal",
+        "summary": "It is located in Cape Elizabeth, Maine.",
+        "source_label": "capture:cap:plh-http-001",
+        "content_digest": "sha256:4a14212badd659ab544ebdb4639b93f9d1e87db1e870819b560ce535e91c1cc1",
+        "cp_suggestion": null,
+        "metadata": {
+          "claim_id": "claim:location",
+          "source_id": "src:lighthouse-registry",
+          "capture_ref": "cap:plh-http-001",
+          "source_excerpt": "Cape Elizabeth, Maine",
+          "confidence_note": null,
+          "evidence_subkind": "grounded_extractive_proposal",
+          "is_governed_claim": false
+        }
+      }
+    ],
+    "unresolved_questions": [],
+    "bundle_digest": "sha256:17c1c2558dbd00b40e8e3ef57646388c9c5fa0bcd736abe44ca9015e7a1b2556"
+  },
+  "claim_map": {
+    "schema_version": "claim_map.v0.1",
+    "claim_map_id": "claim-map-9fc6843ae9b4",
+    "evidence_bundle_id": "bundle-a86b82297c95",
+    "evidence_bundle_digest": "sha256:17c1c2558dbd00b40e8e3ef57646388c9c5fa0bcd736abe44ca9015e7a1b2556",
+    "bound_evidence_handles": [
+      "evidence:E001",
+      "evidence:E002",
+      "evidence:E003"
+    ],
+    "claims": [
+      {
+        "claim_id": "claim-name",
+        "claim_text": "The subject is known as Portland Head Light.",
+        "source_posture": null,
+        "qualifiers": [],
+        "supports": [
+          {
+            "evidence_refs": [
+              "evidence:E001",
+              "evidence:E002"
+            ],
+            "note": null
+          }
+        ],
+        "contradicts": [],
+        "editorial_confidence": null,
+        "notes": null
+      },
+      {
+        "claim_id": "claim-location",
+        "claim_text": "It is located in Cape Elizabeth, Maine.",
+        "source_posture": null,
+        "qualifiers": [],
+        "supports": [
+          {
+            "evidence_refs": [
+              "evidence:E003"
+            ],
+            "note": null
+          }
+        ],
+        "contradicts": [],
+        "editorial_confidence": null,
+        "notes": null
+      }
+    ],
+    "conflicts": [],
+    "coverage_requirements": [
+      {
+        "requirement_id": "req-core",
+        "label": "Core coverage",
+        "description": "Basic descriptive coverage of the subject.",
+        "target_kind": null
+      }
+    ],
+    "coverage_assessments": [
+      {
+        "requirement_id": "req-core",
+        "state": "sufficient_candidate_support",
+        "supporting_claim_ids": [
+          "claim-name",
+          "claim-location"
+        ],
+        "conflicting_claim_ids": [],
+        "note": null
+      }
+    ],
+    "notes": null,
+    "claim_map_digest": "sha256:52a0cacc50a30108694429204ffada6a116fafd409ed1a5021a99d9b2dd22a25"
+  },
+  "draft_proposal": {
+    "schema_version": "draft_entry_proposal.v0.1",
+    "proposal_id": "prop-4dabab18abde",
+    "title_suggestion": "Portland Head Light",
+    "lifecycle": "proposal",
+    "output_profile": "counterpedia.standard.v1",
+    "recipe_id": "landmark-standard",
+    "evidence_bundle_id": "bundle-a86b82297c95",
+    "lead_blocks": [
+      {
+        "kind": "paragraph",
+        "text": "Portland Head Light is a lighthouse in Cape Elizabeth, Maine.",
+        "items": null,
+        "evidence_refs": [
+          "evidence:E001",
+          "evidence:E002"
+        ],
+        "notes": null
+      }
+    ],
+    "section_blocks": [
+      {
+        "section_label": "Background",
+        "blocks": [
+          {
+            "kind": "paragraph",
+            "text": "It is maintained as a historic landmark.",
+            "items": null,
+            "evidence_refs": [
+              "evidence:E003"
+            ],
+            "notes": null
+          }
+        ],
+        "is_supported": true,
+        "unsupported_reason": null
+      }
+    ],
+    "proposition_records": [
+      {
+        "proposition_id": "prop:name",
+        "claim_text": "The lighthouse is named Portland Head Light.",
+        "evidence_refs": [
+          "evidence:E002"
+        ],
+        "confidence_note": null,
+        "requires_human_review": true
+      }
+    ],
+    "evidence_basis_refs": [
+      "evidence:E001",
+      "evidence:E002",
+      "evidence:E003"
+    ],
+    "link_suggestions": [],
+    "unsupported_slots": [],
+    "open_questions": [],
+    "cp_page_id_suggestion": null,
+    "notes": null,
+    "proposal_body_digest": "sha256:8ef7c4f9d823cc5aacac094ef566ceb0479257130ff24574c2d9d59e9626afc0"
+  },
+  "handoff_digest": "sha256:f29817315086f3f50019f41f459c2d6b318c3cba55ef6307b9e83f53a1d42c04"
+}
