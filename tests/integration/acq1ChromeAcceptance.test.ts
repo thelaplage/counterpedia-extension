@@ -358,6 +358,11 @@ function startAcquisitionServer(repo: string, origin: string): Promise<{
         CP_ACQUISITION_TRANSPORT_TOKEN: TEST_TOKEN,
         CP_ACQUISITION_HTTP_HOST: "127.0.0.1",
         CP_ACQUISITION_HTTP_PORT: "0",
+        // TEST-ONLY: the fixture source pages below are served from loopback,
+        // so the real (correct, default-on) SSRF egress boundary must be
+        // explicitly relaxed for this subprocess. Never set in production or
+        // the demo build.
+        CP_ACQUISITION_HTTP_EGRESS_TEST_PERMISSIVE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -581,7 +586,7 @@ acceptanceDescribe("EXT-ACQ1 Chrome MV3 acceptance", () => {
 
         const panelTargetId = await openBrowserTarget(
           chrome.browserWs,
-          `chrome-extension://${extensionId}/panel.html`,
+          `chrome-extension://${extensionId}/panel/index.html`,
           true,
         );
         await activateTarget(chrome.browserWs, sourceTargetId);
@@ -689,7 +694,7 @@ acceptanceDescribe("EXT-ACQ1 Chrome MV3 acceptance", () => {
 
         const panelTargetId = await openBrowserTarget(
           chrome.browserWs,
-          `chrome-extension://${extensionId}/panel.html`,
+          `chrome-extension://${extensionId}/panel/index.html`,
           true,
         );
         await activateTarget(chrome.browserWs, sourceTargetId);

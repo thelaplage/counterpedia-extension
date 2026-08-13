@@ -8,7 +8,7 @@
     "build:demo": "npm run build && cp manifest.demo.json dist/manifest.json",
     "test": "vitest run",
     "test:acq1:cross-process": "vitest run tests/integration/acq1CrossProcess.test.ts",
-    "test:acq1:chrome": "COUNTERPEDIA_CHROME_ACCEPTANCE=1 vitest run tests/integration/acq1ChromeAcceptance.test.ts",
+    "test:acq1:chrome": "COUNTERPEDIA_CHROME_ACCEPTANCE=1 NODE_OPTIONS=--experimental-websocket vitest run tests/integration/acq1ChromeAcceptance.test.ts",
     "lint": "tsc --noEmit",
     "package": "npm run build && cd dist && zip -r ../counterpedia-extension.zip ."
   },
