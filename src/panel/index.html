@@ -13,10 +13,10 @@
   </header>
 
   <main class="panel-content">
-    <!-- Source Workbench (EXT-BROWSER1): source-first header. Shows the source
-         locator, the three plainly-separate postures (observation / Counterpedia
-         source work / receipt), the BPC observation claim boundary, and the
-         deep-link handoff. Postures are never synthesized from the observation. -->
+    <!-- Source Workbench (EXT-BROWSER1 + EXT-ACQ1): source-first header.
+         Browser observation, local acquisition, Counterpedia source work, and
+         downstream receipts remain distinct states. The ACQ1 block is demo-only
+         and never upgrades source-work/SRS/admission posture. -->
     <section id="source-workbench" class="source-workbench" aria-label="Source" style="display:none">
       <h2 class="sw-heading">Source</h2>
       <div id="sw-title" class="sw-title"></div>
@@ -37,13 +37,45 @@
         </div>
       </div>
 
+      <!-- EXT-ACQ1: local acquisition is a separate product/ingestion lane.
+           It is deliberately NOT the generic source-work receipt above and NOT
+           an SRS receipt or admission signal. Hidden in production builds. -->
+      <div id="sw-acquisition" class="sw-acquisition" style="display:none" aria-label="Local acquisition">
+        <div class="sw-acquisition-heading">Local acquisition</div>
+        <div id="sw-acquisition-status" class="sw-acquisition-status" data-posture="not_configured">
+          Acquisition capture receipt: local token not configured
+        </div>
+        <div id="sw-acquisition-digest" class="sw-acquisition-detail" style="display:none"></div>
+        <div id="sw-acquisition-source" class="sw-acquisition-detail" style="display:none"></div>
+        <div class="sw-acquisition-boundary">SRS source-capture receipt: not represented</div>
+        <div class="sw-acquisition-boundary">Admission: not established</div>
+
+        <div id="sw-acquisition-config" class="sw-acquisition-config">
+          <label for="sw-acquisition-token">Local transport token</label>
+          <input
+            id="sw-acquisition-token"
+            class="sw-acquisition-token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Local acquisition transport token"
+          />
+          <div class="sw-acquisition-config-actions">
+            <button id="sw-acquisition-token-save" type="button">Set for session</button>
+            <button id="sw-acquisition-token-clear" type="button">Clear</button>
+          </div>
+          <span id="sw-acquisition-config-status" class="sw-acquisition-config-status" aria-live="polite"></span>
+          <p class="sw-acquisition-config-note">Stored in browser-session memory only. This token authenticates localhost transport; it is not epistemic authority.</p>
+        </div>
+      </div>
+
       <p id="sw-no-record" class="sw-no-record" style="display:none"></p>
       <p id="sw-observation-copy" class="sw-observation-copy"></p>
 
       <div class="sw-actions">
         <a id="sw-open-workbench" class="sw-btn sw-btn-link" target="_blank" rel="noopener noreferrer">Open Source Workbench</a>
         <a id="sw-open-object" class="sw-btn sw-btn-object" target="_blank" rel="noopener noreferrer" style="display:none">Open Counterpedia source work</a>
-        <a id="sw-open-receipt" class="sw-btn sw-btn-receipt" target="_blank" rel="noopener noreferrer" style="display:none">View receipt</a>
+        <a id="sw-open-receipt" class="sw-btn sw-btn-receipt" target="_blank" rel="noopener noreferrer" style="display:none">View source-work receipt</a>
       </div>
     </section>
 
@@ -119,10 +151,8 @@
     <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
   </section>
 
-  <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.
-       In production builds the host_permissions for 127.0.0.1:4317 are absent, so any
-       fetch attempt is blocked by Chrome. initDemoPanel() checks _demo_mode before
-       making section visible or wiring any buttons. -->
+  <!-- Legacy demo-orchestrator section. EXT-ACQ1 is independent of this old 4317
+       path and talks only to the new 8787 acquisition transport. -->
   <section id="demo-section" class="demo-section" aria-label="Demo: Send to local Counterpedia demo" style="display:none">
     <div class="demo-capture-info" id="demo-capture-info" style="display:none">
       <div class="demo-capture-label" id="demo-capture-label"></div>
