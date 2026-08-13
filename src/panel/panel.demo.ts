@@ -1,18 +1,32 @@
 /**
- * Demo panel additions — only included in demo build.
+ * Demo panel additions — only active in demo builds.
  *
- * Adds "Send to local Counterpedia demo" flow after a successful capture.
+ * Two LOCAL transports coexist deliberately:
+ * - legacy demo orchestrator at 127.0.0.1:4317 (manual Send + separate Admit);
+ * - ACQ1 exact-byte acquisition at 127.0.0.1:8787, triggered only after the
+ *   existing explicit "Capture this source" gesture and using that SAME BPC.
  *
- * Privacy invariants:
- * - No passive capture; all sends require explicit user gesture.
- * - Only active when chrome.runtime.getManifest()._demo_mode === true.
- * - Network calls restricted to 127.0.0.1:4317 via demoTransport guards.
- * - "Send" and "ADMIT" are separate, independent explicit clicks.
- * - "PROPOSED — NOT PUBLISHED" badge is visible before any admission.
+ * EXT-ACQ1 boundaries:
+ * - no second CAPTURE_PAGE request / no recapture;
+ * - BrowserPageCapture remains a browser observation;
+ * - acquisition CaptureReceipt is displayed as an acquisition receipt only;
+ * - SRS source-capture remains "not represented";
+ * - admission remains "not established";
+ * - ACQ1 token lives in chrome.storage.session only (browser-session memory),
+ *   never in source, manifest, logs, DOM text after save, or local storage.
  */
 
 import type { BrowserPageCapture } from "../lib/browserPageCapture";
 import { captureDigest } from "../lib/captureDigest";
+import {
+  acquisitionEndpointFromManifest,
+  acquireBrowserPageCapture,
+  clearAcquisitionTransportToken,
+  loadAcquisitionTransportToken,
+  saveAcquisitionTransportToken,
+  type CaptureUrlResult,
+  type SessionStorageLike,
+} from "../lib/acquisitionTransport";
 import {
   DEMO_ENDPOINT,
   sendCaptureToDemo,
@@ -29,17 +43,186 @@ let currentSessionId: string | null = null;
 // Demo mode detection
 // ---------------------------------------------------------------------------
 
+function manifestRecord(): Record<string, unknown> {
+  return chrome.runtime.getManifest() as unknown as Record<string, unknown>;
+}
+
 function isDemoMode(): boolean {
   try {
-    const mf = chrome.runtime.getManifest() as Record<string, unknown>;
-    return mf["_demo_mode"] === true;
+    return manifestRecord()["_demo_mode"] === true;
   } catch {
     return false;
   }
 }
 
 // ---------------------------------------------------------------------------
-// DOM injection
+// EXT-ACQ1 local acquisition controller
+// ---------------------------------------------------------------------------
+
+type LocalAcquisitionPosture =
+  | "not_configured"
+  | "ready"
+  | "pending"
+  | "capture_receipt_available"
+  | "capture_failed"
+  | "transport_error";
+
+interface LocalAcquisitionController {
+  capture(capture: BrowserPageCapture): Promise<void>;
+}
+
+function sessionStorageAdapter(): SessionStorageLike {
+  return {
+    get: async (key: string) =>
+      (await chrome.storage.session.get(key)) as Record<string, unknown>,
+    set: async (items: Record<string, unknown>) => {
+      await chrome.storage.session.set(items);
+    },
+    remove: async (key: string) => {
+      await chrome.storage.session.remove(key);
+    },
+  };
+}
+
+function acquisitionStatusCopy(
+  posture: LocalAcquisitionPosture,
+  result: CaptureUrlResult | null,
+): string {
+  switch (posture) {
+    case "not_configured":
+      return "Acquisition capture receipt: local token not configured";
+    case "ready":
+      return "Acquisition capture receipt: ready after explicit capture";
+    case "pending":
+      return "Acquisition capture receipt: acquiring exact HTTP bytes…";
+    case "capture_receipt_available":
+      return "Acquisition capture receipt: available";
+    case "capture_failed":
+      return result?.capture_status === "capture_failed"
+        ? "Acquisition capture receipt: capture failed — no receipt minted"
+        : "Acquisition capture receipt: capture failed";
+    case "transport_error":
+      return "Acquisition capture receipt: local transport unavailable";
+  }
+}
+
+function renderAcquisitionState(
+  posture: LocalAcquisitionPosture,
+  result: CaptureUrlResult | null = null,
+): void {
+  const status = document.getElementById("sw-acquisition-status");
+  if (status) {
+    status.dataset["posture"] = posture;
+    status.textContent = acquisitionStatusCopy(posture, result);
+  }
+
+  const digest = document.getElementById("sw-acquisition-digest");
+  const source = document.getElementById("sw-acquisition-source");
+  const captured = result?.capture_status === "captured" ? result : null;
+
+  if (digest) {
+    if (captured) {
+      digest.textContent = `exact bytes: ${captured.captured_object_address}`;
+      digest.style.display = "";
+    } else {
+      digest.textContent = "";
+      digest.style.display = "none";
+    }
+  }
+
+  if (source) {
+    if (result) {
+      source.textContent = `source locator: ${result.source_locator}`;
+      source.style.display = "";
+    } else {
+      source.textContent = "";
+      source.style.display = "none";
+    }
+  }
+}
+
+function initLocalAcquisition(
+  captureStore: { latest: BrowserPageCapture | null },
+): LocalAcquisitionController | null {
+  const endpoint = acquisitionEndpointFromManifest(manifestRecord());
+  if (!endpoint) return null;
+
+  const section = document.getElementById("sw-acquisition");
+  if (!section) return null;
+  section.style.display = "";
+
+  const storage = sessionStorageAdapter();
+  const input = document.getElementById("sw-acquisition-token") as HTMLInputElement | null;
+  const saveBtn = document.getElementById("sw-acquisition-token-save") as HTMLButtonElement | null;
+  const clearBtn = document.getElementById("sw-acquisition-token-clear") as HTMLButtonElement | null;
+  const configStatus = document.getElementById("sw-acquisition-config-status");
+
+  // Monotonic generation: a late response from an older capture can never
+  // overwrite a newer page/capture state.
+  let generation = 0;
+
+  const controller: LocalAcquisitionController = {
+    async capture(capture: BrowserPageCapture): Promise<void> {
+      const myGeneration = ++generation;
+      const token = await loadAcquisitionTransportToken(storage);
+      if (myGeneration !== generation) return;
+      if (!token) {
+        renderAcquisitionState("not_configured");
+        return;
+      }
+
+      renderAcquisitionState("pending");
+      try {
+        const result = await acquireBrowserPageCapture(capture, token, { endpoint });
+        if (myGeneration !== generation) return;
+        renderAcquisitionState(
+          result.capture_status === "captured"
+            ? "capture_receipt_available"
+            : "capture_failed",
+          result,
+        );
+      } catch {
+        if (myGeneration !== generation) return;
+        // Error details are intentionally not surfaced here. The browser
+        // observation remains intact; no source-work/SRS/admission state moves.
+        renderAcquisitionState("transport_error");
+      }
+    },
+  };
+
+  void loadAcquisitionTransportToken(storage)
+    .then((token) => renderAcquisitionState(token ? "ready" : "not_configured"))
+    .catch(() => renderAcquisitionState("transport_error"));
+
+  saveBtn?.addEventListener("click", async () => {
+    const token = input?.value ?? "";
+    try {
+      await saveAcquisitionTransportToken(storage, token);
+      if (input) input.value = ""; // never leave the token in DOM after save.
+      if (configStatus) configStatus.textContent = "Local token set for this browser session.";
+      renderAcquisitionState("ready");
+      if (captureStore.latest) {
+        // Reuse the exact already-captured BPC; never issue a second CAPTURE_PAGE.
+        void controller.capture(captureStore.latest);
+      }
+    } catch {
+      if (configStatus) configStatus.textContent = "Token must be non-empty.";
+    }
+  });
+
+  clearBtn?.addEventListener("click", async () => {
+    ++generation; // invalidate any in-flight response before clearing config.
+    await clearAcquisitionTransportToken(storage);
+    if (input) input.value = "";
+    if (configStatus) configStatus.textContent = "Local token cleared.";
+    renderAcquisitionState("not_configured");
+  });
+
+  return controller;
+}
+
+// ---------------------------------------------------------------------------
+// DOM injection for legacy 4317 demo orchestrator
 // ---------------------------------------------------------------------------
 
 function injectDemoSection(): HTMLElement | null {
@@ -94,7 +277,7 @@ function injectDemoSection(): HTMLElement | null {
 }
 
 // ---------------------------------------------------------------------------
-// State rendering
+// Legacy 4317 state rendering
 // ---------------------------------------------------------------------------
 
 function showDemoCapture(capture: BrowserPageCapture, digest: string): void {
@@ -181,7 +364,7 @@ function showAdmitted(sessionId: string | null, publicationDigest: string): void
 }
 
 // ---------------------------------------------------------------------------
-// Polling
+// Legacy 4317 polling
 // ---------------------------------------------------------------------------
 
 let pollingHandle: ReturnType<typeof setTimeout> | null = null;
@@ -238,12 +421,10 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
   if (!section) return;
 
   section.style.display = "";
+  const localAcquisition = initLocalAcquisition(captureStore);
 
   // Compute and show capture info whenever the capture store has a value.
-  // We watch for changes by hooking into the send button click, not passively.
   // The caller is responsible for keeping captureStore.latest up to date.
-
-  // Show capture info if already captured
   const refreshCaptureInfo = async (): Promise<void> => {
     const capture = captureStore.latest;
     if (!capture) return;
@@ -254,13 +435,17 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
     // Digest over the EXACT reused CAP1 capture object — never a rebuilt copy.
     const digest = await captureDigest(capture);
     showDemoCapture(capture, digest);
+
+    // EXT-ACQ1: same explicit BPC, no recapture. Do not block the capture button
+    // while the real HTTP acquisition fetch runs; visible state moves to pending.
+    if (localAcquisition) void localAcquisition.capture(capture);
   };
 
-  // Expose a method so panel.ts can call it after capture
+  // Expose a method so panel.ts can call it after the ONE explicit capture.
   (section as HTMLElement & { refreshCaptureInfo?: () => Promise<void> }).refreshCaptureInfo =
     refreshCaptureInfo;
 
-  // Send button
+  // Legacy 4317 Send button — stays a separate explicit action.
   const sendBtn = document.getElementById("demo-send-btn") as HTMLButtonElement | null;
   const sendStatus = document.getElementById("demo-send-status");
 
@@ -304,7 +489,8 @@ export function initDemoPanel(captureStore: { latest: BrowserPageCapture | null 
     });
   }
 
-  // Admit button
+  // Admit button — intentionally independent of acquisition and still requires
+  // a separate explicit confirmation in the legacy orchestrator demo.
   const admitBtn = document.getElementById("demo-admit-btn") as HTMLButtonElement | null;
 
   if (admitBtn) {
