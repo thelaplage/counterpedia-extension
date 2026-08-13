@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Counterpedia (Demo Mode)",
   "version": "0.1.0-demo",
-  "description": "Counterpedia Chrome extension — local demo build. Connects to 127.0.0.1:4317 only.",
+  "description": "Counterpedia Chrome extension — local demo build. Connects only to 127.0.0.1:4317 (legacy demo) and 127.0.0.1:8787 (ACQ1 acquisition).",
   "permissions": [
     "sidePanel",
     "activeTab",
@@ -11,7 +11,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "http://127.0.0.1:4317/*"
+    "http://127.0.0.1:4317/*",
+    "http://127.0.0.1:8787/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -30,6 +31,7 @@
   },
   "_demo_mode": true,
   "_demo_endpoint": "http://127.0.0.1:4317",
+  "_acquisition_endpoint": "http://127.0.0.1:8787",
   "_privacy_audit": {
     "passive_capture": false,
     "cookies": false,
@@ -37,8 +39,13 @@
     "telemetry": false,
     "form_values": false,
     "all_urls_permission": false,
-    "demo_host_permission": "http://127.0.0.1:4317/* only",
+    "demo_host_permissions": [
+      "http://127.0.0.1:4317/*",
+      "http://127.0.0.1:8787/*"
+    ],
+    "acquisition_token_storage": "chrome.storage.session only",
     "send_requires_explicit_click": true,
+    "acquisition_requires_explicit_capture_click": true,
     "admit_requires_separate_explicit_click": true
   }
 }
