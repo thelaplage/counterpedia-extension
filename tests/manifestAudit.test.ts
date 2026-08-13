@@ -1,6 +1,7 @@
 /**
  * Manifest audit tests.
- * Validates the manifest.json against MV3 security requirements.
+ * Validates the production manifest against MV3 security requirements and keeps
+ * all localhost permissions confined to the explicit demo overlay.
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
@@ -75,7 +76,6 @@ describe("manifest.json", () => {
     });
 
     it("does not contain remote URLs in script-src", () => {
-      // Check that script-src doesn't have http/https remote origins
       const scriptSrcMatch = csp.match(/script-src([^;]*)/);
       if (scriptSrcMatch) {
         expect(scriptSrcMatch[1]).not.toMatch(/https?:\/\//);
@@ -94,7 +94,7 @@ describe("manifest.json", () => {
         "activeTab",
         "storage",
         "contextMenus",
-        "scripting",  // CAP1: required for user-gesture executeScript; no host_permissions added
+        "scripting",
       ]);
       for (const perm of manifest.permissions ?? []) {
         expect(allowedPermissions.has(perm)).toBe(true);
@@ -107,7 +107,7 @@ describe("manifest.json", () => {
       expect(hostPerms).not.toContain("*://*/*");
     });
 
-    it("has no host_permissions at all (v0.1 requirement)", () => {
+    it("has no host_permissions at all (production v0.1 requirement)", () => {
       expect(manifest.host_permissions).toBeUndefined();
     });
   });
@@ -124,36 +124,36 @@ describe("manifest.json", () => {
 });
 
 // ---------------------------------------------------------------------------
-// EXT-BROWSER1: the source-workbench lane must NOT widen the PRODUCTION manifest.
-// The deep-link handoff is plain navigation (a URL), so it requires no host
-// permission. This pins that the production manifest permission set is exactly
-// the pre-EXT-BROWSER1 set and that the demo host permission never leaks into it.
+// EXT-BROWSER1 + EXT-ACQ1: localhost transport remains demo-only.
 // ---------------------------------------------------------------------------
 
-describe("manifest.json — EXT-BROWSER1 permission byte audit", () => {
+describe("manifest.json — production permission byte audit", () => {
   it("permission set is EXACTLY the pre-existing minimal set (no additions)", () => {
     const EXPECTED = ["sidePanel", "activeTab", "storage", "contextMenus", "scripting"];
     expect([...(manifest.permissions ?? [])].sort()).toEqual([...EXPECTED].sort());
   });
 
-  it("declares no host_permissions and no <all_urls> in production", () => {
+  it("declares no host_permissions, loopback endpoint, or demo markers", () => {
     expect(manifest.host_permissions).toBeUndefined();
     const asText = JSON.stringify(manifest);
     expect(asText).not.toContain("<all_urls>");
     expect(asText).not.toContain("127.0.0.1");
     expect(asText).not.toContain("_demo_mode");
+    expect(asText).not.toContain("_acquisition_endpoint");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Demo manifest separation: the loopback host permission lives ONLY in the demo
-// manifest, and the two manifests never converge.
+// Demo manifest separation: both local transports are exact loopback grants.
+// 4317 = legacy demo orchestrator; 8787 = ACQ1 acquisition. Neither may leak to
+// production and neither is a broad host permission.
 // ---------------------------------------------------------------------------
 
 describe("manifest.demo.json — demo separation", () => {
   let demo: ManifestJson & {
     _demo_mode?: boolean;
     _demo_endpoint?: string;
+    _acquisition_endpoint?: string;
     _privacy_audit?: Record<string, unknown>;
   };
 
@@ -168,11 +168,24 @@ describe("manifest.demo.json — demo separation", () => {
     expect(demoBytes).not.toBe(prodBytes);
   });
 
-  it("scopes host_permissions to loopback only — never <all_urls>", () => {
+  it("scopes host_permissions to the exact two loopback services — never <all_urls>", () => {
     const hosts = demo.host_permissions ?? [];
-    expect(hosts).toEqual(["http://127.0.0.1:4317/*"]);
+    expect(hosts).toEqual([
+      "http://127.0.0.1:4317/*",
+      "http://127.0.0.1:8787/*",
+    ]);
     expect(hosts).not.toContain("<all_urls>");
     expect(hosts).not.toContain("*://*/*");
+    for (const host of hosts) {
+      expect(new URL(host.replace("/*", "/")).hostname).toBe("127.0.0.1");
+    }
+  });
+
+  it("pins ACQ1 to 127.0.0.1:8787 without embedding a token", () => {
+    expect(demo._acquisition_endpoint).toBe("http://127.0.0.1:8787");
+    const raw = readFileSync(join(__dirname, "../manifest.demo.json"), "utf-8");
+    expect(raw).not.toContain("CP_ACQUISITION_TRANSPORT_TOKEN");
+    expect(raw.toLowerCase()).not.toContain("test-transport-token");
   });
 
   it("marks itself demo mode; production never does", () => {
@@ -185,5 +198,7 @@ describe("manifest.demo.json — demo separation", () => {
     expect(audit["passive_capture"]).toBe(false);
     expect(audit["all_urls_permission"]).toBe(false);
     expect(audit["send_requires_explicit_click"]).toBe(true);
+    expect(audit["acquisition_requires_explicit_capture_click"]).toBe(true);
+    expect(audit["acquisition_token_storage"]).toBe("chrome.storage.session only");
   });
 });
