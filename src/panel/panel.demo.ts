@@ -161,6 +161,17 @@ function initLocalAcquisition(
   // overwrite a newer page/capture state.
   let generation = 0;
 
+  const renderConfiguredState = async (expectedGeneration: number): Promise<void> => {
+    try {
+      const token = await loadAcquisitionTransportToken(storage);
+      if (expectedGeneration !== generation) return;
+      renderAcquisitionState(token ? "ready" : "not_configured");
+    } catch {
+      if (expectedGeneration !== generation) return;
+      renderAcquisitionState("transport_error");
+    }
+  };
+
   const controller: LocalAcquisitionController = {
     async capture(capture: BrowserPageCapture): Promise<void> {
       const myGeneration = ++generation;
@@ -190,9 +201,22 @@ function initLocalAcquisition(
     },
   };
 
-  void loadAcquisitionTransportToken(storage)
-    .then((token) => renderAcquisitionState(token ? "ready" : "not_configured"))
-    .catch(() => renderAcquisitionState("transport_error"));
+  const initialGeneration = generation;
+  void renderConfiguredState(initialGeneration);
+
+  // A navigation/CLEAR invalidates any in-flight acquisition even if the user
+  // does not capture the new page. Without this, a slow result from page A could
+  // arrive after panel.ts moved the Source Workbench to page B. The old BPC is
+  // cleared from the shared demo store at the same boundary.
+  chrome.runtime.onMessage.addListener((rawMessage) => {
+    if (typeof rawMessage !== "object" || rawMessage === null) return;
+    const type = (rawMessage as { type?: unknown }).type;
+    if (type !== "TAB_CHANGED" && type !== "CLEAR") return;
+    const myGeneration = ++generation;
+    captureStore.latest = null;
+    if (configStatus) configStatus.textContent = "";
+    void renderConfiguredState(myGeneration);
+  });
 
   saveBtn?.addEventListener("click", async () => {
     const token = input?.value ?? "";
