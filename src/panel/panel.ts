@@ -475,6 +475,21 @@ import {
   renderTransportError,
   type AcquisitionRender,
 } from "../lib/acquisitionState";
+import {
+  selectAuthoringClient,
+  readAuthoringConfig,
+  type OperatorDraftMaterial,
+} from "../lib/authoringClient";
+import type { AcquisitionCaptureResult } from "../lib/acquisitionResponseGuard";
+import {
+  renderDraftUnavailable,
+  renderDraftReady,
+  renderDraftPending,
+  renderDraftFailed,
+  renderAuthoringClientResult,
+  mapDraftAvailability,
+  type AuthoringRender,
+} from "../lib/authoringState";
 
 /**
  * Shared capture store. Populated by the SINGLE capture flow below — the demo
@@ -527,7 +542,212 @@ async function runAcquisition(capture: BrowserPageCapture): Promise<void> {
   setAcquisitionStatus(renderAcquisitionPending());
   const result = await client.capture(capture);
   setAcquisitionStatus(renderAcquisitionClientResult(result));
+
+  // Third-act gate: ONLY a `captured` acquisition makes drafting an option.
+  // This is the single, one-directional touch between the two lanes: the
+  // capture gates the Draft *option*; it never performs the draft. A recapture
+  // of a new page replaces the prior governed source; a failed/absent capture
+  // withdraws the option (Draft becomes unavailable again).
+  setDraftGovernedSource(
+    result.kind === "captured" ? result.result : null,
+  );
 }
+
+// ---------------------------------------------------------------------------
+// AUTHOR-HTTP draft-from-source lane (the THIRD governed act).
+//
+// Structurally independent of acquisition. It reads #authoring-status only, and
+// its terminal success is a proposal_only handoff — never admission. The Draft
+// button is DISABLED until a captured governed source exists; capture never
+// auto-drafts. The producer re-fetches the source URL; we never claim the ACQ1
+// bytes were reused.
+// ---------------------------------------------------------------------------
+
+/**
+ * The governed source available to the draft lane. This holds ONLY a guarded
+ * acquisition result whose `source_locator` (a URL) the draft client will read.
+ * No producer fact is copied out of it here; the authoring client extracts the
+ * URL alone.
+ */
+const draftGovernedSource: { result: AcquisitionCaptureResult | null } = {
+  result: null,
+};
+
+function setAuthoringStatus(render: AuthoringRender | null): void {
+  const el = document.getElementById("authoring-status");
+  if (!el) return;
+  if (!render) {
+    el.style.display = "none";
+    el.dataset["state"] = "";
+    return;
+  }
+  el.style.display = "";
+  el.dataset["state"] = render.state;
+  const label = document.getElementById("authoring-status-label");
+  if (label) label.textContent = render.label;
+  const authority = document.getElementById("authoring-status-authority");
+  if (authority) authority.textContent = render.authorityLine;
+  const admission = document.getElementById("authoring-status-admission");
+  // Ever-present: a proposal is never an admission.
+  if (admission) admission.textContent = render.admissionLine;
+  const lifecycle = document.getElementById("authoring-status-lifecycle");
+  if (lifecycle) {
+    lifecycle.textContent = render.lifecycle
+      ? `Draft lifecycle: ${render.lifecycle}`
+      : "";
+  }
+  const digest = document.getElementById("authoring-status-digest");
+  if (digest) {
+    digest.textContent = render.handoffDigest
+      ? `Handoff: ${render.handoffDigest}`
+      : "";
+  }
+}
+
+/** Reflect draft availability onto the button + initial status line. */
+function setDraftGovernedSource(result: AcquisitionCaptureResult | null): void {
+  draftGovernedSource.result = result;
+  const btn = document.getElementById(
+    "authoring-draft-btn",
+  ) as HTMLButtonElement | null;
+  const section = document.getElementById("authoring-section");
+  const availability = mapDraftAvailability(result !== null);
+  if (btn) btn.disabled = availability !== "DRAFT_READY";
+  // Only surface the draft section once the authoring service is configured;
+  // otherwise the whole lane stays silent (opt-in dev capability). Visibility is
+  // established by initAuthoringDraft(); here we only refresh the readiness line
+  // when the section is already visible.
+  if (section && section.style.display !== "none") {
+    setAuthoringStatus(
+      availability === "DRAFT_READY"
+        ? renderDraftReady()
+        : renderDraftUnavailable(),
+    );
+  }
+}
+
+/** Parse operator-typed evidence handles, keeping only well-formed ones. */
+function parseEvidenceHandles(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter((s) => /^evidence:E\d{1,}$/.test(s));
+}
+
+/**
+ * Build the operator-authored draft material from the panel inputs. The client
+ * NEVER invents claims: the single claim is exactly the operator's text over the
+ * operator's cited handles. The recipe is minimal proposal-only scaffolding.
+ */
+function readOperatorMaterial(): OperatorDraftMaterial | null {
+  const subject = (
+    document.getElementById("authoring-subject") as HTMLInputElement | null
+  )?.value.trim();
+  const claimText = (
+    document.getElementById("authoring-claim-text") as HTMLTextAreaElement | null
+  )?.value.trim();
+  const evidenceRaw =
+    (document.getElementById("authoring-evidence") as HTMLInputElement | null)
+      ?.value ?? "";
+  const evidenceRefs = parseEvidenceHandles(evidenceRaw);
+
+  if (!subject || !claimText || evidenceRefs.length === 0) return null;
+
+  const claimId = "claim-operator-1";
+  return {
+    subjectSeed: subject,
+    operatorObjective: `Produce a bounded proposal describing ${subject}.`,
+    // Operator label for the governed source. NOT a producer id.
+    candidateId: "operator-governed-source-1",
+    claims: [
+      {
+        claim_id: claimId,
+        claim_text: claimText,
+        supports: [{ evidence_refs: evidenceRefs }],
+        contradicts: [],
+      },
+    ],
+    coverageRequirements: [
+      {
+        requirement_id: "req-core",
+        label: "Core coverage",
+        description: "Operator-authored bounded descriptive coverage.",
+      },
+    ],
+    coverageAssessments: [
+      {
+        requirement_id: "req-core",
+        state: "sufficient_candidate_support",
+        supporting_claim_ids: [claimId],
+        conflicting_claim_ids: [],
+      },
+    ],
+    recipe: {
+      recipe_id: "operator-standard",
+      output_profile: "counterpedia.standard.v1",
+      lead_policy_reference: "doctrine:authoring.proposal.v0.1",
+      recipe_version: "0.1.0",
+      desired_section_vocabulary: ["Background"],
+    },
+    depth: "brief",
+  };
+}
+
+async function runDraftFromSource(): Promise<void> {
+  const source = draftGovernedSource.result;
+  if (!source) {
+    // Defensive: the button is disabled without a captured source. Never draft.
+    setAuthoringStatus(renderDraftUnavailable());
+    return;
+  }
+  const material = readOperatorMaterial();
+  if (!material) {
+    setAuthoringStatus(renderDraftFailed());
+    return;
+  }
+
+  const config = await readAuthoringConfig();
+  const client = selectAuthoringClient(config);
+  if (client.kind === "not_configured") {
+    setAuthoringStatus(renderAuthoringClientResult({ kind: "not_configured" }));
+    return;
+  }
+
+  setAuthoringStatus(renderDraftPending());
+  try {
+    const result = await client.draftFromSource(source, material);
+    setAuthoringStatus(renderAuthoringClientResult(result));
+  } catch {
+    setAuthoringStatus(renderDraftFailed());
+  }
+}
+
+async function initAuthoringDraft(): Promise<void> {
+  const section = document.getElementById("authoring-section");
+  const btn = document.getElementById(
+    "authoring-draft-btn",
+  ) as HTMLButtonElement | null;
+  if (!section || !btn) return;
+
+  // Opt-in dev capability: only reveal the third-act lane when an authoring
+  // service is configured. Production stays silent (no host permission).
+  const config = await readAuthoringConfig();
+  if (!config) {
+    section.style.display = "none";
+    return;
+  }
+  section.style.display = "";
+  setAuthoringStatus(
+    draftGovernedSource.result ? renderDraftReady() : renderDraftUnavailable(),
+  );
+
+  // EXPLICIT act only — the draft never fires from the capture flow.
+  btn.addEventListener("click", () => {
+    void runDraftFromSource();
+  });
+}
+
+void initAuthoringDraft();
 
 function initCaptureButton(): void {
   const btn = document.getElementById("capture-btn") as HTMLButtonElement | null;

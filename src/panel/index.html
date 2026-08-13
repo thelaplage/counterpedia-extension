@@ -123,6 +123,48 @@
     <span id="acquisition-status" class="acquisition-status" data-state="" aria-live="polite" style="display:none"></span>
   </section>
 
+  <!-- AUTHOR-HTTP: the THIRD governed act. Draft-from-source is a SEPARATE
+       explicit action over an already-captured source. The button is DISABLED
+       until an acquisition returns `captured`; capture never auto-drafts. The
+       producer re-fetches the governed source URL and returns a terminal
+       proposal_only handoff — never an admission. This lane's status lives in its
+       own #authoring-status element, kept distinct from #acquisition-status so
+       the two state machines never collapse into one another. -->
+  <section id="authoring-section" class="authoring-section" aria-label="Draft from source" style="display:none">
+    <h2 class="authoring-heading">Draft from source</h2>
+    <p class="authoring-copy">
+      Composes a <strong>proposal only</strong> from the captured source and your
+      own claim material. It never admits, publishes, or verifies. The authoring
+      producer re-fetches the source URL; this does not reuse the acquisition
+      bytes.
+    </p>
+
+    <label class="authoring-field-label" for="authoring-subject">Subject seed</label>
+    <input id="authoring-subject" class="authoring-input" type="text"
+           placeholder="e.g. Portland Head Light" />
+
+    <label class="authoring-field-label" for="authoring-claim-text">Your claim (verbatim)</label>
+    <textarea id="authoring-claim-text" class="authoring-textarea" rows="2"
+              placeholder="Type the claim you are authoring. It is sent verbatim; nothing is invented for you."></textarea>
+
+    <label class="authoring-field-label" for="authoring-evidence">Evidence handles</label>
+    <input id="authoring-evidence" class="authoring-input" type="text"
+           placeholder="evidence:E001, evidence:E002" />
+    <p class="authoring-hint">Cite the deterministic <code>evidence:E001</code>… handles the source yields. The client never invents claims or handles.</p>
+
+    <button id="authoring-draft-btn" class="authoring-draft-btn" type="button" disabled>Draft from source</button>
+
+    <!-- Distinct from #acquisition-status. Shows the proposal-only posture and the
+         ever-present "Admission: not performed" line. -->
+    <div id="authoring-status" class="authoring-status" data-state="" aria-live="polite" style="display:none">
+      <div id="authoring-status-label" class="authoring-status-label"></div>
+      <div id="authoring-status-authority" class="authoring-status-authority"></div>
+      <div id="authoring-status-admission" class="authoring-status-admission"></div>
+      <div id="authoring-status-lifecycle" class="authoring-status-lifecycle"></div>
+      <div id="authoring-status-digest" class="authoring-status-digest"></div>
+    </div>
+  </section>
+
   <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.
        In production builds the host_permissions for 127.0.0.1:4317 are absent, so any
        fetch attempt is blocked by Chrome. initDemoPanel() checks _demo_mode before
