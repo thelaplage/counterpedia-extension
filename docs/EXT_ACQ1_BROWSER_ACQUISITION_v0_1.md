@@ -15,12 +15,14 @@ This draft is built against the current hardened ACQ1 candidate head:
 
 ```text
 repo:   thelaplage/counterpedia-acquisition
-PR:     #30
-head:   88e5ead658581a094ce5b0c3c2d1cf00db817d96
-status: DRAFT / UNMERGED at EXT-ACQ1 authoring time
+PR:     #34
+branch: repair/acq1-http-egress-v0-1
+head:   3cbf63a5b844bfb7b12b03fd95c4bc65aa2b7198
+base:   6002f26
+status: verified green at repair time
 ```
 
-That pin is an integration dependency, not authority. If ACQ1 #30 changes before
+That pin is an integration dependency, not authority. If ACQ1 changes before
 landing, the cross-process test must be re-pinned and re-run; do not silently test
 against a different checkout.
 
@@ -164,6 +166,10 @@ When enabled it:
    bytes;
 9. asserts the producer result carries no SRS/admission/standing/publication
    surface.
+
+This is a cross-process producer-consumer exact-byte proof. It does not prove
+Chrome Origin, permission, or CORS behavior because the Node wrapper injects the
+Origin under test.
 
 With `COUNTERPEDIA_ACQUISITION_REPO` absent, this integration test is skipped. A
 skip is **not** evidence that the cross-process seam passed.

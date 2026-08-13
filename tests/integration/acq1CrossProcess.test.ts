@@ -1,5 +1,5 @@
 /**
- * EXT-ACQ1 true cross-process acceptance proof.
+ * EXT-ACQ1 cross-process producer-consumer exact-byte proof.
  *
  * This test is intentionally opt-in because counterpedia-extension does not
  * vendor the Python acquisition producer. When COUNTERPEDIA_ACQUISITION_REPO is
@@ -32,7 +32,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserPageCapture } from "../../src/lib/browserPageCapture";
 import { acquireBrowserPageCapture } from "../../src/lib/acquisitionTransport";
 
-const ACQUISITION_CANDIDATE_HEAD = "88e5ead658581a094ce5b0c3c2d1cf00db817d96";
+const ACQUISITION_CANDIDATE_HEAD = "3cbf63a5b844bfb7b12b03fd95c4bc65aa2b7198";
 const TEST_ORIGIN = "chrome-extension://extacq1integrationfixture";
 const TEST_TOKEN = "ext-acq1-integration-token";
 const SOURCE_BYTES = Buffer.from(
@@ -136,9 +136,14 @@ function startAcquisitionServer(repo: string): Promise<{
         /acquisition HTTP transport listening on (http:\/\/127\.0\.0\.1:\d+)/,
       );
       if (match && !settled) {
+        const endpoint = match[1];
+        if (!endpoint) {
+          reject(new Error(`ACQ1 server did not report a listen endpoint; stdout=${stdout}`));
+          return;
+        }
         settled = true;
         clearTimeout(timer);
-        resolve({ child, endpoint: match[1] });
+        resolve({ child, endpoint });
       }
     });
     child.stderr.on("data", (chunk: string) => {
@@ -194,7 +199,7 @@ function bpc(sourceUrl: string): BrowserPageCapture {
   };
 }
 
-integrationDescribe("EXT-ACQ1 cross-process", () => {
+integrationDescribe("EXT-ACQ1 cross-process producer-consumer exact-byte proof", () => {
   it(
     "drives the real Python producer and independently matches exact fetched bytes",
     async () => {
