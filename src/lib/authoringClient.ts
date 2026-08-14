@@ -1,21 +1,37 @@
 /**
- * AUTHOR-HTTP draft-from-source client.
+ * AUTHOR-HTTP draft clients — TWO structurally separate actions.
  *
- * A thin client that turns a GOVERNED SOURCE (the URL an acquisition already
- * observed) plus OPERATOR-AUTHORED claim material into a real, terminal
- * `AuthoringAdmissionHandoff` (`authority_posture="proposal_only"`) by posting to
- * the localhost authoring producer over the constrained HTTP transport. It owns
- * HTTP concerns only: it builds the `DraftFromSourceRequest`, attaches the
- * transport token, and runs the response through the fail-closed guard. It
- * invents NO authoring semantics, no claims, and confers no admission authority.
+ * AUTH0-RECON1 / C0: this module used to expose a single `draftFromSource()`
+ * method that was mislabeled — it read only a URL off the acquisition result
+ * and posted to `/v0/draft-from-source`, but its actual behavior (the producer
+ * RE-FETCHES the URL and mints a NEW observation) is the `/v0/draft-from-url`
+ * semantic. That method is now honestly named `draftFromUrl()` and posts to
+ * `DRAFT_FROM_URL_PATH`.
  *
- * CUSTODY FIREWALL (the point of the lane): the request-builder's ONLY source
- * input is a URL string. It has no structural access to the acquisition result's
- * producer-owned facts (`capture_id` / `source_id` / `capture_receipt` /
- * `captured_object_address` / byte digests). The authoring producer RE-FETCHES
- * the URL and mints its own facts; this client never claims ACQ1 bytes were
- * reused. Operator claim material is passed VERBATIM — the client never invents,
- * infers, or completes a claim.
+ * `/v0/draft-from-source` is reserved for a DIFFERENT, separately implemented
+ * backend action: reprocessing an already-held historical capture with NO live
+ * network re-fetch. That action is exposed here as `draftFromHeldCapture()`.
+ * The two methods are never a resolver/fallback chain into each other — the
+ * caller picks one action and that action alone runs to its terminal result.
+ *
+ * Both methods build a typed COMPOSITION of existing authoring contract inputs,
+ * attach the transport token, and run the response through the fail-closed
+ * guard. Neither invents authoring semantics, claims, or admission authority.
+ *
+ * CUSTODY FIREWALL:
+ *   - `draftFromUrl()`'s ONLY source input is a URL string. It has no
+ *     structural access to the acquisition result's producer-owned facts
+ *     (`capture_id` / `source_id` / `capture_receipt` / `captured_object_address`
+ *     / byte digests). The producer re-fetches the URL and mints its own facts;
+ *     this method never claims ACQ1 bytes were reused.
+ *   - `draftFromHeldCapture()` reads exactly ONE additional producer-owned
+ *     field off the acquisition result — `capture_id` — and forwards it as the
+ *     wire request's `capture_ref`. This is the one deliberate, narrow
+ *     exception to the firewall; every other producer fact
+ *     (`capture_receipt` / `captured_object_address` / `byte_count` /
+ *     `source_id`) stays untouched.
+ *   - Both methods pass operator claim material VERBATIM — neither invents,
+ *     infers, or completes a claim.
  *
  * Client selection is honest: with a configured base URL + token you get the
  * HTTP client; otherwise you get the `notConfigured` client, which NEVER
@@ -31,7 +47,9 @@ import {
 
 /** Header carrying the local transport token (transport auth only). */
 export const TRANSPORT_TOKEN_HEADER = "X-Counterpedia-Transport-Token";
-/** The single POST path on the authoring transport. */
+/** URL-selection action: authoring-side producer re-fetches, yielding a NEW observation. */
+export const DRAFT_FROM_URL_PATH = "/v0/draft-from-url";
+/** Historical-source action: producer reprocesses an already-held capture. NO live fetch. */
 export const DRAFT_FROM_SOURCE_PATH = "/v0/draft-from-source";
 
 export interface AuthoringConfig {
@@ -55,7 +73,9 @@ export interface OperatorRecipeSpec {
  * operator in the panel and passed through verbatim; the client adds nothing.
  * The only tie to the acquisition is `candidateId` (an operator label for the
  * governed source); the source URL itself is supplied separately as a bare
- * string so this material can never smuggle a producer fact.
+ * string so this material can never smuggle a producer fact. This SAME
+ * material shape is reused by both `draftFromUrl()` and
+ * `draftFromHeldCapture()` — there is no second "profile" concept.
  */
 export interface OperatorDraftMaterial {
   subjectSeed: string;
@@ -72,18 +92,19 @@ export interface OperatorDraftMaterial {
   depth?: string;
 }
 
-/** One operator-authorized governed source candidate: an id + the URL to acquire. */
+/** One operator-authorized governed source candidate: an id + a URL. */
 export interface OperatorCandidate {
   candidate_id: string;
   url: string;
 }
 
 /**
- * The wire request. A typed COMPOSITION of existing authoring contract inputs;
- * it mirrors the producer's `DraftFromSourceRequest` so the extension consumes
- * that contract without becoming a second schema authority.
+ * The URL-action wire request. A typed COMPOSITION of existing authoring
+ * contract inputs; it mirrors the producer's `DraftFromUrlRequest` so the
+ * extension consumes that contract without becoming a second schema authority.
+ * The producer RE-FETCHES `candidates[].url`.
  */
-export interface DraftFromSourceRequest {
+export interface DraftFromUrlRequest {
   subject_seed: string;
   operator_objective: string;
   candidates: OperatorCandidate[];
@@ -104,15 +125,94 @@ export interface DraftFromSourceRequest {
 }
 
 /**
- * Build the wire request from a GOVERNED SOURCE URL and operator material.
+ * The historical-source-action wire request. Mirrors the producer's
+ * `DraftFromSourceRequest` (AUTHOR0-B1 / AUTHOR-B1-RECON1). `candidates[].url`
+ * here is NOT a fetch instruction — it is the governed continuity constraint
+ * (`expected_source_locator`) the backend binds against. `capture_ref` is the
+ * SEPARATE historical acquisition identity that identifies which already-held
+ * bytes to reprocess; this route never performs a live fetch under any
+ * outcome. AUTHOR-B1-RECON1 enforces exactly one selected candidate in this
+ * mode — this client only ever builds one.
+ */
+export interface DraftFromSourceRequest {
+  subject_seed: string;
+  operator_objective: string;
+  candidates: OperatorCandidate[];
+  selected_candidate_ids: string[];
+  /** The historical acquisition identity to reprocess. NEVER a receipt, digest, or raw bytes. */
+  capture_ref: string;
+  claims: Array<Record<string, unknown>>;
+  coverage_requirements: Array<Record<string, unknown>>;
+  coverage_assessments: Array<Record<string, unknown>>;
+  conflicts: Array<Record<string, unknown>>;
+  bound_claim_ids?: string[];
+  recipe: {
+    recipe_id: string;
+    output_profile: string;
+    lead_policy_reference: string;
+    recipe_version: string;
+    desired_section_vocabulary: string[];
+  };
+  depth: string;
+}
+
+function buildRecipe(material: OperatorDraftMaterial): DraftFromUrlRequest["recipe"] {
+  return {
+    recipe_id: material.recipe.recipe_id,
+    output_profile: material.recipe.output_profile,
+    lead_policy_reference: material.recipe.lead_policy_reference,
+    recipe_version: material.recipe.recipe_version,
+    desired_section_vocabulary: material.recipe.desired_section_vocabulary ?? [],
+  };
+}
+
+/**
+ * Build the URL-action wire request from a GOVERNED SOURCE URL and operator
+ * material.
  *
  * The signature is the custody firewall: the ONLY thing this function knows
  * about the acquisition is a URL string. It is structurally incapable of copying
  * `capture_id` / `source_id` / `capture_receipt` / digests into the request,
  * because it never receives them. The producer re-fetches the URL.
  */
+export function buildDraftFromUrlRequest(
+  governedSourceUrl: string,
+  material: OperatorDraftMaterial,
+): DraftFromUrlRequest {
+  const candidate: OperatorCandidate = {
+    candidate_id: material.candidateId,
+    url: governedSourceUrl,
+  };
+  const request: DraftFromUrlRequest = {
+    subject_seed: material.subjectSeed,
+    operator_objective: material.operatorObjective,
+    candidates: [candidate],
+    selected_candidate_ids: [material.candidateId],
+    claims: material.claims,
+    coverage_requirements: material.coverageRequirements ?? [],
+    coverage_assessments: material.coverageAssessments ?? [],
+    conflicts: material.conflicts ?? [],
+    recipe: buildRecipe(material),
+    depth: material.depth ?? "brief",
+  };
+  if (material.boundClaimIds !== undefined) {
+    request.bound_claim_ids = material.boundClaimIds;
+  }
+  return request;
+}
+
+/**
+ * Build the historical-source-action wire request from the governed source's
+ * continuity URL, its `capture_id` (forwarded as `capture_ref`), and operator
+ * material.
+ *
+ * Exactly one candidate, exactly one selected id — this client never builds
+ * multi-candidate plumbing, matching the backend's AUTHOR-B1-RECON1 singular
+ * invariant by construction.
+ */
 export function buildDraftFromSourceRequest(
   governedSourceUrl: string,
+  captureRef: string,
   material: OperatorDraftMaterial,
 ): DraftFromSourceRequest {
   const candidate: OperatorCandidate = {
@@ -124,17 +224,12 @@ export function buildDraftFromSourceRequest(
     operator_objective: material.operatorObjective,
     candidates: [candidate],
     selected_candidate_ids: [material.candidateId],
+    capture_ref: captureRef,
     claims: material.claims,
     coverage_requirements: material.coverageRequirements ?? [],
     coverage_assessments: material.coverageAssessments ?? [],
     conflicts: material.conflicts ?? [],
-    recipe: {
-      recipe_id: material.recipe.recipe_id,
-      output_profile: material.recipe.output_profile,
-      lead_policy_reference: material.recipe.lead_policy_reference,
-      recipe_version: material.recipe.recipe_version,
-      desired_section_vocabulary: material.recipe.desired_section_vocabulary ?? [],
-    },
+    recipe: buildRecipe(material),
     depth: material.depth ?? "brief",
   };
   if (material.boundClaimIds !== undefined) {
@@ -144,7 +239,7 @@ export function buildDraftFromSourceRequest(
 }
 
 /**
- * Result of a draft-from-source attempt. `not_configured` / `invalid_source` /
+ * Result of a draft attempt (either action). `not_configured` / `invalid_source` /
  * `authoring_failed` never carry a proposal; `assembled` carries the guarded
  * proposal-only handoff and is terminally UNADMITTED.
  */
@@ -157,11 +252,22 @@ export type AuthoringClientResult =
 export interface AuthoringClient {
   readonly kind: "http" | "not_configured";
   /**
-   * Draft from a governed source. Reads ONLY `source_locator` off the
-   * acquisition result — never a producer fact — and passes it as a bare URL to
-   * the request builder.
+   * Draft via the URL action. Reads ONLY `source_locator` off the acquisition
+   * result — never a producer fact — and passes it as a bare URL to the
+   * request builder. The producer RE-FETCHES it, creating a NEW observation.
    */
-  draftFromSource(
+  draftFromUrl(
+    acquisitionResult: AcquisitionCaptureResult,
+    material: OperatorDraftMaterial,
+  ): Promise<AuthoringClientResult>;
+  /**
+   * Draft via the historical-source action. Reads `capture_id` (forwarded as
+   * `capture_ref`) AND `source_locator` (forwarded as the continuity
+   * constraint) off the acquisition result. Refuses — with ZERO network calls
+   * — when `capture_id` is missing; this action is never attempted without a
+   * real held-capture identity, and it never falls back to `draftFromUrl()`.
+   */
+  draftFromHeldCapture(
     acquisitionResult: AcquisitionCaptureResult,
     material: OperatorDraftMaterial,
   ): Promise<AuthoringClientResult>;
@@ -206,10 +312,78 @@ function isLoopbackHttpUrl(url: string): boolean {
 /** The honest "no service configured" client. Never fabricates a proposal. */
 export const notConfiguredAuthoringClient: AuthoringClient = {
   kind: "not_configured",
-  async draftFromSource(): Promise<AuthoringClientResult> {
+  async draftFromUrl(): Promise<AuthoringClientResult> {
+    return { kind: "not_configured" };
+  },
+  async draftFromHeldCapture(): Promise<AuthoringClientResult> {
     return { kind: "not_configured" };
   },
 };
+
+/** POST `request` to `endpoint` and run the response through the fail-closed guard. */
+async function postAndGuard(
+  endpoint: string,
+  request: DraftFromUrlRequest | DraftFromSourceRequest,
+  config: AuthoringConfig,
+  fetchImpl: FetchLike,
+  originHeader: string | undefined,
+): Promise<AuthoringClientResult> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    [TRANSPORT_TOKEN_HEADER]: config.token,
+  };
+  if (originHeader) headers["Origin"] = originHeader;
+
+  const body = JSON.stringify(request);
+
+  let response: Awaited<ReturnType<FetchLike>>;
+  try {
+    response = await fetchImpl(endpoint, { method: "POST", headers, body });
+  } catch (err) {
+    return {
+      kind: "authoring_failed",
+      status: null,
+      detail: err instanceof Error ? err.message : "network error",
+    };
+  }
+
+  if (!response.ok) {
+    // Transport/pipeline-level rejection (4xx/5xx). Never a proposal.
+    return {
+      kind: "authoring_failed",
+      status: response.status,
+      detail: `http ${response.status}`,
+    };
+  }
+
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    return {
+      kind: "authoring_failed",
+      status: response.status,
+      detail: "non-JSON response",
+    };
+  }
+
+  let handoff: AuthoringHandoff;
+  try {
+    handoff = parseAuthoringHandoff(raw);
+  } catch (err) {
+    if (err instanceof AuthoringResponseError) {
+      // Contaminated / unauthorized response: refuse it even from localhost.
+      return {
+        kind: "authoring_failed",
+        status: response.status,
+        detail: err.message,
+      };
+    }
+    throw err;
+  }
+
+  return { kind: "assembled", handoff };
+}
 
 /** Build the HTTP authoring client for a configured loopback endpoint. */
 export function createHttpAuthoringClient(
@@ -227,17 +401,18 @@ export function createHttpAuthoringClient(
     );
   }
 
-  const endpoint = config.baseUrl.replace(/\/+$/, "") + DRAFT_FROM_SOURCE_PATH;
+  const base = config.baseUrl.replace(/\/+$/, "");
+  const urlEndpoint = base + DRAFT_FROM_URL_PATH;
+  const sourceEndpoint = base + DRAFT_FROM_SOURCE_PATH;
 
   return {
     kind: "http",
-    async draftFromSource(
+    async draftFromUrl(
       acquisitionResult: AcquisitionCaptureResult,
       material: OperatorDraftMaterial,
     ): Promise<AuthoringClientResult> {
       // CUSTODY: read ONLY the source URL off the acquisition result. Every
-      // other field (capture_id / source_id / capture_receipt / address /
-      // byte_count) is deliberately left untouched and never enters the request.
+      // producer-owned capture field is deliberately left untouched.
       const governedSourceUrl = acquisitionResult.source_locator;
       if (!governedSourceUrl) {
         return {
@@ -253,63 +428,45 @@ export function createHttpAuthoringClient(
         };
       }
 
-      const request = buildDraftFromSourceRequest(governedSourceUrl, material);
-
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        [TRANSPORT_TOKEN_HEADER]: config.token,
-      };
-      if (originHeader) headers["Origin"] = originHeader;
-
-      const body = JSON.stringify(request);
-
-      let response: Awaited<ReturnType<FetchLike>>;
-      try {
-        response = await fetchImpl(endpoint, { method: "POST", headers, body });
-      } catch (err) {
+      const request = buildDraftFromUrlRequest(governedSourceUrl, material);
+      return postAndGuard(urlEndpoint, request, config, fetchImpl, originHeader);
+    },
+    async draftFromHeldCapture(
+      acquisitionResult: AcquisitionCaptureResult,
+      material: OperatorDraftMaterial,
+    ): Promise<AuthoringClientResult> {
+      // CUSTODY: the one deliberate, narrow exception — read `capture_id` and
+      // forward it as `capture_ref`. Every other producer-owned capture field
+      // (capture_receipt / captured_object_address / byte_count / source_id)
+      // stays untouched.
+      const captureRef = acquisitionResult.capture_id;
+      if (!captureRef) {
         return {
-          kind: "authoring_failed",
-          status: null,
-          detail: err instanceof Error ? err.message : "network error",
+          kind: "invalid_source",
+          detail: "acquisition result carries no capture_id",
+        };
+      }
+      const governedSourceUrl = acquisitionResult.source_locator;
+      if (!governedSourceUrl) {
+        return {
+          kind: "invalid_source",
+          detail: "acquisition result carries no governed source URL",
+        };
+      }
+      if (material.claims.length === 0) {
+        // No-claim-synthesis: refuse rather than manufacture a claim.
+        return {
+          kind: "invalid_source",
+          detail: "no operator claims supplied",
         };
       }
 
-      if (!response.ok) {
-        // Transport/pipeline-level rejection (4xx/5xx). Never a proposal.
-        return {
-          kind: "authoring_failed",
-          status: response.status,
-          detail: `http ${response.status}`,
-        };
-      }
-
-      let raw: unknown;
-      try {
-        raw = await response.json();
-      } catch {
-        return {
-          kind: "authoring_failed",
-          status: response.status,
-          detail: "non-JSON response",
-        };
-      }
-
-      let handoff: AuthoringHandoff;
-      try {
-        handoff = parseAuthoringHandoff(raw);
-      } catch (err) {
-        if (err instanceof AuthoringResponseError) {
-          // Contaminated / unauthorized response: refuse it even from localhost.
-          return {
-            kind: "authoring_failed",
-            status: response.status,
-            detail: err.message,
-          };
-        }
-        throw err;
-      }
-
-      return { kind: "assembled", handoff };
+      const request = buildDraftFromSourceRequest(
+        governedSourceUrl,
+        captureRef,
+        material,
+      );
+      return postAndGuard(sourceEndpoint, request, config, fetchImpl, originHeader);
     },
   };
 }

@@ -439,7 +439,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       fetchImpl: recordingAuthoringFetch,
       originHeader: ORIGIN,
     });
-    const draft = await authClient.draftFromSource(
+    const draft = await authClient.draftFromHeldCapture(
       acqOutcome.result,
       operatorMaterial(),
     );
@@ -475,8 +475,9 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       false,
     );
 
-    // Custody: the request the client sent carried the governed URL and NONE of
-    // the producer-owned acquisition facts.
+    // Custody: the request the client sent carried the governed URL + the one
+    // deliberate `capture_ref` exception, and NONE of the other producer-owned
+    // acquisition facts.
     const draftReq = authoringRequests.find(
       (r) => r.path === "/v0/draft-from-source",
     );
@@ -490,18 +491,19 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       "captured_object_address",
       "capture_digest",
       "content_digest",
-      "source_locator",
       "byte_count",
       "exact_bytes_sha256",
     ]) {
       expect(sentKeys.has(producerField)).toBe(false);
     }
-    expect(draftReq!.body).not.toContain(acqSnapshot.capture_id);
     expect(draftReq!.body).not.toContain(acqSnapshot.captured_object_address);
-    // The one legitimate crossover: the governed source URL.
+    // The two legitimate crossovers: the governed source URL (continuity
+    // constraint) and capture_id forwarded as capture_ref (the ONE deliberate
+    // custody exception for the historical-source action).
     expect(
       (sentBody["candidates"] as Array<{ url: string }>)[0]!.url,
     ).toBe(fixtureUrl);
+    expect(sentBody["capture_ref"]).toBe(acqSnapshot.capture_id);
 
     // The acquisition record is untouched by the draft.
     expect(acqOutcome.result).toEqual(acqSnapshot);
@@ -574,7 +576,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     });
     // A candidate id the hermetic plan does not know => continuity fails closed.
     const bad = { ...operatorMaterial(), candidateId: "operator-unbound-id" };
-    const out = await authClient.draftFromSource(capturedResult!, bad);
+    const out = await authClient.draftFromHeldCapture(capturedResult!, bad);
 
     expect(out.kind).toBe("authoring_failed");
     if (out.kind === "authoring_failed") expect(out.status).toBe(422);
@@ -601,7 +603,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       ...(capturedResult as AcquisitionCaptureResult),
       source_locator: null,
     };
-    const out = await authClient.draftFromSource(noUrl, operatorMaterial());
+    const out = await authClient.draftFromHeldCapture(noUrl, operatorMaterial());
     expect(out.kind).toBe("invalid_source");
     // The client made NO network call to the authoring server.
     expect(authoringRequests.length).toBe(before);
@@ -619,7 +621,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       fetchImpl: recordingAuthoringFetch,
       originHeader: ORIGIN,
     });
-    const good = await authClient.draftFromSource(
+    const good = await authClient.draftFromHeldCapture(
       capturedResult as AcquisitionCaptureResult,
       operatorMaterial(),
     );
@@ -650,11 +652,11 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       fetchImpl: recordingAuthoringFetch,
       originHeader: ORIGIN,
     });
-    const first = await authClient.draftFromSource(
+    const first = await authClient.draftFromHeldCapture(
       capturedResult as AcquisitionCaptureResult,
       operatorMaterial(),
     );
-    const second = await authClient.draftFromSource(
+    const second = await authClient.draftFromHeldCapture(
       capturedResult as AcquisitionCaptureResult,
       operatorMaterial(),
     );

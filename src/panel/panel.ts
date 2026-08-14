@@ -554,13 +554,24 @@ async function runAcquisition(capture: BrowserPageCapture): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// AUTHOR-HTTP draft-from-source lane (the THIRD governed act).
+// AUTHOR-HTTP draft lane (the THIRD governed act).
 //
 // Structurally independent of acquisition. It reads #authoring-status only, and
 // its terminal success is a proposal_only handoff — never admission. The Draft
 // button is DISABLED until a captured governed source exists; capture never
-// auto-drafts. The producer re-fetches the source URL; we never claim the ACQ1
-// bytes were reused.
+// auto-drafts.
+//
+// C0: there are TWO structurally separate backend actions behind this single
+// button — `draftFromUrl()` (producer RE-FETCHES the source URL, a NEW
+// observation) and `draftFromHeldCapture()` (producer reprocesses the
+// already-held capture identified by `capture_id`, NO live re-fetch). The
+// panel currently exposes only ONE "Draft from source" button rather than two
+// distinct affordances; `runDraftFromSource()` below picks the action ONCE,
+// preferring the historical action whenever the captured source carries a
+// `capture_id` (strictly more provenance-preserving), and never falls back
+// from one action's failure into the other. If/when the panel grows a second
+// explicit UI affordance for "draft via fresh re-fetch", this heuristic should
+// be replaced by an explicit operator choice.
 // ---------------------------------------------------------------------------
 
 /**
@@ -715,7 +726,17 @@ async function runDraftFromSource(): Promise<void> {
 
   setAuthoringStatus(renderDraftPending());
   try {
-    const result = await client.draftFromSource(source, material);
+    // Action selection (C0 UI judgment call — see panel.ts module docstring
+    // above `runDraftFromSource`): the panel exposes ONE "Draft from source"
+    // button, not two. When the captured source carries a real `capture_id`
+    // we take the strictly more provenance-preserving historical action
+    // (`/v0/draft-from-source`, no live re-fetch); otherwise we fall back to
+    // the URL action (`/v0/draft-from-url`). This is a ONE-TIME choice made
+    // before the request is sent — never a retry/fallback from one action's
+    // failure into the other.
+    const result = source.capture_id
+      ? await client.draftFromHeldCapture(source, material)
+      : await client.draftFromUrl(source, material);
     setAuthoringStatus(renderAuthoringClientResult(result));
   } catch {
     setAuthoringStatus(renderDraftFailed());

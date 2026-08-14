@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  buildDraftFromUrlRequest,
   buildDraftFromSourceRequest,
   createHttpAuthoringClient,
   selectAuthoringClient,
@@ -95,9 +96,9 @@ function collect(node: unknown, keys: Set<string>, vals: Set<string>): void {
   }
 }
 
-describe("buildDraftFromSourceRequest — custody firewall", () => {
+describe("buildDraftFromUrlRequest — custody firewall", () => {
   it("carries the governed URL and the operator's verbatim claims only", () => {
-    const req = buildDraftFromSourceRequest(SOURCE_URL, material());
+    const req = buildDraftFromUrlRequest(SOURCE_URL, material());
     expect(req.candidates).toEqual([
       { candidate_id: "operator-governed-source-1", url: SOURCE_URL },
     ]);
@@ -109,7 +110,7 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
   });
 
   it("copies NO producer-owned field name into the request tree", () => {
-    const req = buildDraftFromSourceRequest(SOURCE_URL, material());
+    const req = buildDraftFromUrlRequest(SOURCE_URL, material());
     const keys = new Set<string>();
     const vals = new Set<string>();
     collect(req, keys, vals);
@@ -131,7 +132,7 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
   it("copies NO producer-owned VALUE into the request (only the URL crosses over)", () => {
     // The builder's only source input is the URL; prove the producer ids/digests
     // never appear anywhere as a value.
-    const req = buildDraftFromSourceRequest(SOURCE_URL, material());
+    const req = buildDraftFromUrlRequest(SOURCE_URL, material());
     const keys = new Set<string>();
     const vals = new Set<string>();
     collect(req, keys, vals);
@@ -140,6 +141,50 @@ describe("buildDraftFromSourceRequest — custody firewall", () => {
     expect([...vals].some((v) => v.includes("sha256:"))).toBe(false);
     // The governed URL is the ONE thing that legitimately crosses over.
     expect(vals.has(SOURCE_URL)).toBe(true);
+  });
+});
+
+describe("buildDraftFromSourceRequest — historical action, capture_ref exception", () => {
+  const CAPTURE_REF = "cap-PRODUCER-OWNED-id";
+
+  it("carries the continuity URL, capture_ref, and the operator's verbatim claims", () => {
+    const req = buildDraftFromSourceRequest(SOURCE_URL, CAPTURE_REF, material());
+    expect(req.candidates).toEqual([
+      { candidate_id: "operator-governed-source-1", url: SOURCE_URL },
+    ]);
+    expect(req.selected_candidate_ids).toEqual(["operator-governed-source-1"]);
+    expect(req.capture_ref).toBe(CAPTURE_REF);
+    expect(req.claims).toEqual(material().claims);
+    expect(req.subject_seed).toBe("Portland Head Light");
+    expect(req.depth).toBe("brief");
+  });
+
+  it("builds exactly ONE candidate and ONE selected_candidate_id", () => {
+    const req = buildDraftFromSourceRequest(SOURCE_URL, CAPTURE_REF, material());
+    expect(req.candidates).toHaveLength(1);
+    expect(req.selected_candidate_ids).toHaveLength(1);
+  });
+
+  it("copies NO producer-owned field name into the request tree, aside from capture_ref", () => {
+    const req = buildDraftFromSourceRequest(SOURCE_URL, CAPTURE_REF, material());
+    const keys = new Set<string>();
+    const vals = new Set<string>();
+    collect(req, keys, vals);
+    for (const forbidden of [
+      "capture_id",
+      "source_id",
+      "capture_receipt",
+      "captured_object_address",
+      "capture_digest",
+      "content_digest",
+      "source_locator",
+      "byte_count",
+      "exact_bytes_sha256",
+    ]) {
+      expect(keys.has(forbidden)).toBe(false);
+    }
+    // capture_ref IS present — it's the one deliberate, narrow exception.
+    expect(keys.has("capture_ref")).toBe(true);
   });
 });
 
@@ -165,8 +210,16 @@ describe("selectAuthoringClient — honest selection", () => {
     expect(client.kind).toBe("http");
   });
 
-  it("notConfigured never fabricates a proposal", async () => {
-    const out = await notConfiguredAuthoringClient.draftFromSource(
+  it("notConfigured never fabricates a proposal (draftFromUrl)", async () => {
+    const out = await notConfiguredAuthoringClient.draftFromUrl(
+      capturedResult(),
+      material(),
+    );
+    expect(out).toEqual({ kind: "not_configured" });
+  });
+
+  it("notConfigured never fabricates a proposal (draftFromHeldCapture)", async () => {
+    const out = await notConfiguredAuthoringClient.draftFromHeldCapture(
       capturedResult(),
       material(),
     );
@@ -174,7 +227,20 @@ describe("selectAuthoringClient — honest selection", () => {
   });
 });
 
-describe("createHttpAuthoringClient — transport + guarded response", () => {
+function guardedHandoffJson(digest = "sha256:deadbeef") {
+  return {
+    schema_version: "authoring_admission_handoff.v0.1",
+    producer: "counterpedia-authoring",
+    authority_posture: "proposal_only",
+    proposal_package: {},
+    evidence_bundle: {},
+    claim_map: {},
+    draft_proposal: { lifecycle: "proposal" },
+    handoff_digest: digest,
+  };
+}
+
+describe("createHttpAuthoringClient.draftFromUrl — transport + guarded response", () => {
   it("rejects a non-loopback baseUrl at construction", () => {
     expect(() =>
       createHttpAuthoringClient({
@@ -183,7 +249,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
     ).toThrow(/loopback/);
   });
 
-  it("posts the built request with the transport token and reads ONLY the source URL", async () => {
+  it("posts the built request to /v0/draft-from-url with the transport token, reading ONLY the source URL", async () => {
     let captured: { url: string; headers: Record<string, string>; body: string } | null =
       null;
     const client = createHttpAuthoringClient({
@@ -194,26 +260,17 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({
-            schema_version: "authoring_admission_handoff.v0.1",
-            producer: "counterpedia-authoring",
-            authority_posture: "proposal_only",
-            proposal_package: {},
-            evidence_bundle: {},
-            claim_map: {},
-            draft_proposal: { lifecycle: "proposal" },
-            handoff_digest: "sha256:deadbeef",
-          }),
+          json: async () => guardedHandoffJson(),
           text: async () => "",
         };
       },
     });
 
-    const out = await client.draftFromSource(capturedResult(), material());
+    const out = await client.draftFromUrl(capturedResult(), material());
     expect(out.kind).toBe("assembled");
     expect(captured).not.toBeNull();
     const c = captured as unknown as { url: string; headers: Record<string, string>; body: string };
-    expect(c.url).toBe("http://127.0.0.1:8788/v0/draft-from-source");
+    expect(c.url).toBe("http://127.0.0.1:8788/v0/draft-from-url");
     expect(c.headers[TRANSPORT_TOKEN_HEADER]).toBe("tok-123");
     expect(c.headers["Origin"]).toBe("chrome-extension://unit");
     const sent = JSON.parse(c.body) as { candidates: Array<{ url: string }> };
@@ -229,7 +286,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
       },
     });
     const noUrl = { ...capturedResult(), source_locator: null };
-    const out = await client.draftFromSource(noUrl, material());
+    const out = await client.draftFromUrl(noUrl, material());
     expect(out.kind).toBe("invalid_source");
   });
 
@@ -240,7 +297,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
         throw new Error("should not be reached");
       },
     });
-    const out = await client.draftFromSource(capturedResult(), {
+    const out = await client.draftFromUrl(capturedResult(), {
       ...material(),
       claims: [],
     });
@@ -257,7 +314,7 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
         text: async () => "pipeline_refused",
       }),
     });
-    const out = await client.draftFromSource(capturedResult(), material());
+    const out = await client.draftFromUrl(capturedResult(), material());
     expect(out.kind).toBe("authoring_failed");
     if (out.kind === "authoring_failed") expect(out.status).toBe(422);
   });
@@ -269,19 +326,142 @@ describe("createHttpAuthoringClient — transport + guarded response", () => {
         ok: true,
         status: 200,
         json: async () => ({
-          schema_version: "authoring_admission_handoff.v0.1",
-          producer: "counterpedia-authoring",
-          authority_posture: "proposal_only",
+          ...guardedHandoffJson("sha256:x"),
           proposal_package: { standing: "granted" }, // contamination
-          evidence_bundle: {},
-          claim_map: {},
-          draft_proposal: { lifecycle: "proposal" },
-          handoff_digest: "sha256:x",
         }),
         text: async () => "",
       }),
     });
-    const out = await client.draftFromSource(capturedResult(), material());
+    const out = await client.draftFromUrl(capturedResult(), material());
     expect(out.kind).toBe("authoring_failed");
+  });
+});
+
+describe("createHttpAuthoringClient.draftFromHeldCapture — historical action", () => {
+  it("posts the built request to /v0/draft-from-source with capture_ref, and exactly one candidate", async () => {
+    let captured: { url: string; headers: Record<string, string>; body: string } | null =
+      null;
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "tok-123" },
+      originHeader: "chrome-extension://unit",
+      fetchImpl: async (url, init) => {
+        captured = { url, headers: init.headers, body: init.body };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => guardedHandoffJson(),
+          text: async () => "",
+        };
+      },
+    });
+
+    const out = await client.draftFromHeldCapture(capturedResult(), material());
+    expect(out.kind).toBe("assembled");
+    expect(captured).not.toBeNull();
+    const c = captured as unknown as { url: string; headers: Record<string, string>; body: string };
+    expect(c.url).toBe("http://127.0.0.1:8788/v0/draft-from-source");
+    expect(c.headers[TRANSPORT_TOKEN_HEADER]).toBe("tok-123");
+    const sent = JSON.parse(c.body) as {
+      candidates: Array<{ url: string }>;
+      selected_candidate_ids: string[];
+      capture_ref: string;
+    };
+    expect(sent.candidates).toHaveLength(1);
+    expect(sent.candidates[0]!.url).toBe(SOURCE_URL);
+    expect(sent.selected_candidate_ids).toHaveLength(1);
+    // The one deliberate custody exception: capture_id -> capture_ref.
+    expect(sent.capture_ref).toBe("cap-PRODUCER-OWNED-id");
+  });
+
+  it("refuses — with ZERO fetch calls — when capture_id is null", async () => {
+    let fetchCalls = 0;
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        throw new Error("should not be reached");
+      },
+    });
+    const noCaptureId = { ...capturedResult(), capture_id: null };
+    const out = await client.draftFromHeldCapture(noCaptureId, material());
+    expect(out.kind).toBe("invalid_source");
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("refuses — with ZERO fetch calls — when capture_id is missing (undefined-ish via null)", async () => {
+    let fetchCalls = 0;
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        throw new Error("should not be reached");
+      },
+    });
+    const missing = { ...capturedResult(), capture_id: null, source_id: null };
+    const out = await client.draftFromHeldCapture(missing, material());
+    expect(out.kind).toBe("invalid_source");
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("refuses when the governed source has no continuity URL, even with a capture_id", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => {
+        throw new Error("should not be reached");
+      },
+    });
+    const noUrl = { ...capturedResult(), source_locator: null };
+    const out = await client.draftFromHeldCapture(noUrl, material());
+    expect(out.kind).toBe("invalid_source");
+  });
+
+  it("refuses with zero operator claims (no synthesis)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => {
+        throw new Error("should not be reached");
+      },
+    });
+    const out = await client.draftFromHeldCapture(capturedResult(), {
+      ...material(),
+      claims: [],
+    });
+    expect(out.kind).toBe("invalid_source");
+  });
+
+  it("maps a 4xx/5xx to authoring_failed (never a proposal)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({ error: "pipeline_refused" }),
+        text: async () => "pipeline_refused",
+      }),
+    });
+    const out = await client.draftFromHeldCapture(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") expect(out.status).toBe(422);
+  });
+
+  it("never falls back to draftFromUrl (or vice versa) — each action is called alone", async () => {
+    let urlCalls = 0;
+    let sourceCalls = 0;
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async (url) => {
+        if (url.endsWith("/v0/draft-from-url")) urlCalls += 1;
+        if (url.endsWith("/v0/draft-from-source")) sourceCalls += 1;
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "boom" }),
+          text: async () => "boom",
+        };
+      },
+    });
+    await client.draftFromHeldCapture(capturedResult(), material());
+    expect(sourceCalls).toBe(1);
+    expect(urlCalls).toBe(0);
   });
 });
