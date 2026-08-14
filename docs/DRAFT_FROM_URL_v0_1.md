@@ -54,8 +54,21 @@ unsuitable for a historical-reference workflow: if the origin has since
 changed or gone away, the re-fetch reflects whatever is there *now* (or
 fails), never what the browser originally captured.
 
-Operator claim material (claims, coverage, recipe) is passed **verbatim**.
-The client never invents, infers, or completes a claim.
+**Operator-supplied material** (typed by the human in the panel):
+- subject
+- claim text
+- cited evidence handles
+
+**Application authoring profile** (explicit, named defaults constructed by
+the extension — not operator assertions):
+- objective template
+- candidate label
+- coverage scaffold / coverage assessment
+- recipe
+- depth
+
+The extension does not synthesize or alter the operator's claim text.
+Application-profile scaffolding is never represented as operator-authored.
 
 ## Firewall / non-collapse rules
 

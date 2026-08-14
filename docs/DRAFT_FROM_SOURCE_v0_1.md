@@ -62,18 +62,38 @@ acquisition result. The AUTHOR-HTTP server independently rejects any other
 producer-owned field as `producer_owned_field` (second line of defense),
 with `capture_ref` as the sole, explicitly-exempted top-level exception.
 
-The backend resolves `capture_ref` against its own held-capture registry and
-**reprocesses the exact retained bytes from the original capture** — it does
-not, and structurally cannot, re-fetch the URL. If the original origin has
-since changed or gone away entirely, this action is unaffected: it never
-touches the network. `capture_ref` unresolved, or resolved to bytes whose
-own locator disagrees with the operator-authorized `source_locator`, fails
-closed (`source_basis_unresolved`, 422) — it never falls back to a live
-fetch of any kind.
+The authoring service owns no held-capture capability itself: it delegates
+`capture_ref` + the `source_locator` continuity constraint through its
+injected `held_capture_client`. The **acquisition producer** is the one that
+resolves `capture_ref` against the producer-owned `CaptureReceipt` registry
+and retained object store, then creates the new held-processing observation
+by **reprocessing the exact retained bytes from the original capture** — it
+does not, and structurally cannot, re-fetch the URL. Authoring never owns or
+reconstructs that registry/custody record; producer-owned custody stays
+producer-owned. If the original origin has since changed or gone away
+entirely, this action is unaffected: it never touches the network.
+`capture_ref` unresolved, or resolved to bytes whose own locator disagrees
+with the operator-authorized `source_locator`, fails closed
+(`source_basis_unresolved`, 422) — it never falls back to a live fetch of
+any kind.
 
-Operator claim material (claims, coverage, recipe) is passed **verbatim**.
-The client never invents, infers, or completes a claim. Claims cite the
-deterministic `evidence:E001…` handles the held-capture reprocessing yields.
+**Operator-supplied material** (typed by the human in the panel):
+- subject
+- claim text
+- cited evidence handles
+
+**Application authoring profile** (explicit, named defaults constructed by
+the extension — not operator assertions):
+- objective template
+- candidate label
+- coverage scaffold / coverage assessment
+- recipe
+- depth
+
+The extension does not synthesize or alter the operator's claim text.
+Application-profile scaffolding is never represented as operator-authored.
+Claims cite the deterministic `evidence:E001…` handles the held-capture
+reprocessing yields.
 
 ## Firewall / non-collapse rules
 
