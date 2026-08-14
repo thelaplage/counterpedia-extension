@@ -47,12 +47,10 @@
       </div>
     </section>
 
-    <!-- Idle state -->
     <div id="state-idle" class="state-view active">
       <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
     </div>
 
-    <!-- Loading state -->
     <div id="state-loading" class="state-view">
       <div class="loading-indicator">
         <div class="spinner"></div>
@@ -60,7 +58,6 @@
       </div>
     </div>
 
-    <!-- Results state -->
     <div id="state-results" class="state-view">
       <div class="query-display-label">Checking</div>
       <div id="query-display" class="query-display"></div>
@@ -68,14 +65,12 @@
       <div id="results-list"></div>
     </div>
 
-    <!-- No match state -->
     <div id="state-no-match" class="state-view">
       <div class="query-display-label">Checked</div>
       <div id="no-match-query" class="query-display"></div>
       <p class="status-message">No matching Counterpedia records found. This is not a judgment about the page.</p>
     </div>
 
-    <!-- Restricted page state -->
     <div id="state-restricted" class="state-view">
       <p class="status-message">
         <strong>Cannot check this page</strong>
@@ -83,7 +78,6 @@
       </p>
     </div>
 
-    <!-- Service unavailable state -->
     <div id="state-unavailable" class="state-view">
       <p class="status-message">
         <strong>Counterpedia unavailable</strong>
@@ -91,7 +85,6 @@
       </p>
     </div>
 
-    <!-- Rate limited state -->
     <div id="state-rate-limited" class="state-view">
       <p class="status-message">
         <strong>Too many requests</strong>
@@ -100,9 +93,6 @@
     </div>
   </main>
 
-  <!-- Activity feed: a read-only projection over admitted PUBLIC activity
-       receipts. Independent of the current tab. Honest-empty until PUBLIC
-       receipts are projected. -->
   <section id="activity-section" class="activity-section" aria-label="Recent Counterpedia activity">
     <h2 class="activity-heading">Recent Counterpedia activity</h2>
     <p id="activity-boundary" class="activity-boundary"></p>
@@ -117,26 +107,24 @@
     <button id="capture-btn" class="capture-btn" type="button">Capture this source</button>
     <span id="capture-status" class="capture-status" aria-live="polite"></span>
     <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
-    <!-- ACQ1-HTTP: acquisition submission status. Shown only when a localhost
-         acquisition service is configured. A successful capture is terminally
-         UNADMITTED — never admitted/verified/published/supported. -->
     <span id="acquisition-status" class="acquisition-status" data-state="" aria-live="polite" style="display:none"></span>
   </section>
 
   <!-- AUTHOR-HTTP: the THIRD governed act. Draft-from-source is a SEPARATE
        explicit action over an already-captured source. The button is DISABLED
        until an acquisition returns `captured`; capture never auto-drafts. The
-       producer re-fetches the governed source URL and returns a terminal
-       proposal_only handoff — never an admission. This lane's status lives in its
-       own #authoring-status element, kept distinct from #acquisition-status so
-       the two state machines never collapse into one another. -->
+       authoring producer resolves the acquisition capture_ref and reprocesses
+       the retained exact bytes. It performs zero live source fetch and returns a
+       terminal proposal_only handoff — never an admission. This lane's status
+       stays distinct from #acquisition-status so the state machines do not
+       collapse into one another. -->
   <section id="authoring-section" class="authoring-section" aria-label="Draft from source" style="display:none">
     <h2 class="authoring-heading">Draft from source</h2>
     <p class="authoring-copy">
-      Composes a <strong>proposal only</strong> from the captured source and your
-      own claim material. It never admits, publishes, or verifies. The authoring
-      producer re-fetches the source URL; this does not reuse the acquisition
-      bytes.
+      Composes a <strong>proposal only</strong> from the retained historical capture
+      and your own claim material. It reprocesses the exact bytes already held by
+      acquisition; it does <strong>not</strong> fetch the source URL again. It never
+      admits, publishes, or verifies.
     </p>
 
     <label class="authoring-field-label" for="authoring-subject">Subject seed</label>
@@ -154,8 +142,6 @@
 
     <button id="authoring-draft-btn" class="authoring-draft-btn" type="button" disabled>Draft from source</button>
 
-    <!-- Distinct from #acquisition-status. Shows the proposal-only posture and the
-         ever-present "Admission: not performed" line. -->
     <div id="authoring-status" class="authoring-status" data-state="" aria-live="polite" style="display:none">
       <div id="authoring-status-label" class="authoring-status-label"></div>
       <div id="authoring-status-authority" class="authoring-status-authority"></div>
@@ -165,10 +151,6 @@
     </div>
   </section>
 
-  <!-- Demo section: hidden by default; revealed only when _demo_mode === true in manifest.
-       In production builds the host_permissions for 127.0.0.1:4317 are absent, so any
-       fetch attempt is blocked by Chrome. initDemoPanel() checks _demo_mode before
-       making section visible or wiring any buttons. -->
   <section id="demo-section" class="demo-section" aria-label="Demo: Send to local Counterpedia demo" style="display:none">
     <div class="demo-capture-info" id="demo-capture-info" style="display:none">
       <div class="demo-capture-label" id="demo-capture-label"></div>
