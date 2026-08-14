@@ -200,20 +200,24 @@ export function selectAcquisitionClient(
 }
 
 /**
- * Read acquisition config from chrome.storage.sync, mirroring the existing
- * `getBaseUrl()` pattern. Returns null when not configured. Isolated here so the
- * pure client/guard modules stay Chrome-API-free and unit-testable.
+ * Read acquisition endpoint + credential without syncing the transport secret.
+ *
+ * The base URL is non-secret operator configuration and may live in
+ * `chrome.storage.sync`. The per-run local transport token is intentionally read
+ * ONLY from `chrome.storage.session`, so Chrome does not sync it across devices
+ * or retain it as durable extension configuration. Missing either value yields
+ * the honest not-configured state.
  */
 export async function readAcquisitionConfig(): Promise<AcquisitionConfig | null> {
   try {
-    const stored = await chrome.storage.sync.get([
-      "counterpedia_acquisition_base_url",
-      "counterpedia_acquisition_token",
+    const [storedConfig, storedSecret] = await Promise.all([
+      chrome.storage.sync.get(["counterpedia_acquisition_base_url"]),
+      chrome.storage.session.get(["counterpedia_acquisition_token"]),
     ]);
-    const baseUrl = stored["counterpedia_acquisition_base_url"] as
+    const baseUrl = storedConfig["counterpedia_acquisition_base_url"] as
       | string
       | undefined;
-    const token = stored["counterpedia_acquisition_token"] as
+    const token = storedSecret["counterpedia_acquisition_token"] as
       | string
       | undefined;
     if (!baseUrl || !token) return null;
