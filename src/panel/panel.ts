@@ -646,9 +646,56 @@ function parseEvidenceHandles(raw: string): string[] {
 }
 
 /**
- * Build the operator-authored draft material from the panel inputs. The client
- * NEVER invents claims: the single claim is exactly the operator's text over the
- * operator's cited handles. The recipe is minimal proposal-only scaffolding.
+ * The application's fixed authoring scaffold — NOT operator input. Everything
+ * below is a named, hard-coded default template this extension assembles the
+ * same way for every draft; none of it is asserted or typed by the human
+ * operator. It exists to satisfy the authoring contract's required shape
+ * (coverage requirements/assessments, recipe, depth) with a minimal,
+ * proposal-only default, not to make any claim on the operator's behalf.
+ * Kept as one named constant so its provenance (application, not operator)
+ * is visible at every call site rather than inlined anonymously.
+ */
+const DEFAULT_AUTHORING_PROFILE = {
+  // AUTH0-B1: the authoring producer's planner mirrors this id verbatim into
+  // a ResearchPlanProposal, which constrains candidate_source ids to
+  // `^src:[a-z0-9\-]{1,63}$` (see counterpedia-authoring's
+  // planner/planner.py / contracts/research_plan.py). Discovered via the
+  // real cross-process E2E in tests/draftFromSource.e2e.test.ts — without
+  // the `src:` prefix, every real draft-from-source request is refused
+  // (`pipeline_refused`, 422) by the real backend, even though it is
+  // structurally well-formed on the wire. Not a fake-server-only quirk.
+  candidateId: "src:operator-governed-source",
+  coverageRequirements: [
+    {
+      requirement_id: "req-core",
+      label: "Core coverage",
+      description: "Application-generated default coverage assessment (not an operator claim).",
+    },
+  ],
+  coverageState: "sufficient_candidate_support" as const,
+  recipe: {
+    recipe_id: "operator-standard",
+    output_profile: "counterpedia.standard.v1",
+    lead_policy_reference: "doctrine:authoring.proposal.v0.1",
+    recipe_version: "0.1.0",
+    desired_section_vocabulary: ["Background"],
+  },
+  depth: "brief",
+};
+
+/**
+ * Build the draft material from the panel inputs.
+ *
+ * OPERATOR-SUPPLIED (read verbatim from the DOM, never invented or
+ * completed): `subjectSeed`, `claimText`, and the cited `evidenceRefs`. The
+ * single claim built below is exactly the operator's text over the
+ * operator's cited handles — nothing more.
+ *
+ * APPLICATION-CONSTRUCTED (from `DEFAULT_AUTHORING_PROFILE`, an explicit
+ * default template — not an operator assertion): `operatorObjective`,
+ * `candidateId`, `coverageRequirements`, `coverageAssessments`, `recipe`,
+ * `depth`. See `OperatorDraftMaterial`'s doc comment in
+ * `src/lib/authoringClient.ts` for the same provenance split.
  */
 function readOperatorMaterial(): OperatorDraftMaterial | null {
   const subject = (
@@ -666,10 +713,8 @@ function readOperatorMaterial(): OperatorDraftMaterial | null {
 
   const claimId = "claim-operator-1";
   return {
+    // Operator-supplied.
     subjectSeed: subject,
-    operatorObjective: `Produce a bounded proposal describing ${subject}.`,
-    // Operator label for the governed source. NOT a producer id.
-    candidateId: "operator-governed-source-1",
     claims: [
       {
         claim_id: claimId,
@@ -678,29 +723,21 @@ function readOperatorMaterial(): OperatorDraftMaterial | null {
         contradicts: [],
       },
     ],
-    coverageRequirements: [
-      {
-        requirement_id: "req-core",
-        label: "Core coverage",
-        description: "Operator-authored bounded descriptive coverage.",
-      },
-    ],
+    // Application-constructed from DEFAULT_AUTHORING_PROFILE below — not
+    // operator-authored, despite the field name `operatorObjective`.
+    operatorObjective: `Produce a bounded proposal describing ${subject}.`,
+    candidateId: DEFAULT_AUTHORING_PROFILE.candidateId,
+    coverageRequirements: DEFAULT_AUTHORING_PROFILE.coverageRequirements,
     coverageAssessments: [
       {
         requirement_id: "req-core",
-        state: "sufficient_candidate_support",
+        state: DEFAULT_AUTHORING_PROFILE.coverageState,
         supporting_claim_ids: [claimId],
         conflicting_claim_ids: [],
       },
     ],
-    recipe: {
-      recipe_id: "operator-standard",
-      output_profile: "counterpedia.standard.v1",
-      lead_policy_reference: "doctrine:authoring.proposal.v0.1",
-      recipe_version: "0.1.0",
-      desired_section_vocabulary: ["Background"],
-    },
-    depth: "brief",
+    recipe: DEFAULT_AUTHORING_PROFILE.recipe,
+    depth: DEFAULT_AUTHORING_PROFILE.depth,
   };
 }
 

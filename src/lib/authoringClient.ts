@@ -69,13 +69,28 @@ export interface OperatorRecipeSpec {
 }
 
 /**
- * Operator-authored material for a draft. Everything here is authored by the
- * operator in the panel and passed through verbatim; the client adds nothing.
- * The only tie to the acquisition is `candidateId` (an operator label for the
- * governed source); the source URL itself is supplied separately as a bare
- * string so this material can never smuggle a producer fact. This SAME
- * material shape is reused by both `draftFromUrl()` and
- * `draftFromHeldCapture()` — there is no second "profile" concept.
+ * Draft material for a draft request. This type mixes two DIFFERENT
+ * provenances, and callers must not conflate them:
+ *
+ * - **Operator-supplied** (typed by a human in the panel, passed through
+ *   verbatim — the client neither invents nor completes these):
+ *   `claims[].claim_text` and the evidence handles cited in
+ *   `claims[].supports[].evidence_refs`, plus the free-text `subjectSeed`.
+ * - **Application-constructed** (assembled by this extension's code from an
+ *   explicit default profile, NOT an operator assertion — see
+ *   `DEFAULT_AUTHORING_PROFILE` in `src/panel/panel.ts`): `operatorObjective`,
+ *   `candidateId`, `coverageRequirements`, `coverageAssessments`, `recipe`,
+ *   and `depth`. Despite the field name `operatorObjective`, the panel's
+ *   current build populates this from a fixed application template, not
+ *   operator-authored text; a future surface could let the operator edit it
+ *   without changing this type.
+ *
+ * The only tie to the acquisition is `candidateId` (an application-assigned
+ * label for the governed source, not a producer id); the source URL itself
+ * is supplied separately as a bare string so this material can never smuggle
+ * a producer fact. This SAME material shape is reused by both
+ * `draftFromUrl()` and `draftFromHeldCapture()` — there is no second
+ * "profile" concept.
  */
 export interface OperatorDraftMaterial {
   subjectSeed: string;

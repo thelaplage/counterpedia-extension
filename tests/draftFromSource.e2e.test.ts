@@ -1,26 +1,38 @@
 /**
- * DRAFT-FROM-SOURCE — real TWO-SERVER cross-process proof of the three acts.
+ * DRAFT-FROM-SOURCE — real THREE-PROCESS cross-process proof of the three acts.
  *
- * This test mocks NOTHING on either producer side. It stands up, as separate OS
+ * This test mocks NOTHING on any producer side. It stands up, as separate OS
  * processes:
- *   (a) the REAL ACQ1 acquisition HTTP server (counterpedia-acquisition), which
- *       re-fetches a deterministic local fixture and mints an UNADMITTED receipt;
+ *   (a) the REAL ACQ1 acquisition HTTP server (counterpedia-acquisition), TEST
+ *       FIXTURE launcher (permissive egress ONLY so it can reach the local
+ *       fixture "source" below — see scripts/run_acquisition_http_test_fixture.py's
+ *       own docstring for exactly what that relaxes and what stays identical to
+ *       production), filesystem-backed so its capture registry is durable across
+ *       processes;
  *   (b) the REAL AUTHOR-HTTP transport (counterpedia-authoring), wired for
- *       hermetic determinism via that repo's own fake builders, but with the
- *       governed source URL set to the SAME fixture URL the acquisition captured
- *       — so a single governed source URL threads all three acts;
- *   (c) a deterministic node:http fixture source.
+ *       `/v0/draft-from-source` (AUTH0-B1) with a REAL held_capture_client that
+ *       talks to (c) below over real MCP stdio — NOT the URL-refetch fixture,
+ *       which cannot serve this route at all (see support/authorHttpSourceHermeticRunner.py's
+ *       module docstring for exactly why);
+ *   (c) a REAL acquisition MCP stdio subprocess (support/acquisitionMcpStdioEntry.py),
+ *       spawned fresh by (b) for each held-capture resolution, sharing (a)'s
+ *       on-disk store/registry so a capture registered in process (a) is
+ *       genuinely resolvable by capture_ref alone in this separate process;
+ *   (d) a deterministic node:http fixture source.
  *
  * Then it drives the REAL extension code path:
  *   browser BPC
- *     -> real ACQ1 client + guard  -> real acquisition -> validated result (UNADMITTED)
+ *     -> real ACQ1 client + guard   -> real acquisition -> validated result (UNADMITTED)
  *     -> EXPLICIT draft-from-source -> real AUTHOR-HTTP client + guard
- *     -> real authoring pipeline    -> terminal proposal_only handoff.
+ *     -> real held-capture pipeline (b)+(c), ZERO live fetch -> terminal proposal_only handoff.
  *
  * The three acts stay DISTINCT: capture never auto-drafts, the acquisition result
- * and the authoring proposal are different objects, and no producer-owned
- * acquisition fact is copied into the authoring request. There is no admission
- * endpoint and no admission call, ever.
+ * and the authoring proposal are different objects, and only the two deliberate,
+ * narrow fields (`source_locator` as a continuity constraint, `capture_id` as
+ * `capture_ref`) cross from the acquisition result into the authoring request —
+ * every other producer-owned acquisition fact does not. There is no admission
+ * endpoint and no admission call, ever. `draftFromUrl()` / `/v0/draft-from-url`
+ * is asserted to never be invoked anywhere in this run.
  *
  * node:http is used for the client transports ONLY so the (browser-forbidden)
  * Origin header actually reaches the servers; in the real extension the browser
@@ -28,8 +40,12 @@
  * response guards, and state derivation are all the real code path.
  *
  * Requires real checkouts of BOTH repos:
- *   COUNTERPEDIA_ACQUISITION_DIR -> has scripts/run_acquisition_http.py
- *   COUNTERPEDIA_AUTHORING_DIR   -> has the AUTHOR-HTTP transport + hermetic runner
+ *   COUNTERPEDIA_ACQUISITION_DIR -> has scripts/run_acquisition_http_test_fixture.py
+ *                                   and the MCP stdio surface (acquisition.mcp_cli /
+ *                                   acquisition.mcp_server modules)
+ *   COUNTERPEDIA_AUTHORING_DIR   -> has AUTH0-B1 (DraftFromSourceService /
+ *                                   held_capture_client / source_deps) and the
+ *                                   McpStdioAcquisitionToolTransport client
  * If EITHER is unresolved the suite SKIPS with a loud warning (the loop is NOT
  * exercised) rather than passing hollow.
  */
@@ -43,8 +59,9 @@ import {
 } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -78,10 +95,15 @@ const FIXTURE_BYTES = Buffer.from(
 const EXPECTED_SHA256 =
   "sha256:" + createHash("sha256").update(FIXTURE_BYTES).digest("hex");
 
-// The hermetic authoring plan candidate id is fixed by the authoring repo's
-// runner (SUBJECT_CANDIDATE_ID). The operator's candidate id must match it for
-// the transport's governed-URL continuity check to bind.
-const HERMETIC_CANDIDATE_ID = "src:lighthouse-registry";
+// /v0/draft-from-source builds its RequestBoundSourcePlannerAdapter directly
+// from the REQUEST's own candidates (see counterpedia-authoring's
+// http_transport.py, DraftFromSourceService.handle) -- unlike the URL lane,
+// there is no separate hermetic-server-side candidate id to bind against.
+// The one real backend constraint (discovered via this same E2E, see
+// src/panel/panel.ts's DEFAULT_AUTHORING_PROFILE.candidateId comment) is that
+// the authoring planner's ResearchPlanProposal requires candidate_source ids
+// to match `^src:[a-z0-9\-]{1,63}$`.
+const OPERATOR_CANDIDATE_ID = "src:draft-from-source-e2e";
 
 function resolveAcquisitionDir(): string | null {
   const candidates = [
@@ -90,7 +112,12 @@ function resolveAcquisitionDir(): string | null {
     join(__dirname, "../../../repos/counterpedia-acquisition"),
   ].filter((c): c is string => Boolean(c));
   for (const c of candidates) {
-    if (existsSync(join(c, "scripts/run_acquisition_http.py"))) return c;
+    if (
+      existsSync(join(c, "scripts/run_acquisition_http_test_fixture.py")) &&
+      existsSync(join(c, "src/acquisition/mcp_cli.py"))
+    ) {
+      return c;
+    }
   }
   return null;
 }
@@ -102,10 +129,7 @@ function resolveAuthoringDir(): string | null {
     join(__dirname, "../../../repos/counterpedia-authoring"),
   ].filter((c): c is string => Boolean(c));
   for (const c of candidates) {
-    if (
-      existsSync(join(c, "src/counterpedia_authoring/http_transport.py")) &&
-      existsSync(join(c, "tests/integration/_author_http_hermetic_server.py"))
-    ) {
+    if (existsSync(join(c, "src/counterpedia_authoring/http_transport.py"))) {
       return c;
     }
   }
@@ -217,18 +241,23 @@ function operatorMaterial(): OperatorDraftMaterial {
     subjectSeed: "Portland Head Light",
     operatorObjective:
       "Produce a bounded proposal describing Portland Head Light.",
-    candidateId: HERMETIC_CANDIDATE_ID,
+    candidateId: OPERATOR_CANDIDATE_ID,
+    // The held-capture evidence bundle always allocates evidence:E001 to the
+    // capture item itself (see counterpedia-authoring's evidence_builder/
+    // builder.py, add_acquisition_session()); a second, abstractive-synthesis
+    // handle is minted ONLY if the observer's grounding proposed a non-empty
+    // field for the captured bytes. FIXTURE_BYTES below is deliberately
+    // field-free HTML (no <title>/<h1>/meta description), so
+    // DeterministicHtmlBackend (the real acquisition repo's own offline
+    // reference backend, used by support/acquisitionMcpStdioEntry.py)
+    // proposes zero fields and only evidence:E001 exists. Claims below cite
+    // only that handle so this fixture never depends on that grounding
+    // detail.
     claims: [
       {
         claim_id: "claim-name",
         claim_text: "The subject is known as Portland Head Light.",
-        supports: [{ evidence_refs: ["evidence:E001", "evidence:E002"] }],
-        contradicts: [],
-      },
-      {
-        claim_id: "claim-location",
-        claim_text: "It is located in Cape Elizabeth, Maine.",
-        supports: [{ evidence_refs: ["evidence:E003"] }],
+        supports: [{ evidence_refs: ["evidence:E001"] }],
         contradicts: [],
       },
     ],
@@ -243,7 +272,7 @@ function operatorMaterial(): OperatorDraftMaterial {
       {
         requirement_id: "req-core",
         state: "sufficient_candidate_support",
-        supporting_claim_ids: ["claim-name", "claim-location"],
+        supporting_claim_ids: ["claim-name"],
         conflicting_claim_ids: [],
       },
     ],
@@ -284,13 +313,14 @@ if (!acqDir || !authDir) {
 }
 const describeE2E = acqDir && authDir ? describe : describe.skip;
 
-describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
+describeE2E("DRAFT-FROM-SOURCE — real three-process held-capture loop", () => {
   let acqProc: ChildProcess;
   let authProc: ChildProcess;
   let fixture: Server;
   let acqBase = "";
   let authBase = "";
   let fixtureUrl = "";
+  let storeRoot = "";
   const fixtureHits: string[] = [];
   let acqStderr = "";
   let authStderr = "";
@@ -299,8 +329,8 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
   let capturedResult: AcquisitionCaptureResult | null = null;
 
   beforeAll(async () => {
-    // (c) Deterministic local source both the producer re-fetch and the hermetic
-    // authoring plan point at.
+    // (d) Deterministic local source the ACQ1 producer captures from. Field-free
+    // HTML on purpose — see operatorMaterial()'s comment on evidence:E001-only.
     fixture = createHttpServer((req, res) => {
       const path = (req.url ?? "").split("?")[0] ?? "";
       fixtureHits.push(path);
@@ -320,12 +350,22 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     const fPort = typeof fAddr === "object" && fAddr ? fAddr.port : 0;
     fixtureUrl = `http://127.0.0.1:${fPort}/page`;
 
+    // Filesystem-backed store root shared by (a) the acquisition HTTP server's
+    // capture registry and (c) the authoring producer's separately-spawned
+    // acquisition MCP stdio subprocess — the mechanism that lets a capture_ref
+    // minted in one process resolve to real retained bytes in another.
+    storeRoot = mkdtempSync(join(tmpdir(), "cp-draft-from-source-e2e-"));
+
     // (a) Spawn the REAL Python acquisition server on a free loopback port.
+    // TEST FIXTURE launcher: permissive egress ONLY, so it can reach the local
+    // fixture "source" above — see scripts/run_acquisition_http_test_fixture.py's
+    // own docstring for exactly what differs from the production launcher (used
+    // nowhere else in this file) and what stays byte-identical to it.
     const acqPort = await freePort();
     acqBase = `http://127.0.0.1:${acqPort}`;
     acqProc = spawn(
       "python3",
-      [join(acqDir!, "scripts/run_acquisition_http.py")],
+      [join(acqDir!, "scripts/run_acquisition_http_test_fixture.py")],
       {
         cwd: acqDir!,
         env: {
@@ -335,17 +375,28 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
           CP_ACQUISITION_TRANSPORT_TOKEN: ACQ_TOKEN,
           CP_ACQUISITION_HTTP_HOST: "127.0.0.1",
           CP_ACQUISITION_HTTP_PORT: String(acqPort),
+          CP_ACQUISITION_HTTP_STORE_ROOT: storeRoot,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
     acqProc.stderr?.on("data", (c: Buffer) => (acqStderr += c.toString()));
 
-    // (b) Spawn the REAL authoring transport (hermetic) with the governed source
-    // URL == the fixture URL, on a free ephemeral port reported on stdout.
+    // (b) Spawn the REAL AUTHOR-HTTP transport wired for /v0/draft-from-source
+    // (source-enabled launcher — NOT authorHttpHermeticRunner.py, which cannot
+    // serve this route at all; see that file's own docstring and
+    // authorHttpSourceHermeticRunner.py's module docstring for why). It is
+    // handed the acquisition repo's src dir + the SAME storeRoot so its
+    // held_capture_client can spawn (c) against the real registered capture.
+    const authPort = await freePort();
     authProc = spawn(
       "python3",
-      [join(__dirname, "support/authorHttpHermeticRunner.py"), fixtureUrl, "0"],
+      [
+        join(__dirname, "support/authorHttpSourceHermeticRunner.py"),
+        join(acqDir!, "src"),
+        storeRoot,
+        String(authPort),
+      ],
       {
         cwd: authDir!,
         env: {
@@ -357,7 +408,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     );
     authProc.stderr?.on("data", (c: Buffer) => (authStderr += c.toString()));
 
-    const authPort = await new Promise<number>((resolve, reject) => {
+    const boundAuthPort = await new Promise<number>((resolve, reject) => {
       let buf = "";
       const timer = setTimeout(
         () =>
@@ -381,7 +432,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
         );
       });
     });
-    authBase = `http://127.0.0.1:${authPort}`;
+    authBase = `http://127.0.0.1:${boundAuthPort}`;
 
     try {
       await waitForHealth(acqBase, 15_000);
@@ -398,6 +449,13 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     if (acqProc && !acqProc.killed) acqProc.kill("SIGTERM");
     if (authProc && !authProc.killed) authProc.kill("SIGTERM");
     if (fixture) await new Promise<void>((r) => fixture.close(() => r()));
+    if (storeRoot) {
+      try {
+        rmSync(storeRoot, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup only
+      }
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -519,10 +577,105 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     ).length;
     expect(admissionCalls).toBe(0);
 
+    // Zero authoring URL reacquisition: draftFromUrl() / /v0/draft-from-url is
+    // never invoked anywhere in this run — the historical-reference lane never
+    // falls back to a live re-fetch.
+    const draftFromUrlCalls = authoringRequests.filter(
+      (r) => r.path === "/v0/draft-from-url",
+    ).length;
+    expect(draftFromUrlCalls).toBe(0);
+
     // eslint-disable-next-line no-console
     console.log("ADMISSION CALLS = 0");
     // eslint-disable-next-line no-console
     console.log("STATE COLLAPSE = NONE");
+  }, 45_000);
+
+  // -------------------------------------------------------------------------
+  // A -> B proof: capture A, then take the ORIGIN ITSELF DOWN (not just skip
+  // calling draftFromUrl — the origin genuinely cannot be reached anymore),
+  // and prove the historical draft still succeeds from the retained capture.
+  // This is the strongest available proof of "zero live re-fetch": even a
+  // producer that WANTED to fall back to a live fetch could not succeed here.
+  // -------------------------------------------------------------------------
+  it("origin taken down after capture -> historical draft still succeeds from retained bytes", async () => {
+    // A private fixture + capture for this test only, so shutting the origin
+    // down here cannot affect any other test in this file.
+    const privateBytes = Buffer.from(
+      "<html><body>A-to-B origin-gone proof fixture bytes.</body></html>",
+      "utf-8",
+    );
+    const privateFixture = createHttpServer((req, res) => {
+      const path = (req.url ?? "").split("?")[0] ?? "";
+      if (path === "/gone-page") {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Length": String(privateBytes.length),
+        });
+        res.end(privateBytes);
+      } else {
+        res.writeHead(404, { "Content-Length": "0" });
+        res.end();
+      }
+    });
+    await new Promise<void>((r) =>
+      privateFixture.listen(0, "127.0.0.1", () => r()),
+    );
+    const pAddr = privateFixture.address();
+    const pPort = typeof pAddr === "object" && pAddr ? pAddr.port : 0;
+    const privateUrl = `http://127.0.0.1:${pPort}/gone-page`;
+
+    // ACT A: real capture while the origin is still up.
+    const acqClient = createHttpAcquisitionClient({
+      config: { baseUrl: acqBase, token: ACQ_TOKEN },
+      fetchImpl: nodeHttpFetch,
+      originHeader: ORIGIN,
+    });
+    const captured = await acqClient.capture(e2eBpc(privateUrl));
+    expect(captured.kind).toBe("captured");
+    if (captured.kind !== "captured") return;
+
+    // Take the origin ITSELF down — not a mock, not "we didn't call fetch":
+    // the port is closed and nothing is listening there anymore. Any producer
+    // attempting a live re-fetch of this exact URL would now hard-fail.
+    await new Promise<void>((r) => privateFixture.close(() => r()));
+    await new Promise((r) => setTimeout(r, 100));
+    // Confirm the origin is genuinely unreachable before proceeding.
+    await expect(
+      new Promise((_resolve, reject) => {
+        const req = httpRequest(
+          { hostname: "127.0.0.1", port: pPort, path: "/gone-page", method: "GET" },
+          () => reject(new Error("origin unexpectedly still reachable")),
+        );
+        req.on("error", () => reject(new Error("ECONNREFUSED (expected)")));
+        req.end();
+      }),
+    ).rejects.toThrow("ECONNREFUSED");
+
+    // ACT B: draft-from-source over the SAME retained capture, origin gone.
+    const authClient = createHttpAuthoringClient({
+      config: { baseUrl: authBase, token: AUTH_TOKEN },
+      fetchImpl: recordingAuthoringFetch,
+      originHeader: ORIGIN,
+    });
+    const draft = await authClient.draftFromHeldCapture(
+      captured.result,
+      operatorMaterial(),
+    );
+
+    expect(draft.kind).toBe("assembled");
+    if (draft.kind !== "assembled") return;
+    expect(draft.handoff.authority_posture).toBe("proposal_only");
+
+    // The evidence item's content digest is the digest of the ORIGINAL
+    // retained bytes captured in ACT A — not a fresh (impossible) re-fetch.
+    const privateSha256 =
+      "sha256:" + createHash("sha256").update(privateBytes).digest("hex");
+    expect(captured.result.captured_object_address).toBe(privateSha256);
+    const items = draft.handoff.evidence_bundle["items"] as Array<{
+      content_digest?: string;
+    }>;
+    expect(items.some((i) => i.content_digest === privateSha256)).toBe(true);
   }, 45_000);
 
   // -------------------------------------------------------------------------
@@ -536,7 +689,7 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
     const contaminated = {
       subject_seed: material.subjectSeed,
       operator_objective: material.operatorObjective,
-      candidates: [{ candidate_id: HERMETIC_CANDIDATE_ID, url: fixtureUrl }],
+      candidates: [{ candidate_id: OPERATOR_CANDIDATE_ID, url: fixtureUrl }],
       // Producer-owned custody fact the caller must never assert:
       source_id: "src-attacker-supplied",
       claims: material.claims,
@@ -563,7 +716,9 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
 
   // -------------------------------------------------------------------------
   // Negative: an authoring failure leaves the acquisition record intact and
-  // never admits. A mismatched candidate id => governed_url_mismatch (422).
+  // never admits. An unknown capture_ref => the real held-capture registry
+  // resolution fails (held_capture_invalid), which DraftFromSourceService
+  // maps to source_basis_unresolved (422) — never a fallback to a live fetch.
   // -------------------------------------------------------------------------
   it("authoring failure leaves the acquisition record intact (real 422, no proposal)", async () => {
     expect(capturedResult).not.toBeNull();
@@ -574,9 +729,16 @@ describeE2E("DRAFT-FROM-SOURCE — real two-server three-act loop", () => {
       fetchImpl: recordingAuthoringFetch,
       originHeader: ORIGIN,
     });
-    // A candidate id the hermetic plan does not know => continuity fails closed.
-    const bad = { ...operatorMaterial(), candidateId: "operator-unbound-id" };
-    const out = await authClient.draftFromHeldCapture(capturedResult!, bad);
+    // A capture_id the real registry never registered => held-capture
+    // resolution fails closed, real backend, real registry lookup.
+    const unknownCapture: AcquisitionCaptureResult = {
+      ...(capturedResult as AcquisitionCaptureResult),
+      capture_id: "cap_00000000-0000-0000-0000-000000000000",
+    };
+    const out = await authClient.draftFromHeldCapture(
+      unknownCapture,
+      operatorMaterial(),
+    );
 
     expect(out.kind).toBe("authoring_failed");
     if (out.kind === "authoring_failed") expect(out.status).toBe(422);
