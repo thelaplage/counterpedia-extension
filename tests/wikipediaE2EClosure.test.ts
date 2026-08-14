@@ -38,6 +38,20 @@ describe("WIKIPEDIA-E2E0 closure invariants", () => {
     );
   });
 
+  it("keeps the ACQ transport secret session-only", () => {
+    const client = readText("src/lib/acquisitionClient.ts");
+
+    expect(client).toContain(
+      'chrome.storage.session.get(["counterpedia_acquisition_token"])',
+    );
+    expect(client).toContain(
+      'chrome.storage.sync.get(["counterpedia_acquisition_base_url"])',
+    );
+    expect(client).not.toContain(
+      'chrome.storage.sync.get([\n      "counterpedia_acquisition_base_url",\n      "counterpedia_acquisition_token",',
+    );
+  });
+
   it("keeps the dedicated authoring-dev build target", () => {
     const pkg = JSON.parse(readText("package.json")) as {
       scripts?: Record<string, string>;
