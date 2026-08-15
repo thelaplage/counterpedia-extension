@@ -257,12 +257,29 @@ export function buildDraftFromSourceRequest(
  * Result of a draft attempt (either action). `not_configured` / `invalid_source` /
  * `authoring_failed` never carry a proposal; `assembled` carries the guarded
  * proposal-only handoff and is terminally UNADMITTED.
+ *
+ * `refusalCode` (C0-REFUSAL-DETAIL-RECON0): the bounded, typed refusal code the
+ * authoring backend returns in a non-2xx JSON body's `error` field (e.g.
+ * `source_basis_unresolved`, `pipeline_refused`,
+ * `held_capture_requires_single_candidate`). This is a NARROW, separately
+ * parsed field — never derived from `detail`, never populated from anything
+ * but a literal string `error` key on the parsed error body. Any other body
+ * shape (malformed JSON, non-JSON, missing/non-string `error`) yields `null`;
+ * it never crashes the client and never reflects arbitrary server prose.
+ * `invalid_source` is always a client-side refusal (no network response was
+ * ever received), so it carries no `refusalCode`.
  */
 export type AuthoringClientResult =
   | { kind: "not_configured" }
   | { kind: "invalid_source"; detail: string }
   | { kind: "assembled"; handoff: AuthoringHandoff }
-  | { kind: "authoring_failed"; status: number | null; detail: string };
+  | {
+      kind: "authoring_failed";
+      status: number | null;
+      detail: string;
+      /** The bounded server refusal code, or null if none was present/parseable. */
+      refusalCode: string | null;
+    };
 
 export interface AuthoringClient {
   readonly kind: "http" | "not_configured";
@@ -335,6 +352,36 @@ export const notConfiguredAuthoringClient: AuthoringClient = {
   },
 };
 
+/**
+ * Extract ONLY a bounded `error: string` field from a parsed non-2xx JSON
+ * body. Fails safe to `null` on anything else — wrong shape, non-string
+ * `error`, or (via the caller's try/catch around `response.json()`) a body
+ * that isn't valid JSON at all. Never reflects any other field.
+ */
+function parseRefusalCode(raw: unknown): string | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const error = (raw as Record<string, unknown>)["error"];
+  return typeof error === "string" ? error : null;
+}
+
+/**
+ * Best-effort extraction of the bounded refusal code from a non-2xx response
+ * body. Parse failure (malformed/absent JSON) fails safe to `null` — it never
+ * throws and never treats the response as anything but a failure.
+ */
+async function extractRefusalCode(
+  response: Pick<Awaited<ReturnType<FetchLike>>, "json">,
+): Promise<string | null> {
+  try {
+    const raw = await response.json();
+    return parseRefusalCode(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** POST `request` to `endpoint` and run the response through the fail-closed guard. */
 async function postAndGuard(
   endpoint: string,
@@ -359,15 +406,22 @@ async function postAndGuard(
       kind: "authoring_failed",
       status: null,
       detail: err instanceof Error ? err.message : "network error",
+      refusalCode: null,
     };
   }
 
   if (!response.ok) {
-    // Transport/pipeline-level rejection (4xx/5xx). Never a proposal.
+    // Transport/pipeline-level rejection (4xx/5xx). Never a proposal. The
+    // backend returns a bounded typed refusal code (e.g.
+    // "source_basis_unresolved", "pipeline_refused") in the JSON body's
+    // `error` field — parse it narrowly and carry it through; fail safe to
+    // null on any body that doesn't match that exact bounded shape.
+    const refusalCode = await extractRefusalCode(response);
     return {
       kind: "authoring_failed",
       status: response.status,
       detail: `http ${response.status}`,
+      refusalCode,
     };
   }
 
@@ -379,6 +433,7 @@ async function postAndGuard(
       kind: "authoring_failed",
       status: response.status,
       detail: "non-JSON response",
+      refusalCode: null,
     };
   }
 
@@ -392,6 +447,7 @@ async function postAndGuard(
         kind: "authoring_failed",
         status: response.status,
         detail: err.message,
+        refusalCode: null,
       };
     }
     throw err;

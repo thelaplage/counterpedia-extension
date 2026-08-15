@@ -114,21 +114,79 @@ describe("renderAuthoringClientResult — mapping never admits", () => {
     expect(r.lifecycle).toBe("proposal");
   });
 
-  it("authoring_failed => draft failed (acquisition record intact, no authority)", () => {
+  it("authoring_failed with no refusal code => generic draft-failed label (acquisition record intact, no authority)", () => {
     const r = renderAuthoringClientResult({
       kind: "authoring_failed",
-      status: 422,
-      detail: "pipeline_refused",
+      status: 500,
+      detail: "http 500",
+      refusalCode: null,
     });
     expect(r.state).toBe("DRAFT_FAILED");
     expect(r.lifecycle).toBeNull();
+    expect(r.refusalCode).toBeNull();
+    expect(r.label).toBe("Draft from source failed");
   });
 
-  it("invalid_source => draft failed", () => {
+  it("invalid_source => draft failed, no refusal code (client-side refusal, no network response)", () => {
     const r = renderAuthoringClientResult({
       kind: "invalid_source",
       detail: "no url",
     });
     expect(r.state).toBe("DRAFT_FAILED");
+    expect(r.refusalCode).toBeNull();
+    expect(r.label).toBe("Draft from source failed");
+  });
+
+  describe("C0-REFUSAL-DETAIL-RECON0 — bounded server refusal codes survive to the render", () => {
+    it("source_basis_unresolved is carried through and visibly distinct from a generic failure", () => {
+      const specific = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      const generic = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: null,
+      });
+      expect(specific.state).toBe("DRAFT_FAILED");
+      expect(specific.refusalCode).toBe("source_basis_unresolved");
+      expect(specific.label).toContain("source_basis_unresolved");
+      // The load-bearing operator-visible proof: the two situations render
+      // differently, not just carry a different unused field.
+      expect(specific.label).not.toBe(generic.label);
+    });
+
+    it("pipeline_refused is also carried through and distinct from an unrelated code", () => {
+      const pipelineRefused = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "pipeline_refused",
+      });
+      const sourceUnresolved = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      expect(pipelineRefused.label).toContain("pipeline_refused");
+      expect(pipelineRefused.label).not.toBe(sourceUnresolved.label);
+    });
+
+    it("still never renders a forbidden success word, even with a refusal code present", () => {
+      const r = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      const upperLabel = r.label.toUpperCase();
+      for (const word of FORBIDDEN_SUCCESS_STATES) {
+        expect(upperLabel.includes(word)).toBe(false);
+      }
+    });
   });
 });

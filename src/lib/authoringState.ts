@@ -65,6 +65,14 @@ export interface AuthoringRender {
   lifecycle: string | null;
   /** The producer's handoff digest when assembled; else null. Opaque label. */
   handoffDigest: string | null;
+  /**
+   * The bounded server refusal code (e.g. "source_basis_unresolved") when the
+   * terminal state was reached via a non-2xx authoring response that carried
+   * one; else null. C0-REFUSAL-DETAIL-RECON0: this is surfaced so an operator
+   * can tell a "historical source unresolved" refusal apart from a generic
+   * pipeline refusal — it is never synthesized from unbounded server prose.
+   */
+  refusalCode: string | null;
 }
 
 function assertNotSuccessWord(label: string): void {
@@ -84,6 +92,7 @@ function make(
   label: string,
   lifecycle: string | null,
   handoffDigest: string | null,
+  refusalCode: string | null = null,
 ): AuthoringRender {
   assertNotSuccessWord(label);
   return {
@@ -93,6 +102,7 @@ function make(
     admissionLine: ADMISSION_LINE,
     lifecycle,
     handoffDigest,
+    refusalCode,
   };
 }
 
@@ -151,14 +161,21 @@ export function renderDraftServiceUnavailable(): AuthoringRender {
   );
 }
 
-/** Render for a transport/pipeline failure. The acquisition record is intact. */
-export function renderDraftFailed(): AuthoringRender {
-  return make(
-    "DRAFT_FAILED",
-    "Draft from source failed",
-    null,
-    null,
-  );
+/**
+ * Render for a transport/pipeline failure. The acquisition record is intact.
+ *
+ * When the server returned a bounded refusal code, the label distinguishes it
+ * from a generic failure (C0-REFUSAL-DETAIL-RECON0) — e.g. a
+ * `source_basis_unresolved` refusal reads differently from a bare
+ * `pipeline_refused`/unknown failure, so an operator isn't left guessing which
+ * situation they're in. `refusalCode` is null for client-side refusals
+ * (`invalid_source`) that never reached the network.
+ */
+export function renderDraftFailed(refusalCode: string | null = null): AuthoringRender {
+  const label = refusalCode
+    ? `Draft from source refused: ${refusalCode}`
+    : "Draft from source failed";
+  return make("DRAFT_FAILED", label, null, null, refusalCode);
 }
 
 /**
@@ -176,7 +193,8 @@ export function renderAuthoringClientResult(
     case "assembled":
       return renderProposalAssembled(result.handoff);
     case "invalid_source":
-    case "authoring_failed":
       return renderDraftFailed();
+    case "authoring_failed":
+      return renderDraftFailed(result.refusalCode);
   }
 }
