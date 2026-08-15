@@ -22,6 +22,7 @@ interface Manifest {
   version: string;
   host_permissions?: string[];
   permissions?: string[];
+  icons?: Record<string, string>;
   _authoring_dev?: boolean;
   _acquisition_dev?: boolean;
   _privacy_audit?: Record<string, unknown>;
@@ -38,6 +39,11 @@ beforeAll(() => {
 });
 
 describe("manifest.authoring-dev.json", () => {
+  it("uses a Chrome-valid numeric version and does not reference empty icon placeholders", () => {
+    expect(auth.version).toMatch(/^\d+(?:\.\d+){0,3}$/);
+    expect(auth.icons).toBeUndefined();
+  });
+
   it("scopes host_permissions to the two loopback ports only", () => {
     expect(auth.host_permissions).toEqual([
       "http://127.0.0.1:8787/*",
