@@ -28,10 +28,10 @@ After one-time technical installation:
 4. Click **Connect Counterpedia Local**.
 5. Browse to a source and click **Capture this source**.
 6. A successful producer capture still terminates visibly as **UNADMITTED**.
-7. Enter operator claim material and choose **Draft from source**.
+7. Enter operator claim material, check **Use this captured source as evidence**, and choose **Draft from source**.
 8. A successful authoring result remains **proposal only** and **Admission: not performed**.
 
-No extension ID, localhost port, transport token, `chrome.storage`, DevTools, git branch, or virtualenv command is part of normal use.
+No extension ID, localhost port, transport token, raw `evidence:E001` handle, `chrome.storage`, DevTools, git branch, or virtualenv command is part of normal use.
 
 ## One-time technical installation
 
@@ -51,7 +51,21 @@ store:       ~/.counterpedia/acquisition
 
 Technical installers may override the first two with `COUNTERPEDIA_ACQUISITION_DIR` and `COUNTERPEDIA_AUTHORING_DIR`.
 
-Authoring currently reads `OPENAI_API_KEY` from the environment that launches Counterpedia Local. The key is never returned by `/v0/status`, `/v0/diagnostics`, or `/v0/pair`, and the companion suppresses obvious secret-bearing log lines in its bounded diagnostic report.
+### One-time model-key provisioning on macOS
+
+The daily Finder launcher first honors an already-configured `OPENAI_API_KEY`; otherwise it reads the key from the macOS Keychain service `counterpedia-openai-api-key`. This lets the teammate double-click the launcher without handling the key or opening Terminal during normal use.
+
+A technical installer can provision the already-rotated key once from a trusted shell:
+
+```bash
+security add-generic-password \
+  -U \
+  -a "$USER" \
+  -s counterpedia-openai-api-key \
+  -w "$OPENAI_API_KEY"
+```
+
+Do not place the key in the extension, repository, pairing response, receipt, or governed corpus artifact. The key is never returned by `/v0/status`, `/v0/diagnostics`, or `/v0/pair`, and the companion suppresses obvious secret-bearing log lines in its bounded diagnostic report.
 
 ## Pairing contract
 
