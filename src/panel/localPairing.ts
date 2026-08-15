@@ -6,6 +6,11 @@ import {
 
 const SECTION_ID = "counterpedia-local-section";
 
+function teamBetaEnabled(): boolean {
+  const manifest = chrome.runtime.getManifest() as Record<string, unknown>;
+  return manifest["_local_companion_dev"] === true;
+}
+
 function makeButton(label: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -70,6 +75,7 @@ async function hasSessionCredential(): Promise<boolean> {
 }
 
 async function initLocalPairing(): Promise<void> {
+  if (!teamBetaEnabled()) return;
   if (document.getElementById(SECTION_ID)) return;
   const content = document.querySelector(".panel-content");
   if (!content) return;
