@@ -741,7 +741,14 @@ describeE2E("DRAFT-FROM-SOURCE — real three-process held-capture loop", () => 
     );
 
     expect(out.kind).toBe("authoring_failed");
-    if (out.kind === "authoring_failed") expect(out.status).toBe(422);
+    if (out.kind === "authoring_failed") {
+      expect(out.status).toBe(422);
+      // C0-REFUSAL-DETAIL-RECON0: prove the REAL backend's bounded refusal
+      // code survives all the way through the extension's HTTP client,
+      // against the real DraftFromSourceService -> held_capture_client ->
+      // real registry lookup (no mocking on either side of this call).
+      expect(out.refusalCode).toBe("source_basis_unresolved");
+    }
 
     // The acquisition record is unchanged by the failed draft.
     expect(capturedResult).toEqual(before);

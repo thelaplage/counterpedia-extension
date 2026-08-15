@@ -114,21 +114,103 @@ describe("renderAuthoringClientResult — mapping never admits", () => {
     expect(r.lifecycle).toBe("proposal");
   });
 
-  it("authoring_failed => draft failed (acquisition record intact, no authority)", () => {
+  it("authoring_failed with no refusal code => generic draft-failed label (acquisition record intact, no authority)", () => {
     const r = renderAuthoringClientResult({
       kind: "authoring_failed",
-      status: 422,
-      detail: "pipeline_refused",
+      status: 500,
+      detail: "http 500",
+      refusalCode: null,
     });
     expect(r.state).toBe("DRAFT_FAILED");
     expect(r.lifecycle).toBeNull();
+    expect(r.refusalCode).toBeNull();
+    expect(r.label).toBe("Draft from source failed");
   });
 
-  it("invalid_source => draft failed", () => {
+  it("invalid_source => draft failed, no refusal code (client-side refusal, no network response)", () => {
     const r = renderAuthoringClientResult({
       kind: "invalid_source",
       detail: "no url",
     });
     expect(r.state).toBe("DRAFT_FAILED");
+    expect(r.refusalCode).toBeNull();
+    expect(r.label).toBe("Draft from source failed");
+  });
+
+  describe("C0-REFUSAL-DETAIL-RECON0 — bounded server refusal codes survive to the render", () => {
+    it("source_basis_unresolved is carried through and visibly distinct from a generic failure", () => {
+      const specific = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      const generic = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: null,
+      });
+      expect(specific.state).toBe("DRAFT_FAILED");
+      expect(specific.refusalCode).toBe("source_basis_unresolved");
+      // Round 1 review correction: the raw code is no longer interpolated
+      // directly into operator prose (a server-controlled token, even one that
+      // has already passed the bounded grammar, is never embedded verbatim) —
+      // known codes get an explicit human-readable label instead.
+      expect(specific.label).toBe(
+        "Draft from source refused: historical source unresolved",
+      );
+      // The load-bearing operator-visible proof: the two situations render
+      // differently, not just carry a different unused field.
+      expect(specific.label).not.toBe(generic.label);
+    });
+
+    it("pipeline_refused is also carried through and distinct from an unrelated code", () => {
+      const pipelineRefused = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "pipeline_refused",
+      });
+      const sourceUnresolved = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      expect(pipelineRefused.label).toBe(
+        "Draft from source refused: pipeline refused",
+      );
+      expect(pipelineRefused.label).not.toBe(sourceUnresolved.label);
+    });
+
+    it("an unmapped-but-validly-bounded refusal code renders the generic refusal label, never interpolated verbatim (round 1 review)", () => {
+      const r = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        // A hypothetical future bounded code the extension has no label for.
+        // It already passed parseRefusalCode()'s grammar check upstream, but
+        // the renderer must still never embed an arbitrary/unknown token
+        // directly into operator-visible prose.
+        refusalCode: "held_capture_requires_single_candidate",
+      });
+      expect(r.refusalCode).toBe("held_capture_requires_single_candidate");
+      expect(r.label).toBe("Draft from source refused");
+      expect(r.label).not.toContain("held_capture_requires_single_candidate");
+    });
+
+    it("still never renders a forbidden success word, even with a refusal code present", () => {
+      const r = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        refusalCode: "source_basis_unresolved",
+      });
+      const upperLabel = r.label.toUpperCase();
+      for (const word of FORBIDDEN_SUCCESS_STATES) {
+        expect(upperLabel.includes(word)).toBe(false);
+      }
+    });
   });
 });
