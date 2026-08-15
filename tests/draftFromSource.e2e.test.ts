@@ -78,6 +78,7 @@ import {
 import {
   mapDraftAvailability,
   renderProposalAssembled,
+  renderAuthoringClientResult,
 } from "../src/lib/authoringState";
 import { tryParseAuthoringHandoff } from "../src/lib/authoringResponseGuard";
 import type { BrowserPageCapture } from "../src/lib/browserPageCapture";
@@ -741,7 +742,26 @@ describeE2E("DRAFT-FROM-SOURCE — real three-process held-capture loop", () => 
     );
 
     expect(out.kind).toBe("authoring_failed");
-    if (out.kind === "authoring_failed") expect(out.status).toBe(422);
+    if (out.kind === "authoring_failed") {
+      expect(out.status).toBe(422);
+      // C0-REFUSAL-DETAIL-RECON0: the real backend's bounded typed refusal
+      // code must survive the client's HTTP layer intact, not collapse to a
+      // generic "http 422". This is the REAL cross-process proof — no mock.
+      expect(out.refusalCode).toBe("source_basis_unresolved");
+
+      // ...and it must carry through to the operator-visible render, visibly
+      // distinguishable from a generic pipeline_refused/unlabeled failure.
+      const render = renderAuthoringClientResult(out);
+      expect(render.refusalCode).toBe("source_basis_unresolved");
+      expect(render.label).toContain("source_basis_unresolved");
+      const genericFailureRender = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 500,
+        detail: "http 500",
+        refusalCode: null,
+      });
+      expect(render.label).not.toBe(genericFailureRender.label);
+    }
 
     // The acquisition record is unchanged by the failed draft.
     expect(capturedResult).toEqual(before);

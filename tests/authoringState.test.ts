@@ -114,14 +114,39 @@ describe("renderAuthoringClientResult — mapping never admits", () => {
     expect(r.lifecycle).toBe("proposal");
   });
 
-  it("authoring_failed => draft failed (acquisition record intact, no authority)", () => {
+  it("authoring_failed with no refusal code => draft failed, generic label, no authority", () => {
     const r = renderAuthoringClientResult({
       kind: "authoring_failed",
       status: 422,
-      detail: "pipeline_refused",
+      detail: "http 422",
+      refusalCode: null,
     });
     expect(r.state).toBe("DRAFT_FAILED");
     expect(r.lifecycle).toBeNull();
+    expect(r.refusalCode).toBeNull();
+    expect(r.label).toBe("Draft from source failed");
+  });
+
+  it("authoring_failed carries a bounded refusal code into a visibly distinct label", () => {
+    const unresolved = renderAuthoringClientResult({
+      kind: "authoring_failed",
+      status: 422,
+      detail: "http 422",
+      refusalCode: "source_basis_unresolved",
+    });
+    const genericRefused = renderAuthoringClientResult({
+      kind: "authoring_failed",
+      status: 422,
+      detail: "http 422",
+      refusalCode: "pipeline_refused",
+    });
+    expect(unresolved.refusalCode).toBe("source_basis_unresolved");
+    expect(genericRefused.refusalCode).toBe("pipeline_refused");
+    // The two distinct bounded refusal codes must render visibly differently
+    // to the operator — never collapse into the same generic string.
+    expect(unresolved.label).not.toBe(genericRefused.label);
+    expect(unresolved.label).toContain("source_basis_unresolved");
+    expect(genericRefused.label).toContain("pipeline_refused");
   });
 
   it("invalid_source => draft failed", () => {

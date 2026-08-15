@@ -257,12 +257,40 @@ export function buildDraftFromSourceRequest(
  * Result of a draft attempt (either action). `not_configured` / `invalid_source` /
  * `authoring_failed` never carry a proposal; `assembled` carries the guarded
  * proposal-only handoff and is terminally UNADMITTED.
+ *
+ * `authoring_failed.refusalCode` carries the backend's bounded typed refusal
+ * code (e.g. `source_basis_unresolved`, `pipeline_refused`,
+ * `held_capture_requires_single_candidate`) when the non-2xx response body
+ * parses as JSON with a string `error` field. It is `null` whenever that
+ * shape isn't present — malformed body, non-JSON body, missing/non-string
+ * `error`, or a network-level failure with no response at all. `detail`
+ * stays the existing coarse `http <status>` / error-message string; this new
+ * field is additive, never a replacement.
  */
 export type AuthoringClientResult =
   | { kind: "not_configured" }
   | { kind: "invalid_source"; detail: string }
   | { kind: "assembled"; handoff: AuthoringHandoff }
-  | { kind: "authoring_failed"; status: number | null; detail: string };
+  | {
+      kind: "authoring_failed";
+      status: number | null;
+      detail: string;
+      refusalCode: string | null;
+    };
+
+/**
+ * Parse the bounded server refusal shape (`{ "error": "<code>" }`) out of a
+ * non-2xx response body. Fails safe to `null` on ANY deviation — non-JSON
+ * text, a JSON body that isn't an object, a missing `error` field, or an
+ * `error` field that isn't a string. Never throws; never reflects arbitrary
+ * body content, only the single bounded `error` string when it is exactly
+ * that shape.
+ */
+function extractRefusalCode(raw: unknown): string | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const candidate = (raw as Record<string, unknown>)["error"];
+  return typeof candidate === "string" ? candidate : null;
+}
 
 export interface AuthoringClient {
   readonly kind: "http" | "not_configured";
@@ -359,15 +387,28 @@ async function postAndGuard(
       kind: "authoring_failed",
       status: null,
       detail: err instanceof Error ? err.message : "network error",
+      refusalCode: null,
     };
   }
 
   if (!response.ok) {
-    // Transport/pipeline-level rejection (4xx/5xx). Never a proposal.
+    // Transport/pipeline-level rejection (4xx/5xx). Never a proposal. The
+    // backend returns a bounded typed refusal code (e.g.
+    // `source_basis_unresolved`, `pipeline_refused`,
+    // `held_capture_requires_single_candidate`) in the JSON body; parse it
+    // out defensively — a malformed or non-JSON body must never crash this
+    // path, it just yields `refusalCode: null`.
+    let refusalCode: string | null = null;
+    try {
+      refusalCode = extractRefusalCode(await response.json());
+    } catch {
+      refusalCode = null;
+    }
     return {
       kind: "authoring_failed",
       status: response.status,
       detail: `http ${response.status}`,
+      refusalCode,
     };
   }
 
@@ -379,6 +420,7 @@ async function postAndGuard(
       kind: "authoring_failed",
       status: response.status,
       detail: "non-JSON response",
+      refusalCode: null,
     };
   }
 
@@ -388,10 +430,13 @@ async function postAndGuard(
   } catch (err) {
     if (err instanceof AuthoringResponseError) {
       // Contaminated / unauthorized response: refuse it even from localhost.
+      // This is a CLIENT-SIDE guard rejection of an otherwise-2xx response,
+      // not a server-declared bounded refusal code, so refusalCode is null.
       return {
         kind: "authoring_failed",
         status: response.status,
         detail: err.message,
+        refusalCode: null,
       };
     }
     throw err;
