@@ -5,9 +5,11 @@ import {
 } from "../lib/localCompanionClient";
 
 const SECTION_ID = "counterpedia-local-section";
+const EVIDENCE_UI_ID = "counterpedia-local-evidence-choice";
+const CAPTURE_EVIDENCE_HANDLE = "evidence:E001";
 
 function teamBetaEnabled(): boolean {
-  const manifest = chrome.runtime.getManifest() as Record<string, unknown>;
+  const manifest = chrome.runtime.getManifest() as unknown as Record<string, unknown>;
   return manifest["_local_companion_dev"] === true;
 }
 
@@ -65,6 +67,53 @@ function buildSection(): {
   return { section, status, connect, setup };
 }
 
+/**
+ * TEAM-UX0 presentation only: hide the developer-facing evidence-handle textbox
+ * and replace it with one explicit human choice. The existing authoring pipeline
+ * still reads #authoring-evidence and receives the same deterministic
+ * evidence:E001 handle; this module changes no authoring contract or authority.
+ */
+function installCapturedSourceEvidenceChoice(): void {
+  if (document.getElementById(EVIDENCE_UI_ID)) return;
+
+  const rawInput = document.getElementById("authoring-evidence") as HTMLInputElement | null;
+  if (!rawInput) return;
+
+  const label = document.querySelector(
+    'label[for="authoring-evidence"]',
+  ) as HTMLElement | null;
+  const hint = rawInput.parentElement?.querySelector(".authoring-hint") as HTMLElement | null;
+
+  if (label) label.style.display = "none";
+  rawInput.style.display = "none";
+  rawInput.value = "";
+  if (hint) hint.style.display = "none";
+
+  const choice = document.createElement("label");
+  choice.id = EVIDENCE_UI_ID;
+  choice.style.display = "flex";
+  choice.style.alignItems = "flex-start";
+  choice.style.gap = "8px";
+  choice.style.margin = "9px 0 11px";
+  choice.style.fontSize = "13px";
+  choice.style.cursor = "pointer";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.setAttribute("aria-label", "Use this captured source as evidence");
+
+  const text = document.createElement("span");
+  text.innerHTML =
+    "<strong>Use this captured source as evidence</strong><br><span style=\"color:#687572\">The retained capture is cited in the proposal. This does not establish that the source's claims are true.</span>";
+
+  checkbox.addEventListener("change", () => {
+    rawInput.value = checkbox.checked ? CAPTURE_EVIDENCE_HANDLE : "";
+  });
+
+  choice.append(checkbox, text);
+  rawInput.insertAdjacentElement("afterend", choice);
+}
+
 async function hasSessionCredential(): Promise<boolean> {
   try {
     const stored = await chrome.storage.session.get(["counterpedia_acquisition_token"]);
@@ -76,6 +125,7 @@ async function hasSessionCredential(): Promise<boolean> {
 
 async function initLocalPairing(): Promise<void> {
   if (!teamBetaEnabled()) return;
+  installCapturedSourceEvidenceChoice();
   if (document.getElementById(SECTION_ID)) return;
   const content = document.querySelector(".panel-content");
   if (!content) return;
