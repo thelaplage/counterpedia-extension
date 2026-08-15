@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Counterpedia (Draft-from-source Dev)",
   "version": "0.1.0",
-  "description": "Counterpedia extension — local historical draft-from-source dev build. Connects only to the 127.0.0.1:8787 acquisition loopback and the 127.0.0.1:8788 authoring loopback. Capture, acquisition, and drafting are separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
+  "description": "Counterpedia extension — local historical draft-from-source dev build. Counterpedia Local pairs the browser to the 127.0.0.1 acquisition and authoring services without manual extension IDs, ports, DevTools, or token setup. Capture, acquisition, and drafting remain separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
@@ -13,7 +13,8 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
-    "http://127.0.0.1:8788/*"
+    "http://127.0.0.1:8788/*",
+    "http://127.0.0.1:8790/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -34,6 +35,8 @@
   "_acquisition_endpoint": "http://127.0.0.1:8787",
   "_authoring_dev": true,
   "_authoring_endpoint": "http://127.0.0.1:8788",
+  "_local_companion_dev": true,
+  "_local_companion_endpoint": "http://127.0.0.1:8790",
   "_three_acts": [
     "1. capture (browser observation, explicit click)",
     "2. acquisition (producer re-fetch -> retained exact bytes + UNADMITTED receipt, 8787)",
@@ -48,11 +51,14 @@
     "all_urls_permission": false,
     "acquisition_host_permission": "http://127.0.0.1:8787/* only",
     "authoring_host_permission": "http://127.0.0.1:8788/* only",
+    "local_companion_host_permission": "http://127.0.0.1:8790/* only",
     "capture_requires_explicit_click": true,
     "draft_requires_separate_explicit_click": true,
     "draft_reuses_retained_capture": true,
     "draft_live_source_fetch": false,
     "draft_is_proposal_only_never_admission": true,
-    "transport_token_is_transport_auth_only": true
+    "transport_token_is_transport_auth_only": true,
+    "acquisition_token_storage": "chrome.storage.session",
+    "pairing_is_transport_configuration_only": true
   }
 }
