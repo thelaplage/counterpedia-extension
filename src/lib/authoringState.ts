@@ -162,6 +162,21 @@ export function renderDraftServiceUnavailable(): AuthoringRender {
 }
 
 /**
+ * Known refusal-code -> operator label mapping. Deliberately NOT exhaustive and
+ * NOT a second closed vocabulary of backend codes — `parseRefusalCode()` already
+ * bounds the shape/grammar of `refusalCode` before it reaches here. This map only
+ * gives the operator-meaningful codes a distinct, human-readable label; any other
+ * validly-bounded-but-unmapped code renders the generic refusal label below
+ * rather than being interpolated into prose (a server-controlled refusal code is
+ * never embedded directly in operator-visible text, even once it's passed the
+ * bounded shape/grammar check).
+ */
+const REFUSAL_CODE_LABELS: Readonly<Record<string, string>> = {
+  source_basis_unresolved: "Draft from source refused: historical source unresolved",
+  pipeline_refused: "Draft from source refused: pipeline refused",
+};
+
+/**
  * Render for a transport/pipeline failure. The acquisition record is intact.
  *
  * When the server returned a bounded refusal code, the label distinguishes it
@@ -173,7 +188,7 @@ export function renderDraftServiceUnavailable(): AuthoringRender {
  */
 export function renderDraftFailed(refusalCode: string | null = null): AuthoringRender {
   const label = refusalCode
-    ? `Draft from source refused: ${refusalCode}`
+    ? (REFUSAL_CODE_LABELS[refusalCode] ?? "Draft from source refused")
     : "Draft from source failed";
   return make("DRAFT_FAILED", label, null, null, refusalCode);
 }

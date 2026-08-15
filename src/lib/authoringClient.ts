@@ -353,17 +353,35 @@ export const notConfiguredAuthoringClient: AuthoringClient = {
 };
 
 /**
+ * Conservative bounded-token grammar for a refusal code: lowercase snake_case,
+ * starts with a letter, max 64 chars. This is NOT a second closed vocabulary of
+ * known backend codes — it's a shape bound that rejects free-form prose (spaces,
+ * punctuation, HTML, newlines, unbounded length) regardless of what codes the
+ * backend introduces in the future.
+ */
+const REFUSAL_CODE_GRAMMAR = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
  * Extract ONLY a bounded `error: string` field from a parsed non-2xx JSON
- * body. Fails safe to `null` on anything else — wrong shape, non-string
- * `error`, or (via the caller's try/catch around `response.json()`) a body
- * that isn't valid JSON at all. Never reflects any other field.
+ * body. Fails safe to `null` on anything else — wrong shape (including any
+ * extra key beyond `error`), a non-string `error`, an `error` that doesn't
+ * match the bounded token grammar, or (via the caller's try/catch around
+ * `response.json()`) a body that isn't valid JSON at all. Never reflects any
+ * other field or any out-of-grammar string.
  */
 function parseRefusalCode(raw: unknown): string | null {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
+  const keys = Object.keys(raw as Record<string, unknown>);
+  if (keys.length !== 1 || keys[0] !== "error") {
+    return null;
+  }
   const error = (raw as Record<string, unknown>)["error"];
-  return typeof error === "string" ? error : null;
+  if (typeof error !== "string" || !REFUSAL_CODE_GRAMMAR.test(error)) {
+    return null;
+  }
+  return error;
 }
 
 /**

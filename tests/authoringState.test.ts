@@ -153,7 +153,13 @@ describe("renderAuthoringClientResult — mapping never admits", () => {
       });
       expect(specific.state).toBe("DRAFT_FAILED");
       expect(specific.refusalCode).toBe("source_basis_unresolved");
-      expect(specific.label).toContain("source_basis_unresolved");
+      // Round 1 review correction: the raw code is no longer interpolated
+      // directly into operator prose (a server-controlled token, even one that
+      // has already passed the bounded grammar, is never embedded verbatim) —
+      // known codes get an explicit human-readable label instead.
+      expect(specific.label).toBe(
+        "Draft from source refused: historical source unresolved",
+      );
       // The load-bearing operator-visible proof: the two situations render
       // differently, not just carry a different unused field.
       expect(specific.label).not.toBe(generic.label);
@@ -172,8 +178,26 @@ describe("renderAuthoringClientResult — mapping never admits", () => {
         detail: "http 422",
         refusalCode: "source_basis_unresolved",
       });
-      expect(pipelineRefused.label).toContain("pipeline_refused");
+      expect(pipelineRefused.label).toBe(
+        "Draft from source refused: pipeline refused",
+      );
       expect(pipelineRefused.label).not.toBe(sourceUnresolved.label);
+    });
+
+    it("an unmapped-but-validly-bounded refusal code renders the generic refusal label, never interpolated verbatim (round 1 review)", () => {
+      const r = renderAuthoringClientResult({
+        kind: "authoring_failed",
+        status: 422,
+        detail: "http 422",
+        // A hypothetical future bounded code the extension has no label for.
+        // It already passed parseRefusalCode()'s grammar check upstream, but
+        // the renderer must still never embed an arbitrary/unknown token
+        // directly into operator-visible prose.
+        refusalCode: "held_capture_requires_single_candidate",
+      });
+      expect(r.refusalCode).toBe("held_capture_requires_single_candidate");
+      expect(r.label).toBe("Draft from source refused");
+      expect(r.label).not.toContain("held_capture_requires_single_candidate");
     });
 
     it("still never renders a forbidden success word, even with a refusal code present", () => {

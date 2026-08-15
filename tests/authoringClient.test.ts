@@ -384,6 +384,76 @@ describe("createHttpAuthoringClient.draftFromUrl — transport + guarded respons
     }
   });
 
+  it("fails safe to refusalCode: null when an otherwise-valid code is accompanied by an extra field (C0-REFUSAL-DETAIL-RECON0 review round 1)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          error: "source_basis_unresolved",
+          message: "do not leak",
+        }),
+        text: async () => "irrelevant",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      // The body must be the EXACT bounded shape {error: string}, one key only.
+      // An otherwise-valid code accompanied by any extra field is rejected
+      // wholesale, not partially trusted.
+      expect(out.refusalCode).toBeNull();
+      expect(out.detail).not.toContain("do not leak");
+    }
+  });
+
+  it("fails safe to refusalCode: null on an overlong error string (bounded token grammar)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({ error: "a".repeat(5000) }),
+        text: async () => "irrelevant",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBeNull();
+    }
+  });
+
+  it("fails safe to refusalCode: null on punctuation, HTML, newlines, or arbitrary prose in the error field (bounded token grammar)", async () => {
+    const hostileErrors = [
+      "5000 characters of arbitrary server prose",
+      "<script>alert(1)</script>",
+      "error with\nnewline",
+      "error; with; semicolons",
+      "Error_With_Caps",
+      "-leading-dash",
+      "",
+    ];
+    for (const hostileError of hostileErrors) {
+      const client = createHttpAuthoringClient({
+        config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+        fetchImpl: async () => ({
+          ok: false,
+          status: 422,
+          json: async () => ({ error: hostileError }),
+          text: async () => "irrelevant",
+        }),
+      });
+      const out = await client.draftFromUrl(capturedResult(), material());
+      expect(out.kind).toBe("authoring_failed");
+      if (out.kind === "authoring_failed") {
+        expect(out.refusalCode).toBeNull();
+        expect(out.detail ?? "").not.toContain("<script>");
+      }
+    }
+  });
+
   it("rejects a contaminated 200 response via the guard (renders no authority)", async () => {
     const client = createHttpAuthoringClient({
       config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
