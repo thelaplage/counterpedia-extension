@@ -1,35 +1,63 @@
 /**
- * CHECK-PATHS0 — deterministic inquiry-path suggestions from the structure the
- * current Counterpedia search projection actually exposes.
+ * CHECK-PATHS0 — attributable inquiry-path suggestions.
  *
- * This is intentionally not an ontology service and not model inference. Every
- * suggestion carries the exact current-record basis that caused it to exist.
- * Future Countergraph / FSKN / specialist-domain providers can implement the
- * same consumer shape without changing the UI contract.
+ * Public Counterpedia is the only live provider in this stack, but the consumer
+ * contract is provider-neutral so My Knowledge, Countergraph, organizations,
+ * FSKN domains, Researcher profiles, and agent-proposed routes can later
+ * contribute without becoming one blended recommendation authority.
  */
 
 import type { SearchResult } from "../types";
+import {
+  PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
+  providerScopedPathId,
+  type InquiryPathProvider,
+  type InquiryPathProviderRef,
+} from "./pathProviderContract";
+
+export type { InquiryPathProviderRef } from "./pathProviderContract";
+export { PUBLIC_COUNTERPEDIA_PATH_PROVIDER } from "./pathProviderContract";
 
 export type InquiryPathKind = "structural" | "record_topic" | "source_path";
 export type InquiryPathBasis =
   | "result_structure"
   | "record_title"
-  | "source_label";
+  | "source_label"
+  | "graph_relation"
+  | "local_history"
+  | "foreign_projection"
+  | "researcher_profile"
+  | "agent_proposal";
 
 export interface InquiryPathProvenance {
-  domain: "Public Counterpedia";
+  /** Canonical provider identity. */
+  provider: InquiryPathProviderRef;
+  /** Compatibility/display mirror of provider.label; never an authority field. */
+  domain: string;
   basis: InquiryPathBasis;
   explanation: string;
+  /** Current-result anchors when a suggestion is grounded in this Check. */
   recordIds: string[];
   recordTitles: string[];
 }
 
 export interface InquiryPathSuggestion {
+  /** Provider-scoped opaque id after aggregation. */
   id: string;
   label: string;
   kind: InquiryPathKind;
   provenance: InquiryPathProvenance;
 }
+
+export interface InquiryPathProviderContext {
+  query: string;
+  results: SearchResult[];
+}
+
+export type CounterpediaInquiryPathProvider = InquiryPathProvider<
+  InquiryPathProviderContext,
+  InquiryPathSuggestion
+>;
 
 const STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
@@ -50,7 +78,10 @@ function slug(value: string): string {
 }
 
 function boundedLabel(value: string): string | null {
-  const cleaned = value.replace(/\s+/g, " ").trim().replace(/^[\s:;,.-]+|[\s:;,.-]+$/g, "");
+  const cleaned = value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[\s:;,.-]+|[\s:;,.-]+$/g, "");
   if (cleaned.length < 3 || cleaned.length > 72) return null;
   return cleaned;
 }
@@ -87,6 +118,19 @@ function exactRecordBasis(
   return {
     recordIds: matching.map((result) => result.record_id),
     recordTitles: matching.map((result) => result.title),
+  };
+}
+
+function publicProvenance(input: {
+  basis: InquiryPathBasis;
+  explanation: string;
+  recordIds: string[];
+  recordTitles: string[];
+}): InquiryPathProvenance {
+  return {
+    provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
+    domain: PUBLIC_COUNTERPEDIA_PATH_PROVIDER.label,
+    ...input,
   };
 }
 
@@ -137,12 +181,11 @@ function addStructuralPaths(
       id: `structural:${definition.key}`,
       label: definition.label,
       kind: "structural",
-      provenance: {
-        domain: "Public Counterpedia",
+      provenance: publicProvenance({
         basis: "result_structure",
         explanation: definition.explanation,
         ...basis,
-      },
+      }),
     });
   }
 }
@@ -166,7 +209,10 @@ function addRecordTopicPaths(
           .split(" ")
           .filter((term) => term.length > 2 && !STOPWORDS.has(term));
         if (meaningful.length === 0) continue;
-        const existing = byLabel.get(key) ?? { label: segment, ids: new Set<string>() };
+        const existing = byLabel.get(key) ?? {
+          label: segment,
+          ids: new Set<string>(),
+        };
         existing.ids.add(result.record_id);
         byLabel.set(key, existing);
       }
@@ -183,13 +229,12 @@ function addRecordTopicPaths(
       id: `record-topic:${slug(candidate.label)}`,
       label: candidate.label,
       kind: "record_topic",
-      provenance: {
-        domain: "Public Counterpedia",
+      provenance: publicProvenance({
         basis: "record_title",
         explanation:
           "Suggested from a bounded title/subtitle segment in the current matched record set.",
         ...basis,
-      },
+      }),
     });
   }
 }
@@ -205,7 +250,10 @@ function addSourcePaths(
       const label = boundedLabel(sourceLabel);
       if (!label) continue;
       const key = normalize(label);
-      const existing = byLabel.get(key) ?? { label, ids: new Set<string>() };
+      const existing = byLabel.get(key) ?? {
+        label,
+        ids: new Set<string>(),
+      };
       existing.ids.add(result.record_id);
       byLabel.set(key, existing);
     }
@@ -221,35 +269,74 @@ function addSourcePaths(
       id: `source-path:${slug(candidate.label)}`,
       label: candidate.label,
       kind: "source_path",
-      provenance: {
-        domain: "Public Counterpedia",
+      provenance: publicProvenance({
         basis: "source_label",
         explanation:
           "Suggested because this source label appears in the current matched record set.",
         ...basis,
-      },
+      }),
     });
   }
+}
+
+function suggestPublicCounterpediaPaths(
+  context: InquiryPathProviderContext,
+): InquiryPathSuggestion[] {
+  if (context.results.length === 0) return [];
+  const out: InquiryPathSuggestion[] = [];
+  addStructuralPaths(out, context.results);
+  addRecordTopicPaths(out, context.query, context.results, 6);
+  addSourcePaths(out, context.results, 4);
+  return out;
+}
+
+export const publicCounterpediaInquiryPathProvider: CounterpediaInquiryPathProvider = {
+  ref: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
+  suggest: suggestPublicCounterpediaPaths,
+};
+
+/**
+ * Aggregate attributable provider outputs without allowing an implementation to
+ * spoof another provider's identity. The registered provider ref overwrites any
+ * provider/domain value returned in the suggestion payload.
+ *
+ * Same-label paths from different providers intentionally remain distinct.
+ */
+export function suggestInquiryPathsWithProviders(
+  query: string,
+  results: SearchResult[],
+  providers: CounterpediaInquiryPathProvider[],
+): InquiryPathSuggestion[] {
+  const context: InquiryPathProviderContext = { query, results };
+  const out: InquiryPathSuggestion[] = [];
+  const seen = new Set<string>();
+
+  for (const provider of providers) {
+    for (const proposed of provider.suggest(context)) {
+      const id = providerScopedPathId(provider.ref, proposed.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        ...proposed,
+        id,
+        provenance: {
+          ...proposed.provenance,
+          provider: provider.ref,
+          domain: provider.ref.label,
+        },
+      });
+    }
+  }
+  return out;
 }
 
 export function suggestInquiryPaths(
   query: string,
   results: SearchResult[],
 ): InquiryPathSuggestion[] {
-  if (results.length === 0) return [];
-
-  const out: InquiryPathSuggestion[] = [];
-  addStructuralPaths(out, results);
-  addRecordTopicPaths(out, query, results, 6);
-  addSourcePaths(out, results, 4);
-
-  const seen = new Set<string>();
-  return out.filter((path) => {
-    const key = `${path.kind}:${normalize(path.label)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return suggestInquiryPathsWithProviders(query, results, [
+    publicCounterpediaInquiryPathProvider,
+  ]);
 }
 
 export function visibleRecordIdsForPaths(

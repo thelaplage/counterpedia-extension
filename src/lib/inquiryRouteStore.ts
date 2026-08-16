@@ -7,6 +7,7 @@
  */
 
 import type { InquiryPathSuggestion } from "./inquiryPaths";
+import type { InquiryPathProviderKind } from "./pathProviderContract";
 
 export const INQUIRY_ROUTE_STORAGE_KEY = "counterpedia.inquiry-routes.v0_1";
 export const INQUIRY_ROUTE_SCHEMA = "counterpedia.inquiry-route.v0_1" as const;
@@ -23,6 +24,8 @@ export interface SavedInquiryPath {
   label: string;
   kind: InquiryPathSuggestion["kind"];
   domain: string;
+  provider_id: string;
+  provider_kind: InquiryPathProviderKind;
   basis: string;
   record_ids: string[];
 }
@@ -57,6 +60,22 @@ function bounded(value: string, field: string, max: number): string {
   return trimmed;
 }
 
+function isSavedPath(value: unknown): value is SavedInquiryPath {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const path = value as Record<string, unknown>;
+  return (
+    typeof path["id"] === "string" &&
+    typeof path["label"] === "string" &&
+    typeof path["kind"] === "string" &&
+    typeof path["domain"] === "string" &&
+    typeof path["provider_id"] === "string" &&
+    typeof path["provider_kind"] === "string" &&
+    typeof path["basis"] === "string" &&
+    Array.isArray(path["record_ids"]) &&
+    path["record_ids"].every((item) => typeof item === "string")
+  );
+}
+
 function isStoredRoute(value: unknown): value is SavedInquiryRoute {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const route = value as Record<string, unknown>;
@@ -65,7 +84,9 @@ function isStoredRoute(value: unknown): value is SavedInquiryRoute {
   if (typeof route["name"] !== "string") return false;
   if (typeof route["saved_at"] !== "string") return false;
   if (typeof route["base_query"] !== "string") return false;
-  if (!Array.isArray(route["paths"])) return false;
+  if (!Array.isArray(route["paths"]) || !route["paths"].every(isSavedPath)) {
+    return false;
+  }
   const boundary = route["boundary"] as Record<string, unknown> | undefined;
   return (
     boundary?.["retention"] === INQUIRY_ROUTE_BOUNDARY.retention &&
@@ -95,10 +116,16 @@ export function buildSavedInquiryRoute(input: {
   const paths = input.suggestions
     .filter((suggestion) => input.selectedPathIds.has(suggestion.id))
     .map((suggestion) => ({
-      id: bounded(suggestion.id, "path_id", 160),
+      id: bounded(suggestion.id, "path_id", 240),
       label: bounded(suggestion.label, "path_label", 120),
       kind: suggestion.kind,
       domain: bounded(suggestion.provenance.domain, "path_domain", 120),
+      provider_id: bounded(
+        suggestion.provenance.provider.id,
+        "path_provider_id",
+        160,
+      ),
+      provider_kind: suggestion.provenance.provider.kind,
       basis: bounded(suggestion.provenance.basis, "path_basis", 120),
       record_ids: suggestion.provenance.recordIds.map((recordId) =>
         bounded(recordId, "record_id", 512),
@@ -132,7 +159,9 @@ export async function appendSavedInquiryRoute(
   storage: InquiryRouteStorage,
   route: SavedInquiryRoute,
 ): Promise<number> {
-  const existing = parseSavedInquiryRoutes(await storage.get(INQUIRY_ROUTE_STORAGE_KEY));
+  const existing = parseSavedInquiryRoutes(
+    await storage.get(INQUIRY_ROUTE_STORAGE_KEY),
+  );
   const next = [...existing, route];
   await storage.set(INQUIRY_ROUTE_STORAGE_KEY, next);
   return next.length;

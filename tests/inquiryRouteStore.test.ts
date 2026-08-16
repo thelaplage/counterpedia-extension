@@ -9,12 +9,14 @@ import {
   type SavedInquiryRoute,
 } from "../src/lib/inquiryRouteStore";
 import type { InquiryPathSuggestion } from "../src/lib/inquiryPaths";
+import { PUBLIC_COUNTERPEDIA_PATH_PROVIDER } from "../src/lib/pathProviderContract";
 
 const path: InquiryPathSuggestion = {
-  id: "record-topic:sampling-technology",
+  id: "counterpedia.public::record-topic:sampling-technology",
   label: "Sampling technology",
   kind: "record_topic",
   provenance: {
+    provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
     domain: "Public Counterpedia",
     basis: "record_title",
     explanation: "Suggested from a matched title.",
@@ -34,7 +36,7 @@ class MemoryStorage implements InquiryRouteStorage {
 }
 
 describe("saved inquiry routes", () => {
-  it("saves an intentional route without creating an agent or auto-inclusion rule", () => {
+  it("saves provider attribution with an intentional route without creating an agent", () => {
     const route = buildSavedInquiryRoute({
       routeId: "route-1",
       name: "Music production researcher",
@@ -44,6 +46,8 @@ describe("saved inquiry routes", () => {
       selectedPathIds: new Set([path.id]),
     });
     expect(route.paths[0]?.label).toBe("Sampling technology");
+    expect(route.paths[0]?.provider_id).toBe("counterpedia.public");
+    expect(route.paths[0]?.provider_kind).toBe("public_reference");
     expect(route.boundary).toEqual(INQUIRY_ROUTE_BOUNDARY);
     expect(route.boundary.agent_created).toBe("no");
     expect(route.boundary.automatic_future_inclusion).toBe("no");

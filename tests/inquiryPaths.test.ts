@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { SearchResult } from "../src/types";
 import {
+  PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
   suggestInquiryPaths,
+  suggestInquiryPathsWithProviders,
   visibleRecordIdsForPaths,
+  type CounterpediaInquiryPathProvider,
+  type InquiryPathSuggestion,
 } from "../src/lib/inquiryPaths";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
@@ -28,7 +32,7 @@ function result(overrides: Partial<SearchResult> = {}): SearchResult {
 }
 
 describe("inquiry paths", () => {
-  it("suggests structural paths only when the current record structure supports them", () => {
+  it("suggests structural paths only when current result structure supports them", () => {
     const paths = suggestInquiryPaths("hip-hop production", [result()]);
     const labels = paths.map((path) => path.label);
     expect(labels).toContain("Sources");
@@ -41,6 +45,9 @@ describe("inquiry paths", () => {
     const paths = suggestInquiryPaths("hip-hop production", [result()]);
     const sampling = paths.find((path) => path.label === "Sampling technology");
     expect(sampling?.kind).toBe("record_topic");
+    expect(sampling?.provenance.provider).toEqual(
+      PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
+    );
     expect(sampling?.provenance.domain).toBe("Public Counterpedia");
     expect(sampling?.provenance.recordIds).toEqual(["REC-1"]);
     expect(sampling?.provenance.basis).toBe("record_title");
@@ -51,6 +58,53 @@ describe("inquiry paths", () => {
     const source = paths.find((path) => path.label === "Interview archive");
     expect(source?.kind).toBe("source_path");
     expect(source?.provenance.basis).toBe("source_label");
+  });
+
+  it("keeps identical labels from different providers distinct and binds attribution to the registered provider", () => {
+    const proposed: InquiryPathSuggestion = {
+      id: "regional-radio",
+      label: "Regional radio",
+      kind: "record_topic",
+      provenance: {
+        provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
+        domain: "spoofed public label",
+        basis: "foreign_projection",
+        explanation: "Foreign provider proposes a developed branch.",
+        recordIds: ["REC-1"],
+        recordTitles: ["Regional radio"],
+      },
+    };
+    const foreignA: CounterpediaInquiryPathProvider = {
+      ref: {
+        id: "jazz.commons",
+        label: "Jazz Discography Commons",
+        kind: "federated_domain",
+      },
+      suggest: () => [proposed],
+    };
+    const foreignB: CounterpediaInquiryPathProvider = {
+      ref: {
+        id: "my.knowledge",
+        label: "My Knowledge",
+        kind: "local_knowledge",
+      },
+      suggest: () => [proposed],
+    };
+    const paths = suggestInquiryPathsWithProviders(
+      "radio",
+      [result()],
+      [foreignA, foreignB],
+    );
+    expect(paths).toHaveLength(2);
+    expect(paths.map((path) => path.provenance.provider.id)).toEqual([
+      "jazz.commons",
+      "my.knowledge",
+    ]);
+    expect(paths.map((path) => path.provenance.domain)).toEqual([
+      "Jazz Discography Commons",
+      "My Knowledge",
+    ]);
+    expect(new Set(paths.map((path) => path.id)).size).toBe(2);
   });
 
   it("selecting multiple paths broadens the local path view by union", () => {
@@ -82,7 +136,10 @@ describe("inquiry paths", () => {
   });
 
   it("no selected path leaves the whole matched result set visible", () => {
-    const results = [result(), result({ record_id: "REC-2", title: "Regional radio" })];
+    const results = [
+      result(),
+      result({ record_id: "REC-2", title: "Regional radio" }),
+    ];
     const paths = suggestInquiryPaths("hip-hop", results);
     expect([...visibleRecordIdsForPaths(results, paths, new Set())].sort()).toEqual([
       "REC-1",

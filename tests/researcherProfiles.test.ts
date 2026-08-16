@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InquiryPathSuggestion } from "../src/lib/inquiryPaths";
+import { PUBLIC_COUNTERPEDIA_PATH_PROVIDER } from "../src/lib/pathProviderContract";
 import {
   RESEARCHER_PROFILE_BOUNDARY,
   ResearcherProfileError,
@@ -11,10 +12,11 @@ import {
 } from "../src/lib/researcherProfiles";
 
 const sampling: InquiryPathSuggestion = {
-  id: "record-topic:sampling-technology",
+  id: "counterpedia.public::record-topic:sampling-technology",
   label: "Sampling technology",
   kind: "record_topic",
   provenance: {
+    provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
     domain: "Public Counterpedia",
     basis: "record_title",
     explanation: "Matched title",
@@ -24,10 +26,11 @@ const sampling: InquiryPathSuggestion = {
 };
 
 const labels: InquiryPathSuggestion = {
-  id: "record-topic:record-label-economics",
+  id: "counterpedia.public::record-topic:record-label-economics",
   label: "Record-label economics",
   kind: "record_topic",
   provenance: {
+    provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
     domain: "Public Counterpedia",
     basis: "record_title",
     explanation: "Matched title",
@@ -60,13 +63,14 @@ describe("Researcher profiles", () => {
     expect(profile.paths.map((path) => path.label)).toEqual([
       "Record-label economics",
     ]);
+    expect(profile.paths[0]?.provider_id).toBe("counterpedia.public");
     expect(profile.boundary).toEqual(RESEARCHER_PROFILE_BOUNDARY);
     expect(profile.boundary.agent_runtime).toBe("none");
     expect(profile.boundary.tool_authority).toBe("none");
     expect(profile.boundary.automatic_activation).toBe("no");
   });
 
-  it("matches a saved Researcher against paths available in a later Check", () => {
+  it("matches a saved Researcher only against the same provider plus path semantics", () => {
     const profile = buildResearcherProfile({
       profileId: "researcher-1",
       name: "Music Industry Researcher",
@@ -75,13 +79,29 @@ describe("Researcher profiles", () => {
       suggestions: [sampling, labels],
       selectedPathIds: new Set([sampling.id, labels.id]),
     });
-    const match = matchResearcherProfile(profile, [
-      { ...labels, id: "record-topic:record-label-economics-v2" },
-    ]);
-    expect(match.matchedPathIds).toEqual([
-      "record-topic:record-label-economics-v2",
-    ]);
+    const sameProviderRenamedId: InquiryPathSuggestion = {
+      ...labels,
+      id: "counterpedia.public::record-topic:record-label-economics-v2",
+    };
+    const match = matchResearcherProfile(profile, [sameProviderRenamedId]);
+    expect(match.matchedPathIds).toEqual([sameProviderRenamedId.id]);
     expect(match.missingPathLabels).toEqual(["Sampling technology"]);
+
+    const foreignSameLabel: InquiryPathSuggestion = {
+      ...labels,
+      id: "jazz.commons::record-topic:record-label-economics",
+      provenance: {
+        ...labels.provenance,
+        provider: {
+          id: "jazz.commons",
+          label: "Jazz Discography Commons",
+          kind: "federated_domain",
+        },
+        domain: "Jazz Discography Commons",
+      },
+    };
+    const foreignMatch = matchResearcherProfile(profile, [foreignSameLabel]);
+    expect(foreignMatch.matchedPathIds).toEqual([]);
   });
 
   it("requires an explicit non-empty path selection", () => {

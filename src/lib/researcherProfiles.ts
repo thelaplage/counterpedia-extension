@@ -7,6 +7,7 @@
  */
 
 import type { InquiryPathSuggestion } from "./inquiryPaths";
+import type { InquiryPathProviderKind } from "./pathProviderContract";
 
 export const RESEARCHER_PROFILE_STORAGE_KEY =
   "counterpedia.researcher-profiles.v0_1";
@@ -26,6 +27,8 @@ export interface ResearcherPathRef {
   label: string;
   kind: InquiryPathSuggestion["kind"];
   domain: string;
+  provider_id: string;
+  provider_kind: InquiryPathProviderKind;
   basis: string;
 }
 
@@ -68,6 +71,20 @@ function normalize(value: string): string {
   return value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function isResearcherPathRef(value: unknown): value is ResearcherPathRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const path = value as Record<string, unknown>;
+  return (
+    typeof path["id"] === "string" &&
+    typeof path["label"] === "string" &&
+    typeof path["kind"] === "string" &&
+    typeof path["domain"] === "string" &&
+    typeof path["provider_id"] === "string" &&
+    typeof path["provider_kind"] === "string" &&
+    typeof path["basis"] === "string"
+  );
+}
+
 function isStoredProfile(value: unknown): value is ResearcherProfile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const profile = value as Record<string, unknown>;
@@ -76,7 +93,9 @@ function isStoredProfile(value: unknown): value is ResearcherProfile {
   if (typeof profile["name"] !== "string") return false;
   if (typeof profile["created_at"] !== "string") return false;
   if (typeof profile["seed_query"] !== "string") return false;
-  if (!Array.isArray(profile["paths"])) return false;
+  if (!Array.isArray(profile["paths"]) || !profile["paths"].every(isResearcherPathRef)) {
+    return false;
+  }
   const boundary = profile["boundary"] as Record<string, unknown> | undefined;
   return (
     boundary?.["retention"] === RESEARCHER_PROFILE_BOUNDARY.retention &&
@@ -107,10 +126,12 @@ export function buildResearcherProfile(input: {
   const paths = input.suggestions
     .filter((path) => input.selectedPathIds.has(path.id))
     .map((path) => ({
-      id: bounded(path.id, "path_id", 160),
+      id: bounded(path.id, "path_id", 240),
       label: bounded(path.label, "path_label", 120),
       kind: path.kind,
       domain: bounded(path.provenance.domain, "path_domain", 120),
+      provider_id: bounded(path.provenance.provider.id, "path_provider_id", 160),
+      provider_kind: path.provenance.provider.kind,
       basis: bounded(path.provenance.basis, "path_basis", 120),
     }));
 
@@ -157,10 +178,15 @@ export function matchResearcherProfile(
   const missingPathLabels: string[] = [];
 
   for (const ref of profile.paths) {
-    const exact = suggestions.find((path) => path.id === ref.id);
+    const exact = suggestions.find(
+      (path) =>
+        path.id === ref.id && path.provenance.provider.id === ref.provider_id,
+    );
     const fallback = suggestions.find(
       (path) =>
-        path.kind === ref.kind && normalize(path.label) === normalize(ref.label),
+        path.kind === ref.kind &&
+        path.provenance.provider.id === ref.provider_id &&
+        normalize(path.label) === normalize(ref.label),
     );
     const match = exact ?? fallback;
     if (match) matchedPathIds.push(match.id);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InquiryPathSuggestion } from "../src/lib/inquiryPaths";
+import { PUBLIC_COUNTERPEDIA_PATH_PROVIDER } from "../src/lib/pathProviderContract";
 import {
   projectInquiryTrace,
   recordPathSelection,
@@ -8,10 +9,11 @@ import {
 
 const paths: InquiryPathSuggestion[] = [
   {
-    id: "record-topic:sampling",
+    id: "counterpedia.public::record-topic:sampling",
     label: "Sampling technology",
     kind: "record_topic",
     provenance: {
+      provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
       domain: "Public Counterpedia",
       basis: "record_title",
       explanation: "Matched title",
@@ -20,10 +22,11 @@ const paths: InquiryPathSuggestion[] = [
     },
   },
   {
-    id: "record-topic:labels",
+    id: "counterpedia.public::record-topic:labels",
     label: "Record-label economics",
     kind: "record_topic",
     provenance: {
+      provider: PUBLIC_COUNTERPEDIA_PATH_PROVIDER,
       domain: "Public Counterpedia",
       basis: "record_title",
       explanation: "Matched title",
