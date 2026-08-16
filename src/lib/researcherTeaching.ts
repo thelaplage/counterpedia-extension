@@ -158,7 +158,9 @@ export function parseResearcherTeachingEvents(
   if (!Array.isArray(value) || !value.every(isStoredEvent)) {
     throw new ResearcherTeachingError("storage_corrupt");
   }
-  return value as ResearcherTeachingEvent[];
+  const events = value as ResearcherTeachingEvent[];
+  deriveTeachingGrantStates(events);
+  return events;
 }
 
 export function buildTeachingGrantEvent(input: {
