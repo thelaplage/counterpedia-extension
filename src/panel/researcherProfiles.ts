@@ -1,10 +1,9 @@
 /**
- * CHECK-RESEARCHER0 — turn an explicit PATHS selection into a reusable named
- * local Researcher profile, then manually apply that routing lens to a Check.
+ * CHECK-RESEARCHER0 — named local inquiry-routing profiles.
  *
- * This is intentionally one step before a real agent runtime. Applying a
- * Researcher only toggles current PATHS controls. It grants no tools, network,
- * memory admission, or automatic execution.
+ * CHECK-RESEARCHER-TEACH0 adds a non-destructive teaching overlay. A taught
+ * path remains attributable to its original provider and teaching history;
+ * the receiving Researcher profile itself is not rewritten.
  */
 
 import { getCurrentState } from "./panel";
@@ -18,10 +17,20 @@ import {
   RESEARCHER_PROFILE_STORAGE_KEY,
   type ResearcherProfile,
 } from "../lib/researcherProfiles";
+import {
+  chromeResearcherTeachingStorage,
+  effectiveResearcherPaths,
+  parseResearcherTeachingEvents,
+  RESEARCHER_TEACHING_STORAGE_KEY,
+  type ResearcherTeachingEvent,
+} from "../lib/researcherTeaching";
 
 const storage = chromeResearcherProfileStorage();
+const teachingStorage = chromeResearcherTeachingStorage();
 let profiles: ResearcherProfile[] = [];
+let teachingEvents: ResearcherTeachingEvent[] = [];
 let loadFailed = false;
+let teachingLoadFailed = false;
 let loaded = false;
 
 function newProfileId(): string {
@@ -53,9 +62,32 @@ async function loadProfiles(): Promise<void> {
   } catch {
     profiles = [];
     loadFailed = true;
-  } finally {
-    loaded = true;
   }
+  try {
+    teachingEvents = parseResearcherTeachingEvents(
+      await teachingStorage.get(RESEARCHER_TEACHING_STORAGE_KEY),
+    );
+  } catch {
+    teachingEvents = [];
+    teachingLoadFailed = true;
+  }
+  loaded = true;
+}
+
+async function reloadTeaching(): Promise<void> {
+  try {
+    teachingEvents = parseResearcherTeachingEvents(
+      await teachingStorage.get(RESEARCHER_TEACHING_STORAGE_KEY),
+    );
+    teachingLoadFailed = false;
+  } catch {
+    teachingEvents = [];
+    teachingLoadFailed = true;
+  }
+}
+
+function effectiveProfile(profile: ResearcherProfile): ResearcherProfile {
+  return { ...profile, paths: effectiveResearcherPaths(profile, teachingEvents) };
 }
 
 function ensureSection(): HTMLElement | null {
@@ -77,8 +109,8 @@ function ensureSection(): HTMLElement | null {
 }
 
 function applyProfile(profile: ResearcherProfile): void {
-  const suggestions = currentSuggestions();
-  const match = matchResearcherProfile(profile, suggestions);
+  const resolved = effectiveProfile(profile);
+  const match = matchResearcherProfile(resolved, currentSuggestions());
   const desired = new Set(match.matchedPathIds);
   const checkboxes = Array.from(
     document.querySelectorAll<HTMLInputElement>(
@@ -95,10 +127,11 @@ function applyProfile(profile: ResearcherProfile): void {
 
   const status = document.getElementById("researcher-profile-status");
   if (status) {
+    const taught = resolved.paths.length - profile.paths.length;
     const missing = match.missingPathLabels.length;
     status.textContent = missing === 0
-      ? `Applied “${profile.name}” to this Check (${match.matchedPathIds.length} path${match.matchedPathIds.length === 1 ? "" : "s"}).`
-      : `Applied ${match.matchedPathIds.length} available path${match.matchedPathIds.length === 1 ? "" : "s"} from “${profile.name}”; ${missing} saved path${missing === 1 ? " is" : "s are"} not represented in the current Check.`;
+      ? `Applied “${profile.name}” to this Check (${match.matchedPathIds.length} path${match.matchedPathIds.length === 1 ? "" : "s"}${taught > 0 ? `; ${taught} taught` : ""}).`
+      : `Applied ${match.matchedPathIds.length} available path${match.matchedPathIds.length === 1 ? "" : "s"} from “${profile.name}”; ${missing} effective path${missing === 1 ? " is" : "s are"} not represented in the current Check.`;
     status.style.color = "#374151";
   }
 }
@@ -121,6 +154,7 @@ async function createProfile(name: string): Promise<void> {
     status.textContent = `Created local Researcher “${profile.name}”. Routing profile only — no agent runtime or tool authority.`;
     status.style.color = "#059669";
     renderSection();
+    document.dispatchEvent(new CustomEvent("counterpedia:researchers-changed"));
   } catch {
     status.textContent = "Could not create this Researcher. Existing profiles were left unchanged.";
     status.style.color = "#dc2626";
@@ -128,6 +162,7 @@ async function createProfile(name: string): Promise<void> {
 }
 
 function renderProfileCard(profile: ResearcherProfile): HTMLElement {
+  const resolved = effectiveProfile(profile);
   const card = document.createElement("div");
   card.style.marginTop = "7px";
   card.style.padding = "8px";
@@ -142,15 +177,25 @@ function renderProfileCard(profile: ResearcherProfile): HTMLElement {
   card.appendChild(name);
 
   const paths = document.createElement("div");
-  paths.textContent = profile.paths.map((path) => path.label).join(" · ");
+  paths.textContent = resolved.paths.map((path) => path.label).join(" · ");
   paths.style.marginTop = "3px";
   paths.style.fontSize = "10px";
   paths.style.color = "#6b7280";
   card.appendChild(paths);
 
-  const match = matchResearcherProfile(profile, currentSuggestions());
+  const taughtCount = resolved.paths.length - profile.paths.length;
+  if (taughtCount > 0) {
+    const taught = document.createElement("div");
+    taught.textContent = `${taughtCount} path${taughtCount === 1 ? "" : "s"} available through Researcher teaching metadata.`;
+    taught.style.marginTop = "3px";
+    taught.style.fontSize = "10px";
+    taught.style.color = "#6b7280";
+    card.appendChild(taught);
+  }
+
+  const match = matchResearcherProfile(resolved, currentSuggestions());
   const matchLine = document.createElement("div");
-  matchLine.textContent = `${match.matchedPathIds.length}/${profile.paths.length} saved paths available in this Check.`;
+  matchLine.textContent = `${match.matchedPathIds.length}/${resolved.paths.length} effective paths available in this Check.`;
   matchLine.style.marginTop = "4px";
   matchLine.style.fontSize = "10px";
   matchLine.style.color = "#6b7280";
@@ -193,7 +238,7 @@ function renderSection(): void {
   section.appendChild(intro);
 
   const boundary = document.createElement("p");
-  boundary.textContent = "A Researcher is a local routing profile in this version — not an autonomous agent, prompt, or tool grant.";
+  boundary.textContent = "A Researcher is a local routing profile. Taught paths are resolved as a provenance-preserving overlay; profiles and histories are not merged.";
   boundary.style.fontSize = "10px";
   boundary.style.color = "#6b7280";
   boundary.style.marginBottom = "7px";
@@ -231,6 +276,7 @@ function renderSection(): void {
   status.style.color = "#6b7280";
   if (!loaded) status.textContent = "Loading local Researchers…";
   else if (loadFailed) status.textContent = "Saved Researcher storage could not be read; no existing state was overwritten.";
+  else if (teachingLoadFailed) status.textContent = "Teaching metadata could not be read; Researchers are using only their own saved paths.";
   section.appendChild(status);
 
   if (loaded && profiles.length > 0) {
@@ -258,6 +304,10 @@ export function initResearcherProfiles(): void {
     ) {
       renderSection();
     }
+  });
+
+  document.addEventListener("counterpedia:researcher-teaching-changed", () => {
+    void reloadTeaching().then(renderSection);
   });
 
   const paths = document.getElementById("inquiry-paths");
