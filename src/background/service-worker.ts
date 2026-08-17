@@ -9,6 +9,8 @@
  * - When Counterpedia History is explicitly ON, route completed active-tab
  *   top-level http(s) encounters through the attributable collector registry
  *   and persist the resulting Encounter locally
+ * - When a local Research Session is explicitly active, bind recorded Encounter
+ *   ids to that session without weakening the History Gate
  *
  * Privacy:
  * - Never accesses page DOM, cookies, referrer, or the Chrome History API
@@ -31,6 +33,10 @@ import {
   resolveCollectorObservation,
   type CollectorStorageArea,
 } from "../lib/collectors";
+import {
+  appendEncounterToResearchSession,
+  readActiveResearchSessionRef,
+} from "../lib/researchSessions";
 
 const CONTEXT_MENU_ID = "counterpedia_check_selection";
 
@@ -75,7 +81,7 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   sendMessage({ type: "TAB_CHANGED", url: tab.url });
 
   void recordCompletedTopLevelEncounter(tab.url).catch((error: unknown) => {
-    // Never log the encountered URL.
+    // Never log the encountered URL or session name.
     const reason = error instanceof Error ? error.message : "unknown";
     console.warn(`[Counterpedia] local History write refused: ${reason}`);
   });
@@ -86,6 +92,7 @@ async function recordCompletedTopLevelEncounter(url: string): Promise<void> {
 
   // The binary History gate wins before collector specialization. Turning a
   // specific collector off never turns into a second hidden History switch.
+  // An active session NEVER overrides this binary privacy switch either.
   if ((await readHistoryMode(storage)) !== "ON") return;
 
   const settings = await readCollectorSettings(storage);
@@ -94,7 +101,19 @@ async function recordCompletedTopLevelEncounter(url: string): Promise<void> {
 
   // Re-check the History gate inside recordPassiveEncounter to make an OFF toggle
   // that races this async collector read fail closed.
-  await recordPassiveEncounter(storage, observation);
+  const sessionRef = await readActiveResearchSessionRef(storage);
+  const result = await recordPassiveEncounter(storage, {
+    ...observation,
+    ...(sessionRef ? { session_ref: sessionRef } : {}),
+  });
+
+  if (result.recorded && sessionRef) {
+    await appendEncounterToResearchSession(
+      storage,
+      sessionRef,
+      result.encounter.encounter_id,
+    );
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
