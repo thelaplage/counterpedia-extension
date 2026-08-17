@@ -6,21 +6,33 @@
  * - Open side panel on action click
  * - Route messages to the side panel
  * - Update badge with match count
+ * - When Counterpedia History is explicitly ON, route completed active-tab
+ *   top-level http(s) encounters through the attributable collector registry
+ *   and persist the resulting Encounter locally
  *
  * Privacy:
- * - Never accesses page DOM, cookies, history, or referrer
+ * - Never accesses page DOM, cookies, referrer, or the Chrome History API
  * - Only passes tab URL and explicitly selected text to the panel
+ * - CP-HISTORY0 is OFF by default and performs no passive write while OFF
+ * - Collector recognition performs no network I/O or corpus admission
+ * - History records are local only; this worker performs no history telemetry
  */
 
 import { sendMessage } from "../lib/messaging";
 import { capturePageData } from "../capture/captureScript";
 import { normalizeCaptureData } from "../lib/browserPageCapture";
+import {
+  readHistoryMode,
+  recordPassiveEncounter,
+  type LocalStorageArea,
+} from "../lib/history";
+import {
+  readCollectorSettings,
+  resolveCollectorObservation,
+  type CollectorStorageArea,
+} from "../lib/collectors";
 
 const CONTEXT_MENU_ID = "counterpedia_check_selection";
-
-// ---------------------------------------------------------------------------
-// Install
-// ---------------------------------------------------------------------------
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -29,10 +41,6 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 });
-
-// ---------------------------------------------------------------------------
-// Action click — open side panel
-// ---------------------------------------------------------------------------
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (tab.windowId === undefined) return;
@@ -43,46 +51,51 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Context menu — send selected text to panel
-// ---------------------------------------------------------------------------
-
 chrome.contextMenus.onClicked.addListener((info, _tab) => {
   if (info.menuItemId !== CONTEXT_MENU_ID) return;
   const selectedText = info.selectionText ?? "";
   if (!selectedText.trim()) return;
-
-  // Truncate to max 300 chars before sending
-  const truncated = selectedText.slice(0, 300);
-  sendMessage({ type: "CHECK_SELECTION", text: truncated });
+  sendMessage({ type: "CHECK_SELECTION", text: selectedText.slice(0, 300) });
 });
-
-// ---------------------------------------------------------------------------
-// Tab events — notify panel of URL changes
-// ---------------------------------------------------------------------------
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);
-    if (tab.url) {
-      sendMessage({ type: "TAB_CHANGED", url: tab.url });
-    }
+    if (tab.url) sendMessage({ type: "TAB_CHANGED", url: tab.url });
   } catch {
-    // Tab may have been closed
+    // Tab may have been closed.
   }
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-  // Only fire when the URL is finalized (status === "complete")
   if (changeInfo.status !== "complete") return;
-  if (!tab.url) return;
-  if (!tab.active) return;
+  if (!tab.url || !tab.active) return;
+
+  // Existing search/panel behavior is independent of History.
   sendMessage({ type: "TAB_CHANGED", url: tab.url });
+
+  void recordCompletedTopLevelEncounter(tab.url).catch((error: unknown) => {
+    // Never log the encountered URL.
+    const reason = error instanceof Error ? error.message : "unknown";
+    console.warn(`[Counterpedia] local History write refused: ${reason}`);
+  });
 });
 
-// ---------------------------------------------------------------------------
-// Badge utilities (called from panel via message, or can be called directly)
-// ---------------------------------------------------------------------------
+async function recordCompletedTopLevelEncounter(url: string): Promise<void> {
+  const storage = chrome.storage.local as unknown as LocalStorageArea & CollectorStorageArea;
+
+  // The binary History gate wins before collector specialization. Turning a
+  // specific collector off never turns into a second hidden History switch.
+  if ((await readHistoryMode(storage)) !== "ON") return;
+
+  const settings = await readCollectorSettings(storage);
+  const observation = resolveCollectorObservation(url, settings);
+  if (!observation) return;
+
+  // Re-check the History gate inside recordPassiveEncounter to make an OFF toggle
+  // that races this async collector read fail closed.
+  await recordPassiveEncounter(storage, observation);
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (typeof message !== "object" || message === null) return false;
@@ -101,15 +114,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (msg["type"] === "CAPTURE_PAGE") {
     handleCapturePage(sendResponse);
-    return true; // keep message channel open for async sendResponse
+    return true;
   }
 
   return false;
 });
-
-// ---------------------------------------------------------------------------
-// Page capture — user-gesture only, requires scripting + activeTab
-// ---------------------------------------------------------------------------
 
 async function handleCapturePage(
   sendResponse: (response: unknown) => void,
