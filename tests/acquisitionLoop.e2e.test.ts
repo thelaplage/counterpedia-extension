@@ -2,12 +2,20 @@
  * HTTP-01 — real cross-process browser→acquisition loop.
  *
  * This test mocks NOTHING on the acquisition side. It:
- *   1. spawns the REAL Python acquisition HTTP server (counterpedia-acquisition);
+ *   1. spawns the REAL Python acquisition HTTP server (counterpedia-acquisition)
+ *      through its dedicated local-fixture launcher;
  *   2. starts a deterministic local fixture HTTP source;
  *   3. drives the REAL extension acquisition client + response guard, which posts
  *      the {browser_page_capture} envelope with the transport token;
  *   4. the real producer re-fetches the fixture bytes and returns a CaptureReceipt;
  *   5. asserts the digest independently, and that the terminal state is UNADMITTED.
+ *
+ * The acquisition repo deliberately separates its production launcher (strict
+ * egress, which must refuse loopback source targets) from a test-fixture launcher
+ * that relaxes ONLY source-egress so a local deterministic origin can exercise
+ * the real transport/producer path. This E2E must use that fixture launcher;
+ * otherwise a successful local fixture capture would contradict production SSRF
+ * policy rather than prove the extension boundary.
  *
  * The client's low-level transport is swapped for a node:http adapter ONLY so the
  * (browser-forbidden) Origin header actually reaches the server — in the real
@@ -17,6 +25,11 @@
  * Requires a real counterpedia-acquisition checkout. Resolution order:
  * COUNTERPEDIA_ACQUISITION_DIR, then sibling guesses. If none is found the suite
  * SKIPS with a loud warning (the loop is NOT exercised) rather than passing hollow.
+ *
+ * Python resolution is deliberately repository-scoped rather than shell-scoped:
+ * COUNTERPEDIA_ACQUISITION_PYTHON, then <acq>/.venv/bin/python (or Windows
+ * Scripts/python.exe), then bare python3. This prevents an unrelated active
+ * virtualenv from contaminating the subprocess dependency graph.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -53,9 +66,22 @@ function resolveAcquisitionDir(): string | null {
     join(__dirname, "../../../repos/counterpedia-acquisition"),
   ].filter((c): c is string => Boolean(c));
   for (const c of candidates) {
-    if (existsSync(join(c, "scripts/run_acquisition_http.py"))) return c;
+    if (existsSync(join(c, "scripts/run_acquisition_http_test_fixture.py"))) return c;
   }
   return null;
+}
+
+function resolveAcquisitionPython(acquisitionDir: string): string {
+  const explicit = process.env["COUNTERPEDIA_ACQUISITION_PYTHON"];
+  if (explicit) return explicit;
+
+  for (const candidate of [
+    join(acquisitionDir, ".venv/bin/python"),
+    join(acquisitionDir, ".venv/Scripts/python.exe"),
+  ]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return "python3";
 }
 
 function freePort(): Promise<number> {
@@ -185,21 +211,28 @@ describeE2E("HTTP-01 — real cross-process browser→acquisition loop", () => {
     const fPort = typeof fAddr === "object" && fAddr ? fAddr.port : 0;
     fixtureUrl = `http://127.0.0.1:${fPort}/page`;
 
-    // Spawn the REAL Python acquisition server on a free loopback port.
+    // Spawn the REAL acquisition transport/producer path through the dedicated
+    // local-source fixture launcher. Production run_acquisition_http.py remains
+    // strict and is tested in counterpedia-acquisition to refuse this target.
     const port = await freePort();
     serverBase = `http://127.0.0.1:${port}`;
-    py = spawn("python3", [join(acqDir!, "scripts/run_acquisition_http.py")], {
-      cwd: acqDir!,
-      env: {
-        ...process.env,
-        PYTHONPATH: join(acqDir!, "src"),
-        CP_ACQUISITION_ALLOWED_ORIGIN: ORIGIN,
-        CP_ACQUISITION_TRANSPORT_TOKEN: TOKEN,
-        CP_ACQUISITION_HTTP_HOST: "127.0.0.1",
-        CP_ACQUISITION_HTTP_PORT: String(port),
+    const python = resolveAcquisitionPython(acqDir!);
+    py = spawn(
+      python,
+      [join(acqDir!, "scripts/run_acquisition_http_test_fixture.py")],
+      {
+        cwd: acqDir!,
+        env: {
+          ...process.env,
+          PYTHONPATH: join(acqDir!, "src"),
+          CP_ACQUISITION_ALLOWED_ORIGIN: ORIGIN,
+          CP_ACQUISITION_TRANSPORT_TOKEN: TOKEN,
+          CP_ACQUISITION_HTTP_HOST: "127.0.0.1",
+          CP_ACQUISITION_HTTP_PORT: String(port),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    );
     py.stderr?.on("data", (c: Buffer) => (pyStderr += c.toString()));
 
     try {

@@ -126,17 +126,18 @@
   <!-- AUTHOR-HTTP: the THIRD governed act. Draft-from-source is a SEPARATE
        explicit action over an already-captured source. The button is DISABLED
        until an acquisition returns `captured`; capture never auto-drafts. The
-       producer re-fetches the governed source URL and returns a terminal
-       proposal_only handoff — never an admission. This lane's status lives in its
-       own #authoring-status element, kept distinct from #acquisition-status so
-       the two state machines never collapse into one another. -->
+       authoring producer resolves the acquisition capture_ref and reprocesses
+       the retained exact bytes. It performs zero live source fetch and returns a
+       terminal proposal_only handoff — never an admission. This lane's status
+       lives in its own #authoring-status element, kept distinct from
+       #acquisition-status so the two state machines never collapse. -->
   <section id="authoring-section" class="authoring-section" aria-label="Draft from source" style="display:none">
     <h2 class="authoring-heading">Draft from source</h2>
     <p class="authoring-copy">
-      Composes a <strong>proposal only</strong> from the captured source and your
-      own claim material. It never admits, publishes, or verifies. The authoring
-      producer re-fetches the source URL; this does not reuse the acquisition
-      bytes.
+      Composes a <strong>proposal only</strong> from the retained historical capture
+      and your own claim material. It reprocesses the exact bytes already held by
+      acquisition; it does <strong>not</strong> fetch the source URL again. It never
+      admits, publishes, or verifies.
     </p>
 
     <label class="authoring-field-label" for="authoring-subject">Subject seed</label>
