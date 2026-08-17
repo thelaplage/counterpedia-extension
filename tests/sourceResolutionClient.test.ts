@@ -28,29 +28,48 @@ class MemorySessionStorage implements SessionStorageArea {
   }
 }
 
+const NO_S01_LOCATOR =
+  "https://storage.courtlistener.com/recap/gov.uscourts.nysd.612697/gov.uscourts.nysd.612697.1.0_1.pdf";
+const NO_S03_LOCATOR =
+  "https://storage.courtlistener.com/recap/gov.uscourts.nysd.612697/gov.uscourts.nysd.612697.514.0_1.pdf";
+const NO_S02_LOCATOR = "https://openai.com/index/openai-and-journalism/";
+
 function index(): SourceResolutionIndex {
   return {
     schema_version: "counterpedia.source_resolution_index.v0.1",
-    generated_from: "public_source_registry",
+    generated_from: "known_source_material",
     entries: [
       {
-        canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
-        source_id: "PUBLIC-SRC-HEPPNER-DOC27",
-        corpus_presence: "historical_retired",
+        canonical_source_ref: "src_593dff9213322bf9a2b28de9bb7c2a8e",
+        source_id: "src_593dff9213322bf9a2b28de9bb7c2a8e",
+        corpus_presence: "governed_capture",
         identity_keys: [
           {
             key_kind: "canonical_source_ref",
-            value: "PUBLIC-SRC-HEPPNER-DOC27",
+            value: "src_593dff9213322bf9a2b28de9bb7c2a8e",
           },
+          { key_kind: "canonical_locator", value: NO_S03_LOCATOR },
           {
-            key_kind: "canonical_locator",
+            key_kind: "capture_hash",
             value:
-              "https://www.courtlistener.com/docket/71872024/united-states-v-heppner/",
+              "sha256:1944d092241e9891baa8136be8463ce30bf3c7fd6a285697cb6f8c1dce592587",
           },
+        ],
+      },
+      {
+        canonical_source_ref: "src_619a0013128462ad7a01a2cec82b4529",
+        source_id: "src_619a0013128462ad7a01a2cec82b4529",
+        corpus_presence: "governed_capture",
+        identity_keys: [
           {
-            key_kind: "native_id",
-            scheme: "courtlistener_docket_id",
-            value: "71872024",
+            key_kind: "canonical_source_ref",
+            value: "src_619a0013128462ad7a01a2cec82b4529",
+          },
+          { key_kind: "canonical_locator", value: NO_S01_LOCATOR },
+          {
+            key_kind: "capture_hash",
+            value:
+              "sha256:5eb30edbdedf0af0ec0c66e8e85a4fca3446610817dd0511fce9f7241572ea53",
           },
         ],
       },
@@ -58,22 +77,19 @@ function index(): SourceResolutionIndex {
   };
 }
 
-function courtListenerObservation() {
+function noS01Observation() {
   return {
-    collector_id: "courtlistener_v0_1",
-    observed_url:
-      "https://www.courtlistener.com/docket/71872024/united-states-v-heppner/",
-    // Collector intentionally normalizes the browsing locator to an id-root;
-    // the registered historical alias retains the full governed docket URL.
-    canonical_locator: "https://www.courtlistener.com/docket/71872024/",
-    source_kind: "courtlistener_docket",
-    source_native_ids: { courtlistener_docket_id: "71872024" },
+    collector_id: "generic_web_v0_1",
+    observed_url: NO_S01_LOCATOR,
+    canonical_locator: NO_S01_LOCATOR,
+    source_kind: "web_page",
+    source_native_ids: {},
     resolution_status: "UNRESOLVED" as const,
   };
 }
 
 describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
-  it("strictly parses the bounded public source-resolution schema", () => {
+  it("strictly parses the bounded known-source schema", () => {
     expect(parseSourceResolutionIndex(index())).toEqual(index());
     expect(() =>
       parseSourceResolutionIndex({ ...index(), standing: "ADMITTED" }),
@@ -83,22 +99,40 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
     ).toThrow("source_resolution_index:unknown_field:extra");
   });
 
-  it("prefers exact registered site-native identity before locator fallback", () => {
-    const resolved = resolveObservationAgainstIndex(index(), courtListenerObservation());
+  it("resolves NYT/OpenAI NO-S01 as an exact governed-capture HIT", () => {
+    const resolved = resolveObservationAgainstIndex(index(), noS01Observation());
     expect(resolved).toEqual({
-      ...courtListenerObservation(),
+      ...noS01Observation(),
       resolution_status: "MATCHED",
-      canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
-      corpus_presence: "historical_retired",
+      canonical_source_ref: "src_619a0013128462ad7a01a2cec82b4529",
+      corpus_presence: "governed_capture",
     });
     expect(JSON.stringify(resolved)).not.toContain("standing");
   });
 
-  it("marks a real index miss only after a valid index was available", () => {
+  it("resolves NYT/OpenAI NO-S03 as an exact governed-capture HIT", () => {
     expect(
       resolveObservationAgainstIndex(index(), {
         collector_id: "generic_web_v0_1",
-        observed_url: "https://example.test/not-in-corpus",
+        observed_url: NO_S03_LOCATOR,
+        canonical_locator: NO_S03_LOCATOR,
+        source_kind: "web_page",
+        source_native_ids: {},
+        resolution_status: "UNRESOLVED",
+      }),
+    ).toMatchObject({
+      resolution_status: "MATCHED",
+      canonical_source_ref: "src_593dff9213322bf9a2b28de9bb7c2a8e",
+      corpus_presence: "governed_capture",
+    });
+  });
+
+  it("keeps NYT/OpenAI NO-S02 as a real corpus miss because no governed capture exists", () => {
+    expect(
+      resolveObservationAgainstIndex(index(), {
+        collector_id: "generic_web_v0_1",
+        observed_url: NO_S02_LOCATOR,
+        canonical_locator: NO_S02_LOCATOR,
         source_kind: "web_page",
         source_native_ids: {},
         resolution_status: "UNRESOLVED",
@@ -106,7 +140,7 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
     ).toMatchObject({ resolution_status: "UNMATCHED" });
   });
 
-  it("surfaces a cross-source native-key collision as AMBIGUOUS", () => {
+  it("still surfaces a cross-source exact-key collision as AMBIGUOUS", () => {
     const ambiguous: SourceResolutionIndex = {
       ...index(),
       entries: [
@@ -114,20 +148,16 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
         {
           canonical_source_ref: "SRC-OTHER",
           source_id: "SRC-OTHER",
-          corpus_presence: "current",
+          corpus_presence: "public_current",
           identity_keys: [
             { key_kind: "canonical_source_ref", value: "SRC-OTHER" },
-            {
-              key_kind: "native_id",
-              scheme: "courtlistener_docket_id",
-              value: "71872024",
-            },
+            { key_kind: "canonical_locator", value: NO_S01_LOCATOR },
           ],
         },
       ],
     };
     expect(
-      resolveObservationAgainstIndex(ambiguous, courtListenerObservation()),
+      resolveObservationAgainstIndex(ambiguous, noS01Observation()),
     ).toMatchObject({ resolution_status: "AMBIGUOUS" });
   });
 
@@ -143,22 +173,23 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
 
     const first = await resolveObservationWithPublicIndex(
       storage,
-      courtListenerObservation(),
+      noS01Observation(),
       fetchSpy as FetchLike,
     );
     const second = await resolveObservationWithPublicIndex(
       storage,
-      courtListenerObservation(),
+      noS01Observation(),
       fetchSpy as FetchLike,
     );
 
-    expect(first).toMatchObject({ resolution_status: "MATCHED" });
+    expect(first).toMatchObject({
+      resolution_status: "MATCHED",
+      corpus_presence: "governed_capture",
+    });
     expect(second).toMatchObject({ resolution_status: "MATCHED" });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toBe(SOURCE_RESOLUTION_INDEX_URL);
-    expect(JSON.stringify(fetchSpy.mock.calls[0])).not.toContain(
-      "united-states-v-heppner",
-    );
+    expect(JSON.stringify(fetchSpy.mock.calls[0])).not.toContain("gov.uscourts.nysd.612697");
     expect(storage.state[SOURCE_RESOLUTION_CACHE_KEY]).toEqual(index());
   });
 
@@ -167,7 +198,7 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
     const fetchFailure: FetchLike = async () => {
       throw new Error("offline");
     };
-    const observation = courtListenerObservation();
+    const observation = noS01Observation();
     expect(
       await resolveObservationWithPublicIndex(storage, observation, fetchFailure),
     ).toEqual(observation);
@@ -180,7 +211,7 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
       entries: [
         {
           ...index().entries[0],
-          corpus_presence: "current_and_admitted",
+          corpus_presence: "captured_and_admitted",
         },
       ],
     };
