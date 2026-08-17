@@ -76,16 +76,18 @@ describe("CP-HISTORY0", () => {
     expect(storage.state[CORPUS_MISS_LEDGER_KEY]).toBeUndefined();
   });
 
-  it("carries current/historical corpus presence only with an exact MATCHED source", async () => {
+  it("carries governed-capture corpus presence only with an exact MATCHED source", async () => {
     const storage = new MemoryStorage();
     await setHistoryMode(storage, "ON");
     const matched = await recordPassiveEncounter(
       storage,
       {
         ...OBS,
+        observed_url:
+          "https://storage.courtlistener.com/recap/gov.uscourts.nysd.612697/gov.uscourts.nysd.612697.1.0_1.pdf",
         resolution_status: "MATCHED",
-        canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
-        corpus_presence: "historical_retired",
+        canonical_source_ref: "src_619a0013128462ad7a01a2cec82b4529",
+        corpus_presence: "governed_capture",
       },
       FIXED,
     );
@@ -93,8 +95,8 @@ describe("CP-HISTORY0", () => {
       recorded: true,
       encounter: {
         resolution_status: "MATCHED",
-        canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
-        corpus_presence: "historical_retired",
+        canonical_source_ref: "src_619a0013128462ad7a01a2cec82b4529",
+        corpus_presence: "governed_capture",
       },
     });
     expect(JSON.stringify(matched)).not.toContain("standing");
@@ -110,7 +112,7 @@ describe("CP-HISTORY0", () => {
     await expect(
       recordPassiveEncounter(
         storage,
-        { ...OBS, resolution_status: "UNMATCHED", corpus_presence: "current" },
+        { ...OBS, resolution_status: "UNMATCHED", corpus_presence: "public_current" },
         { ...FIXED, makeId: () => "encounter-003" },
       ),
     ).rejects.toThrow("history_encounter:nonmatched_cannot_carry_canonical_presence");
