@@ -1,4 +1,10 @@
 import "./panel";
 import { initHistoryControls } from "./historyControls";
+import { initResearchSessionControls } from "./researchSessionControls";
 
-void initHistoryControls();
+async function initLocalResearchControls(): Promise<void> {
+  await initHistoryControls();
+  await initResearchSessionControls();
+}
+
+void initLocalResearchControls();
