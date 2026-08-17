@@ -51,9 +51,13 @@ export const waybackCollector: CollectorDefinition = {
     const timestamp = captureToken.match(/^(\d{4,14})/)?.[1];
     if (!timestamp) return null;
 
+    // In a Wayback URL, the archived target query string is parsed by URL as
+    // the outer web.archive.org query. Reattach it before parsing the original
+    // target or `https://example.test/?a=1` would collapse to `/`.
+    const originalRaw = `${match[2]}${url.search}`;
     let original: URL;
     try {
-      original = new URL(match[2]);
+      original = new URL(originalRaw);
     } catch {
       return null;
     }
