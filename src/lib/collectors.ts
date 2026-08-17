@@ -1,3 +1,7 @@
+import {
+  internetArchiveCollector,
+  waybackCollector,
+} from "../collectors/internetArchive";
 import type { PassiveEncounterObservation } from "./history";
 
 export const COLLECTOR_SETTINGS_KEY = "counterpedia_collectors_v0_1";
@@ -5,9 +9,7 @@ export const COLLECTOR_SETTINGS_KEY = "counterpedia_collectors_v0_1";
 export interface CollectorDefinition {
   readonly id: string;
   readonly label: string;
-  /** Higher values win when more than one collector recognizes a URL. */
   readonly priority: number;
-  /** Informational permission shape for later explicit collector enablement. */
   readonly optional_origins: readonly string[];
   readonly default_enabled: boolean;
   observe(url: URL): PassiveEncounterObservation | null;
@@ -38,7 +40,6 @@ const wikipediaCollector: CollectorDefinition = {
     if (!url.pathname.startsWith("/wiki/")) return null;
     const rawTitle = url.pathname.slice("/wiki/".length);
     if (!rawTitle) return null;
-
     let title: string;
     try {
       title = decodeURIComponent(rawTitle).replaceAll("_", " ");
@@ -46,7 +47,6 @@ const wikipediaCollector: CollectorDefinition = {
       return null;
     }
     if (!title || title.length > 1024) return null;
-
     const canonical = new URL(url.toString());
     canonical.hash = "";
     return {
@@ -68,8 +68,6 @@ const genericWebCollector: CollectorDefinition = {
   label: "Web page",
   priority: 0,
   optional_origins: [],
-  // Generic History is the binary product baseline. Specific collector settings
-  // control specialized recognition, not whether History exists at all.
   default_enabled: true,
   observe(url) {
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
@@ -86,6 +84,8 @@ const genericWebCollector: CollectorDefinition = {
 };
 
 export const COLLECTORS: readonly CollectorDefinition[] = Object.freeze([
+  waybackCollector,
+  internetArchiveCollector,
   wikipediaCollector,
   genericWebCollector,
 ]);
@@ -128,10 +128,6 @@ export async function setCollectorEnabled(
   });
 }
 
-/**
- * Resolve one attributable observation from the loaded top-level URL.
- * No collector performs network I/O or canonical corpus matching here.
- */
 export function resolveCollectorObservation(
   rawUrl: string,
   settings: CollectorSettings = defaultCollectorSettings(),
@@ -142,7 +138,6 @@ export function resolveCollectorObservation(
   } catch {
     return null;
   }
-
   const ordered = [...COLLECTORS].sort(
     (a, b) => b.priority - a.priority || a.id.localeCompare(b.id),
   );
