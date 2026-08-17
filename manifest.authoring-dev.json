@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Counterpedia (Draft-from-source Dev)",
   "version": "0.1.0",
-  "description": "Counterpedia extension — local historical draft-from-source dev build. Counterpedia Local pairs the browser to the 127.0.0.1 acquisition and authoring services without manual extension IDs, ports, DevTools, or token setup. Capture, acquisition, and drafting remain separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
+  "description": "Counterpedia extension — local historical draft-from-source dev build. Connects only to the 127.0.0.1:8787 acquisition loopback and the 127.0.0.1:8788 authoring loopback. Counterpedia Local pairs the browser to these services without manual extension IDs, ports, DevTools, or token setup. Capture, acquisition, and drafting remain separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",

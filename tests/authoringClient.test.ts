@@ -304,7 +304,7 @@ describe("createHttpAuthoringClient.draftFromUrl — transport + guarded respons
     expect(out.kind).toBe("invalid_source");
   });
 
-  it("maps a 4xx/5xx to authoring_failed (never a proposal)", async () => {
+  it("maps a 4xx/5xx to authoring_failed (never a proposal) and preserves the bounded refusal code (C0-REFUSAL-DETAIL-RECON0)", async () => {
     const client = createHttpAuthoringClient({
       config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
       fetchImpl: async () => ({
@@ -316,7 +316,142 @@ describe("createHttpAuthoringClient.draftFromUrl — transport + guarded respons
     });
     const out = await client.draftFromUrl(capturedResult(), material());
     expect(out.kind).toBe("authoring_failed");
-    if (out.kind === "authoring_failed") expect(out.status).toBe(422);
+    if (out.kind === "authoring_failed") {
+      expect(out.status).toBe(422);
+      // The load-bearing assertion: the refusal code itself must survive the
+      // HTTP boundary, not just the status code.
+      expect(out.refusalCode).toBe("pipeline_refused");
+    }
+  });
+
+  it("preserves a distinct bounded refusal code (source_basis_unresolved) from a non-2xx body", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({ error: "source_basis_unresolved" }),
+        text: async () => "source_basis_unresolved",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBe("source_basis_unresolved");
+    }
+  });
+
+  it("fails safe to refusalCode: null on a non-JSON error body, without crashing", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error("not JSON");
+        },
+        text: async () => "<html>internal error</html>",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.status).toBe(500);
+      expect(out.refusalCode).toBeNull();
+    }
+  });
+
+  it("fails safe to refusalCode: null and never leaks arbitrary server prose when the body has extra fields or a non-string error", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          error: { nested: "not a bounded string code" },
+          message: "some unbounded server prose that must never leak through",
+          stack_trace: "at line 42 in producer.py",
+        }),
+        text: async () => "irrelevant",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBeNull();
+      expect(out.detail).not.toContain("unbounded server prose");
+      expect(out.detail).not.toContain("stack_trace");
+    }
+  });
+
+  it("fails safe to refusalCode: null when an otherwise-valid code is accompanied by an extra field (C0-REFUSAL-DETAIL-RECON0 review round 1)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          error: "source_basis_unresolved",
+          message: "do not leak",
+        }),
+        text: async () => "irrelevant",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      // The body must be the EXACT bounded shape {error: string}, one key only.
+      // An otherwise-valid code accompanied by any extra field is rejected
+      // wholesale, not partially trusted.
+      expect(out.refusalCode).toBeNull();
+      expect(out.detail).not.toContain("do not leak");
+    }
+  });
+
+  it("fails safe to refusalCode: null on an overlong error string (bounded token grammar)", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({ error: "a".repeat(5000) }),
+        text: async () => "irrelevant",
+      }),
+    });
+    const out = await client.draftFromUrl(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBeNull();
+    }
+  });
+
+  it("fails safe to refusalCode: null on punctuation, HTML, newlines, or arbitrary prose in the error field (bounded token grammar)", async () => {
+    const hostileErrors = [
+      "5000 characters of arbitrary server prose",
+      "<script>alert(1)</script>",
+      "error with\nnewline",
+      "error; with; semicolons",
+      "Error_With_Caps",
+      "-leading-dash",
+      "",
+    ];
+    for (const hostileError of hostileErrors) {
+      const client = createHttpAuthoringClient({
+        config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+        fetchImpl: async () => ({
+          ok: false,
+          status: 422,
+          json: async () => ({ error: hostileError }),
+          text: async () => "irrelevant",
+        }),
+      });
+      const out = await client.draftFromUrl(capturedResult(), material());
+      expect(out.kind).toBe("authoring_failed");
+      if (out.kind === "authoring_failed") {
+        expect(out.refusalCode).toBeNull();
+        expect(out.detail ?? "").not.toContain("<script>");
+      }
+    }
   });
 
   it("rejects a contaminated 200 response via the guard (renders no authority)", async () => {
@@ -429,7 +564,7 @@ describe("createHttpAuthoringClient.draftFromHeldCapture — historical action",
     expect(out.kind).toBe("invalid_source");
   });
 
-  it("maps a 4xx/5xx to authoring_failed (never a proposal)", async () => {
+  it("maps a 4xx/5xx to authoring_failed (never a proposal) and preserves the bounded refusal code (C0-REFUSAL-DETAIL-RECON0)", async () => {
     const client = createHttpAuthoringClient({
       config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
       fetchImpl: async () => ({
@@ -441,7 +576,48 @@ describe("createHttpAuthoringClient.draftFromHeldCapture — historical action",
     });
     const out = await client.draftFromHeldCapture(capturedResult(), material());
     expect(out.kind).toBe("authoring_failed");
-    if (out.kind === "authoring_failed") expect(out.status).toBe(422);
+    if (out.kind === "authoring_failed") {
+      expect(out.status).toBe(422);
+      // The load-bearing assertion: the refusal code itself must survive the
+      // HTTP boundary, not just the status code.
+      expect(out.refusalCode).toBe("pipeline_refused");
+    }
+  });
+
+  it("preserves held_capture_requires_single_candidate as a distinct refusal code from the historical-source action", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "held_capture_requires_single_candidate" }),
+        text: async () => "held_capture_requires_single_candidate",
+      }),
+    });
+    const out = await client.draftFromHeldCapture(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBe("held_capture_requires_single_candidate");
+    }
+  });
+
+  it("fails safe to refusalCode: null on a malformed error body from the historical-source action, without crashing", async () => {
+    const client = createHttpAuthoringClient({
+      config: { baseUrl: "http://127.0.0.1:8788", token: "t" },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error("not JSON");
+        },
+        text: async () => "not json at all",
+      }),
+    });
+    const out = await client.draftFromHeldCapture(capturedResult(), material());
+    expect(out.kind).toBe("authoring_failed");
+    if (out.kind === "authoring_failed") {
+      expect(out.refusalCode).toBeNull();
+    }
   });
 
   it("never falls back to draftFromUrl (or vice versa) — each action is called alone", async () => {

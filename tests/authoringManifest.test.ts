@@ -11,9 +11,20 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/**
+ * Exact byte size of the checked-in 1x1-pixel placeholder PNGs referenced by
+ * `manifest.authoring-dev.json`'s `icons` key. These are NOT real icon
+ * assets — they exist only so Chrome's unpacked-extension loader (which
+ * requires every referenced icon file to resolve) doesn't fail to load the
+ * dev build. Real icon assets are pending; do not treat this test as
+ * validating icon *content*, only that the placeholder is the exact known
+ * placeholder and hasn't silently changed.
+ */
+const PLACEHOLDER_ICON_BYTES = 68;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -22,6 +33,7 @@ interface Manifest {
   version: string;
   host_permissions?: string[];
   permissions?: string[];
+  icons?: Record<string, string>;
   _authoring_dev?: boolean;
   _acquisition_dev?: boolean;
   _privacy_audit?: Record<string, unknown>;
@@ -38,10 +50,25 @@ beforeAll(() => {
 });
 
 describe("manifest.authoring-dev.json", () => {
-  it("scopes host_permissions to the two loopback ports only", () => {
+  it("uses a Chrome-valid numeric version", () => {
+    expect(auth.version).toMatch(/^\d+(?:\.\d+){0,3}$/);
+  });
+
+  it("references icon files that exist and are the known 1x1 placeholder — pending real assets, not validated content", () => {
+    expect(auth.icons).toBeDefined();
+    const icons = auth.icons ?? {};
+    expect(Object.keys(icons).sort()).toEqual(["128", "16", "48"]);
+    for (const iconPath of Object.values(icons)) {
+      const size = statSync(join(__dirname, "..", iconPath)).size;
+      expect(size).toBe(PLACEHOLDER_ICON_BYTES);
+    }
+  });
+
+  it("scopes host_permissions to the three loopback ports only (acquisition, authoring, local companion pairing)", () => {
     expect(auth.host_permissions).toEqual([
       "http://127.0.0.1:8787/*",
       "http://127.0.0.1:8788/*",
+      "http://127.0.0.1:8790/*",
     ]);
     expect(auth.host_permissions).not.toContain("<all_urls>");
     expect(auth.host_permissions).not.toContain("*://*/*");
