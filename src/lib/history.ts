@@ -19,6 +19,7 @@ export type EncounterResolutionStatus =
   | "MATCHED"
   | "AMBIGUOUS"
   | "UNMATCHED";
+export type CorpusPresence = "current" | "historical_retired";
 
 export interface BrowserEncounterV01 {
   readonly schema_version: typeof ENCOUNTER_SCHEMA;
@@ -30,6 +31,8 @@ export interface BrowserEncounterV01 {
   readonly source_kind: string;
   readonly source_native_ids: Readonly<Record<string, string>>;
   readonly resolution_status: EncounterResolutionStatus;
+  /** Identity/presence only. This is deliberately not a standing field. */
+  readonly corpus_presence?: CorpusPresence;
   readonly canonical_source_ref?: string;
   readonly provisional_source_ref?: string;
   readonly session_ref?: string;
@@ -57,6 +60,7 @@ export interface PassiveEncounterObservation {
   readonly source_kind: string;
   readonly source_native_ids?: Readonly<Record<string, string>>;
   readonly resolution_status?: EncounterResolutionStatus;
+  readonly corpus_presence?: CorpusPresence;
   readonly canonical_source_ref?: string;
   readonly provisional_source_ref?: string;
   readonly session_ref?: string;
@@ -86,6 +90,7 @@ const ENCOUNTER_KEYS = new Set([
   "source_kind",
   "source_native_ids",
   "resolution_status",
+  "corpus_presence",
   "canonical_source_ref",
   "provisional_source_ref",
   "session_ref",
@@ -157,7 +162,6 @@ export async function recordPassiveEncounter(
   observation: PassiveEncounterObservation,
   options: RecordEncounterOptions = {},
 ): Promise<{ recorded: false } | { recorded: true; encounter: BrowserEncounterV01 }> {
-  // The privacy boundary is first: OFF means no encounter/miss ledger read or write.
   if ((await readHistoryMode(storage)) !== "ON") return { recorded: false };
 
   const occurredAt = (options.now ?? (() => new Date().toISOString()))();
@@ -174,13 +178,12 @@ export async function recordPassiveEncounter(
     source_kind: observation.source_kind,
     source_native_ids: observation.source_native_ids ?? {},
     resolution_status: observation.resolution_status ?? "UNRESOLVED",
+    corpus_presence: observation.corpus_presence,
     canonical_source_ref: observation.canonical_source_ref,
     provisional_source_ref: observation.provisional_source_ref,
     session_ref: observation.session_ref,
   });
 
-  // Validate existing state before writing. Malformed storage is never silently
-  // overwritten by a new event.
   const ledger = await readEncounterLedger(storage);
   if (ledger.length >= MAX_ENCOUNTERS) throw new Error("history_ledger:limit_reached");
   await storage.set({ [ENCOUNTER_LEDGER_KEY]: [...ledger, encounter] });
@@ -196,7 +199,6 @@ export async function recordPassiveEncounter(
 }
 
 export async function clearCounterpediaHistory(storage: LocalStorageArea): Promise<void> {
-  // Preserve the setting; deleting content is intentionally separate from disabling History.
   await storage.remove([ENCOUNTER_LEDGER_KEY, CORPUS_MISS_LEDGER_KEY]);
 }
 
@@ -266,6 +268,7 @@ async function upsertCorpusMiss(
 function parseEncounter(value: unknown): BrowserEncounterV01 {
   const object = strictObject(value, ENCOUNTER_KEYS, "history_encounter");
   if (object.schema_version !== ENCOUNTER_SCHEMA) throw new Error("history_encounter:schema");
+
   const status = object.resolution_status;
   if (
     status !== "UNRESOLVED" &&
@@ -278,6 +281,23 @@ function parseEncounter(value: unknown): BrowserEncounterV01 {
 
   const occurred_at = stringField(object.occurred_at, "history_encounter:occurred_at", 64);
   assertIsoUtc(occurred_at, "occurred_at");
+  const canonical_source_ref = optionalString(
+    object.canonical_source_ref,
+    "history_encounter:canonical_source_ref",
+    512,
+  );
+  const corpus_presence = optionalCorpusPresence(object.corpus_presence);
+
+  if (status === "MATCHED") {
+    if (!canonical_source_ref) {
+      throw new Error("history_encounter:matched_requires_canonical_source_ref");
+    }
+    if (!corpus_presence) {
+      throw new Error("history_encounter:matched_requires_corpus_presence");
+    }
+  } else if (canonical_source_ref !== undefined || corpus_presence !== undefined) {
+    throw new Error("history_encounter:nonmatched_cannot_carry_canonical_presence");
+  }
 
   const base: BrowserEncounterV01 = {
     schema_version: ENCOUNTER_SCHEMA,
@@ -290,14 +310,21 @@ function parseEncounter(value: unknown): BrowserEncounterV01 {
     resolution_status: status,
   };
 
-  const canonical_locator = optionalUrl(object.canonical_locator, "history_encounter:canonical_locator");
-  const canonical_source_ref = optionalString(object.canonical_source_ref, "history_encounter:canonical_source_ref", 512);
-  const provisional_source_ref = optionalString(object.provisional_source_ref, "history_encounter:provisional_source_ref", 512);
+  const canonical_locator = optionalUrl(
+    object.canonical_locator,
+    "history_encounter:canonical_locator",
+  );
+  const provisional_source_ref = optionalString(
+    object.provisional_source_ref,
+    "history_encounter:provisional_source_ref",
+    512,
+  );
   const session_ref = optionalString(object.session_ref, "history_encounter:session_ref", 512);
 
   return {
     ...base,
     ...(canonical_locator ? { canonical_locator } : {}),
+    ...(corpus_presence ? { corpus_presence } : {}),
     ...(canonical_source_ref ? { canonical_source_ref } : {}),
     ...(provisional_source_ref ? { provisional_source_ref } : {}),
     ...(session_ref ? { session_ref } : {}),
@@ -374,6 +401,14 @@ function nativeIds(value: unknown, field: string): Record<string, string> {
     out[scheme] = stringField(id, `${field}.${scheme}`, 1024);
   }
   return out;
+}
+
+function optionalCorpusPresence(value: unknown): CorpusPresence | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "current" && value !== "historical_retired") {
+    throw new Error("history_encounter:corpus_presence_invalid");
+  }
+  return value;
 }
 
 function tokenField(value: unknown, field: string): string {
