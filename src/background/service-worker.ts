@@ -1,21 +1,19 @@
 /**
  * Counterpedia Chrome Extension — Background Service Worker
  *
- * Responsibilities:
- * - Set up context menu on install
- * - Open side panel on action click
- * - Route messages to the side panel
- * - Update badge with match count
- * - When Counterpedia History is explicitly ON, route completed active-tab
- *   top-level http(s) encounters through the attributable collector registry
- *   and persist the resulting Encounter locally
+ * History flow:
+ *   completed active top-level page
+ *     -> History Gate
+ *     -> attributable Collector
+ *     -> fixed public source-resolution index (cached in storage.session)
+ *     -> exact local HIT/MISS resolution
+ *     -> local Encounter / LOCAL_ONLY corpus miss
  *
  * Privacy:
- * - Never accesses page DOM, cookies, referrer, or the Chrome History API
- * - Only passes tab URL and explicitly selected text to the panel
- * - CP-HISTORY0 is OFF by default and performs no passive write while OFF
- * - Collector recognition performs no network I/O or corpus admission
- * - History records are local only; this worker performs no history telemetry
+ * - Never accesses Chrome History, cookies, referrer, or page DOM for passive History.
+ * - The source-resolution request is a fixed URL. The encountered URL/native ids
+ *   are matched locally and are never transmitted as lookup parameters.
+ * - History remains OFF by default and local Encounter content is not telemetry.
  */
 
 import { sendMessage } from "../lib/messaging";
@@ -31,6 +29,10 @@ import {
   resolveCollectorObservation,
   type CollectorStorageArea,
 } from "../lib/collectors";
+import {
+  resolveObservationWithPublicIndex,
+  type SessionStorageArea,
+} from "../lib/sourceResolutionClient";
 
 const CONTEXT_MENU_ID = "counterpedia_check_selection";
 
@@ -82,19 +84,24 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 });
 
 async function recordCompletedTopLevelEncounter(url: string): Promise<void> {
-  const storage = chrome.storage.local as unknown as LocalStorageArea & CollectorStorageArea;
+  const localStorage = chrome.storage.local as unknown as LocalStorageArea & CollectorStorageArea;
 
-  // The binary History gate wins before collector specialization. Turning a
-  // specific collector off never turns into a second hidden History switch.
-  if ((await readHistoryMode(storage)) !== "ON") return;
+  // The binary History gate wins before collector specialization or resolver fetch.
+  if ((await readHistoryMode(localStorage)) !== "ON") return;
 
-  const settings = await readCollectorSettings(storage);
+  const settings = await readCollectorSettings(localStorage);
   const observation = resolveCollectorObservation(url, settings);
   if (!observation) return;
 
-  // Re-check the History gate inside recordPassiveEncounter to make an OFF toggle
-  // that races this async collector read fail closed.
-  await recordPassiveEncounter(storage, observation);
+  const sessionStorage = chrome.storage.session as unknown as SessionStorageArea;
+  const resolved = await resolveObservationWithPublicIndex(
+    sessionStorage,
+    observation,
+  );
+
+  // recordPassiveEncounter rechecks History, so a user switching OFF while the
+  // fixed index request is in flight fails closed before local History mutation.
+  await recordPassiveEncounter(localStorage, resolved);
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -130,7 +137,10 @@ async function handleCapturePage(
       return;
     }
 
-    const results = await chrome.scripting.executeScript<[string], ReturnType<typeof capturePageData>>({
+    const results = await chrome.scripting.executeScript<
+      [string],
+      ReturnType<typeof capturePageData>
+    >({
       target: { tabId: tab.id, allFrames: false },
       func: capturePageData,
       args: [tab.url],
