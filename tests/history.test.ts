@@ -76,6 +76,46 @@ describe("CP-HISTORY0", () => {
     expect(storage.state[CORPUS_MISS_LEDGER_KEY]).toBeUndefined();
   });
 
+  it("carries current/historical corpus presence only with an exact MATCHED source", async () => {
+    const storage = new MemoryStorage();
+    await setHistoryMode(storage, "ON");
+    const matched = await recordPassiveEncounter(
+      storage,
+      {
+        ...OBS,
+        resolution_status: "MATCHED",
+        canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
+        corpus_presence: "historical_retired",
+      },
+      FIXED,
+    );
+    expect(matched).toMatchObject({
+      recorded: true,
+      encounter: {
+        resolution_status: "MATCHED",
+        canonical_source_ref: "PUBLIC-SRC-HEPPNER-DOC27",
+        corpus_presence: "historical_retired",
+      },
+    });
+    expect(JSON.stringify(matched)).not.toContain("standing");
+
+    await expect(
+      recordPassiveEncounter(
+        storage,
+        { ...OBS, resolution_status: "MATCHED", canonical_source_ref: "SRC-X" },
+        { ...FIXED, makeId: () => "encounter-002" },
+      ),
+    ).rejects.toThrow("history_encounter:matched_requires_corpus_presence");
+
+    await expect(
+      recordPassiveEncounter(
+        storage,
+        { ...OBS, resolution_status: "UNMATCHED", corpus_presence: "current" },
+        { ...FIXED, makeId: () => "encounter-003" },
+      ),
+    ).rejects.toThrow("history_encounter:nonmatched_cannot_carry_canonical_presence");
+  });
+
   it("turning History OFF stops future writes without deleting earlier encounters", async () => {
     const storage = new MemoryStorage();
     await setHistoryMode(storage, "ON");
@@ -132,11 +172,7 @@ describe("CP-HISTORY0", () => {
   it("aggregates UNMATCHED demand locally and never upgrades its reporting posture", async () => {
     const storage = new MemoryStorage();
     await setHistoryMode(storage, "ON");
-    await recordPassiveEncounter(
-      storage,
-      { ...OBS, resolution_status: "UNMATCHED" },
-      FIXED,
-    );
+    await recordPassiveEncounter(storage, { ...OBS, resolution_status: "UNMATCHED" }, FIXED);
     await recordPassiveEncounter(
       storage,
       { ...OBS, resolution_status: "UNMATCHED" },
