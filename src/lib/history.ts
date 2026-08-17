@@ -75,6 +75,7 @@ export interface RecordEncounterOptions {
 
 const MAX_ENCOUNTERS = 5000;
 const MAX_MISSES = 2000;
+
 const ENCOUNTER_KEYS = new Set([
   "schema_version",
   "encounter_id",
@@ -116,9 +117,7 @@ const AUTHORITY_FIELDS = new Set([
 
 export async function readHistoryMode(storage: LocalStorageArea): Promise<HistoryMode> {
   const result = await storage.get(HISTORY_MODE_KEY);
-  const value = result[HISTORY_MODE_KEY];
-  // First install and malformed state both fail closed to OFF.
-  return value === "ON" ? "ON" : "OFF";
+  return result[HISTORY_MODE_KEY] === "ON" ? "ON" : "OFF";
 }
 
 export async function setHistoryMode(
@@ -158,6 +157,7 @@ export async function recordPassiveEncounter(
   observation: PassiveEncounterObservation,
   options: RecordEncounterOptions = {},
 ): Promise<{ recorded: false } | { recorded: true; encounter: BrowserEncounterV01 }> {
+  // The privacy boundary is first: OFF means no encounter/miss ledger read or write.
   if ((await readHistoryMode(storage)) !== "ON") return { recorded: false };
 
   const occurredAt = (options.now ?? (() => new Date().toISOString()))();
@@ -196,7 +196,7 @@ export async function recordPassiveEncounter(
 }
 
 export async function clearCounterpediaHistory(storage: LocalStorageArea): Promise<void> {
-  // Deliberately preserve the ON/OFF preference. Clear removes content only.
+  // Preserve the setting; deleting content is intentionally separate from disabling History.
   await storage.remove([ENCOUNTER_LEDGER_KEY, CORPUS_MISS_LEDGER_KEY]);
 }
 
@@ -220,26 +220,31 @@ export function observationFromTopLevelUrl(url: string): PassiveEncounterObserva
 
 async function upsertCorpusMiss(
   storage: LocalStorageArea,
-  encounter: BrowserEncounterV01 & {
-    resolution_status: "UNMATCHED" | "AMBIGUOUS";
-  },
+  encounter: BrowserEncounterV01,
 ): Promise<void> {
+  const resolution = encounter.resolution_status;
+  if (resolution !== "UNMATCHED" && resolution !== "AMBIGUOUS") {
+    throw new Error("corpus_miss:encounter_resolution_not_miss");
+  }
+
   const misses = await readCorpusMissLedger(storage);
   const identity = missIdentity(encounter);
   const index = misses.findIndex((miss) => missIdentity(miss) === identity);
+
   if (index >= 0) {
     const existing = misses[index];
     const next = parseCorpusMiss({
       ...existing,
       last_seen_at: encounter.occurred_at,
       encounter_count: existing.encounter_count + 1,
-      resolution_status: encounter.resolution_status,
+      resolution_status: resolution,
     });
     const updated = [...misses];
     updated[index] = next;
     await storage.set({ [CORPUS_MISS_LEDGER_KEY]: updated });
     return;
   }
+
   if (misses.length >= MAX_MISSES) throw new Error("corpus_miss_ledger:limit_reached");
   const miss = parseCorpusMiss({
     schema_version: CORPUS_MISS_SCHEMA,
@@ -252,7 +257,7 @@ async function upsertCorpusMiss(
     canonical_locator: encounter.canonical_locator,
     source_kind: encounter.source_kind,
     source_native_ids: encounter.source_native_ids,
-    resolution_status: encounter.resolution_status,
+    resolution_status: resolution,
     reporting_status: "LOCAL_ONLY",
   });
   await storage.set({ [CORPUS_MISS_LEDGER_KEY]: [...misses, miss] });
@@ -262,33 +267,36 @@ function parseEncounter(value: unknown): BrowserEncounterV01 {
   const object = strictObject(value, ENCOUNTER_KEYS, "history_encounter");
   if (object.schema_version !== ENCOUNTER_SCHEMA) throw new Error("history_encounter:schema");
   const status = object.resolution_status;
-  if (![
-    "UNRESOLVED",
-    "MATCHED",
-    "AMBIGUOUS",
-    "UNMATCHED",
-  ].includes(status as string)) {
+  if (
+    status !== "UNRESOLVED" &&
+    status !== "MATCHED" &&
+    status !== "AMBIGUOUS" &&
+    status !== "UNMATCHED"
+  ) {
     throw new Error("history_encounter:resolution_status");
   }
+
   const occurred_at = stringField(object.occurred_at, "history_encounter:occurred_at", 64);
   assertIsoUtc(occurred_at, "occurred_at");
-  const source_native_ids = nativeIds(object.source_native_ids, "history_encounter:source_native_ids");
-  const encounter: BrowserEncounterV01 = {
+
+  const base: BrowserEncounterV01 = {
     schema_version: ENCOUNTER_SCHEMA,
     encounter_id: stringField(object.encounter_id, "history_encounter:encounter_id", 128),
     occurred_at,
     collector_id: tokenField(object.collector_id, "history_encounter:collector_id"),
     observed_url: urlField(object.observed_url, "history_encounter:observed_url"),
     source_kind: tokenField(object.source_kind, "history_encounter:source_kind"),
-    source_native_ids,
-    resolution_status: status as EncounterResolutionStatus,
+    source_native_ids: nativeIds(object.source_native_ids, "history_encounter:source_native_ids"),
+    resolution_status: status,
   };
+
   const canonical_locator = optionalUrl(object.canonical_locator, "history_encounter:canonical_locator");
   const canonical_source_ref = optionalString(object.canonical_source_ref, "history_encounter:canonical_source_ref", 512);
   const provisional_source_ref = optionalString(object.provisional_source_ref, "history_encounter:provisional_source_ref", 512);
   const session_ref = optionalString(object.session_ref, "history_encounter:session_ref", 512);
+
   return {
-    ...encounter,
+    ...base,
     ...(canonical_locator ? { canonical_locator } : {}),
     ...(canonical_source_ref ? { canonical_source_ref } : {}),
     ...(provisional_source_ref ? { provisional_source_ref } : {}),
@@ -303,13 +311,16 @@ function parseCorpusMiss(value: unknown): LocalCorpusMissV01 {
     throw new Error("corpus_miss:resolution_status");
   }
   if (object.reporting_status !== "LOCAL_ONLY") throw new Error("corpus_miss:reporting_status");
+
   const first_seen_at = stringField(object.first_seen_at, "corpus_miss:first_seen_at", 64);
   const last_seen_at = stringField(object.last_seen_at, "corpus_miss:last_seen_at", 64);
   assertIsoUtc(first_seen_at, "first_seen_at");
   assertIsoUtc(last_seen_at, "last_seen_at");
+
   if (!Number.isSafeInteger(object.encounter_count) || (object.encounter_count as number) < 1) {
     throw new Error("corpus_miss:encounter_count");
   }
+
   const base: LocalCorpusMissV01 = {
     schema_version: CORPUS_MISS_SCHEMA,
     miss_id: stringField(object.miss_id, "corpus_miss:miss_id", 160),
@@ -340,7 +351,12 @@ function strictObject(
   return value;
 }
 
-function missIdentity(value: Pick<BrowserEncounterV01 | LocalCorpusMissV01, "collector_id" | "observed_url" | "canonical_locator" | "source_native_ids">): string {
+function missIdentity(
+  value: Pick<
+    BrowserEncounterV01 | LocalCorpusMissV01,
+    "collector_id" | "observed_url" | "canonical_locator" | "source_native_ids"
+  >,
+): string {
   return JSON.stringify({
     collector_id: value.collector_id,
     locator: value.canonical_locator ?? value.observed_url,
@@ -353,9 +369,9 @@ function nativeIds(value: unknown, field: string): Record<string, string> {
   const entries = Object.entries(value);
   if (entries.length > 16) throw new Error(`${field}:too_many`);
   const out: Record<string, string> = {};
-  for (const [key, id] of entries) {
-    if (!/^[a-z][a-z0-9._-]{0,31}$/.test(key)) throw new Error(`${field}:bad_scheme`);
-    out[key] = stringField(id, `${field}.${key}`, 1024);
+  for (const [scheme, id] of entries) {
+    if (!/^[a-z][a-z0-9._-]{0,31}$/.test(scheme)) throw new Error(`${field}:bad_scheme`);
+    out[scheme] = stringField(id, `${field}.${scheme}`, 1024);
   }
   return out;
 }
@@ -382,7 +398,11 @@ function optionalString(value: unknown, field: string, max: number): string | un
 function urlField(value: unknown, field: string): string {
   const raw = stringField(value, field, 4096);
   let parsed: URL;
-  try { parsed = new URL(raw); } catch { throw new Error(`${field}:invalid_url`); }
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${field}:invalid_url`);
+  }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`${field}:invalid_scheme`);
   }
@@ -395,8 +415,9 @@ function optionalUrl(value: unknown, field: string): string | undefined {
 }
 
 function assertIsoUtc(value: string, field: string): void {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || !value.endsWith("Z")) throw new Error(`history:${field}:not_utc_iso`);
+  if (!Number.isFinite(Date.parse(value)) || !value.endsWith("Z")) {
+    throw new Error(`history:${field}:not_utc_iso`);
+  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
