@@ -19,7 +19,10 @@ export type EncounterResolutionStatus =
   | "MATCHED"
   | "AMBIGUOUS"
   | "UNMATCHED";
-export type CorpusPresence = "current" | "historical_retired";
+export type CorpusPresence =
+  | "public_current"
+  | "historical_retired"
+  | "governed_capture";
 
 export interface BrowserEncounterV01 {
   readonly schema_version: typeof ENCOUNTER_SCHEMA;
@@ -405,7 +408,11 @@ function nativeIds(value: unknown, field: string): Record<string, string> {
 
 function optionalCorpusPresence(value: unknown): CorpusPresence | undefined {
   if (value === undefined) return undefined;
-  if (value !== "current" && value !== "historical_retired") {
+  if (
+    value !== "public_current" &&
+    value !== "historical_retired" &&
+    value !== "governed_capture"
+  ) {
     throw new Error("history_encounter:corpus_presence_invalid");
   }
   return value;

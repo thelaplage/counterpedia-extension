@@ -40,10 +40,22 @@ When exact resolution returns a corpus HIT, the Encounter may carry:
 ```text
 resolution_status: MATCHED
 canonical_source_ref: ...
-corpus_presence: current | historical_retired
+corpus_presence: public_current | historical_retired | governed_capture
 ```
 
-`corpus_presence` is intentionally **not standing**. A source retained in a historical/retired proofcase can be recognized so Counterpedia does not needlessly reacquire it, without implying that the source or its former record has current admitted standing.
+`corpus_presence` is intentionally **not standing**.
+
+The NYT/OpenAI flagship gives the intended first proof:
+
+```text
+NO-S01 complaint capture -> MATCHED / governed_capture
+NO-S02 OpenAI statement  -> UNMATCHED in current snapshot
+NO-S03 SDNY opinion      -> MATCHED / governed_capture
+```
+
+`governed_capture` means Counterpedia already has exact bytes and a real CaptureReceipt for that source identity. It does **not** mean the source has been admitted, verified, published, or granted public standing.
+
+That distinction is what lets user History avoid re-pulling NO-S01/NO-S03 while preserving NO-S02 as an honest local corpus-demand gap.
 
 The contract fails closed:
 
