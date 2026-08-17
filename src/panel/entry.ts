@@ -5,6 +5,7 @@ import { initInquiryPaths } from "./inquiryPaths";
 import { initInquiryTrace } from "./inquiryTrace";
 import { initResearcherProfiles } from "./researcherProfiles";
 import { initResearcherTeaching } from "./researcherTeaching";
+import { initHistoryControls } from "./historyControls";
 
 initDirectionalActions();
 initCheckAnatomy();
@@ -12,3 +13,4 @@ initInquiryPaths();
 initInquiryTrace();
 initResearcherProfiles();
 initResearcherTeaching();
+void initHistoryControls();
