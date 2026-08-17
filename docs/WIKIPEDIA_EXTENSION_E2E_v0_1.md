@@ -26,7 +26,9 @@ or canonical Counterpedia identity.
 
 Use the current landed implementations as the operator targets:
 
-- `counterpedia-extension`: `agent/wikipedia-e2e-closure-v0-1`
+- `counterpedia-extension`: `agent/wikipedia-e2e-closure-v0-1` (team beta adds
+  the `team/local-beta-v0-1` one-click Counterpedia Local launcher on top of
+  this closure branch — see `tools/counterpedia-local/README.md` for that layer)
 - `counterpedia-acquisition`: merged replacement `counterpedia-acquisition` PR #76
   at `32ee58c6a544c04b3118ddb77af734d026d024ec`
 - `counterpedia-authoring`: merged replacement `counterpedia-authoring` PR #112
