@@ -22,17 +22,21 @@ real Chrome page
 It does **not** prove or perform admission, publication, standing, verification,
 or canonical Counterpedia identity.
 
-## Required branches
+## Required checkouts
 
-Until the closure PRs land, use these exact branches:
+Use the current landed implementations as the operator targets:
 
 - `counterpedia-extension`: `agent/wikipedia-e2e-closure-v0-1`
-- `counterpedia-acquisition`: `agent/extension-durable-store-v0-1`
-- `counterpedia-authoring`: `agent/live-held-source-http-v0-1`
+- `counterpedia-acquisition`: merged replacement `counterpedia-acquisition` PR #76
+  at `32ee58c6a544c04b3118ddb77af734d026d024ec`
+- `counterpedia-authoring`: merged replacement `counterpedia-authoring` PR #112
+  at `7c2b82496ea516e2073bedcd3124433939887663`
 
-The extension branch is based on the reviewed historical-source head from PR #16,
-so `[Draft from source]` calls only the held-capture action and has no URL-refetch
-fallback.
+The historical branch labels (`agent/extension-durable-store-v0-1`,
+`agent/live-held-source-http-v0-1`) are retained only as provenance for the old
+drafts. The extension branch is based on the reviewed historical-source head from
+PR #16, so `[Draft from source]` calls only the held-capture action and has no
+URL-refetch fallback.
 
 ## 1. Install the local Python runtimes
 
@@ -124,7 +128,8 @@ Expected durable layout after successful captures:
 ## 4. Start live historical-source authoring
 
 In the authoring virtualenv, with `OPENAI_API_KEY` exported and the acquisition
-`counterpedia-acquisition-mcp` executable available on `PATH`:
+`counterpedia-acquisition-mcp` executable available on `PATH` from the merged
+replacement acquisition checkout:
 
 ```bash
 counterpedia-authoring-live-source \
@@ -246,7 +251,9 @@ The automated cross-process test on the extension historical-source branch is
 stronger than a normal Wikipedia manual run: it captures source A, shuts the
 origin down entirely, and then successfully drafts from the retained bytes.
 That gate must remain green before merge because it proves that a hidden URL
-fallback could not have succeeded.
+fallback could not have succeeded. The current tracked operator runbook should
+be read against the merged replacement backend implementations above, not the
+historical draft branch labels.
 
 Run with clean backend checkouts wired:
 
