@@ -93,7 +93,6 @@ describe("CP-RESEARCH-SESSION0", () => {
     const storage = new MemoryStorage();
     const session = await startResearchSession(storage, "Boeing", START);
 
-    // Active session by itself does not override OFF-by-default History.
     const offResult = await recordPassiveEncounter(storage, observation(session.session_ref), {
       now: () => "2026-08-17T06:31:00.000Z",
       makeId: () => "enc-off",
@@ -117,7 +116,7 @@ describe("CP-RESEARCH-SESSION0", () => {
         onResult.encounter.encounter_id,
       );
     }
-    expect((await readResearchSessions())[0]);
+    expect((await readResearchSessions(storage))[0].encounter_ids).toEqual(["enc-on"]);
   });
 
   it("stops the session explicitly and preserves its encounter references", async () => {
