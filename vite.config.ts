@@ -84,7 +84,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         "background/service-worker": resolve(__dirname, "src/background/service-worker.ts"),
-        "panel/panel": resolve(__dirname, "src/panel/panel.ts"),
+// entry.ts composes the existing panel with CHECK-ACTIONS0 without
+        // rewriting panel.ts or changing its current authority boundaries.
+        "panel/panel": resolve(__dirname, "src/panel/entry.ts"),
         "panel/local-pairing": resolve(__dirname, "src/panel/localPairing.ts"),
         "popup/popup": resolve(__dirname, "src/popup/popup.ts"),
       },
