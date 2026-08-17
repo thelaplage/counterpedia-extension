@@ -79,7 +79,8 @@ function option(value: string, label: string): HTMLOptionElement {
   return out;
 }
 
-function pathSelection(source: ResearcherProfile): HTMLElement {
+/** Exported for tests: builds the per-path checkbox list for a source Researcher. */
+export function pathSelection(source: ResearcherProfile): HTMLElement {
   const wrap = document.createElement("div");
   wrap.id = "researcher-teaching-paths";
   wrap.style.marginTop = "7px";
@@ -90,7 +91,9 @@ function pathSelection(source: ResearcherProfile): HTMLElement {
     label.style.margin = "3px 0";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = true;
+    // Default unchecked: teaching one path must never silently grant every
+    // path on a source Researcher. The user opts in per path explicitly.
+    checkbox.checked = false;
     checkbox.dataset["teachPathId"] = path.id;
     label.appendChild(checkbox);
     label.append(` ${path.label} · ${path.domain}`);
@@ -99,7 +102,8 @@ function pathSelection(source: ResearcherProfile): HTMLElement {
   return wrap;
 }
 
-function selectedTeachingPathIds(): Set<string> {
+/** Exported for tests: reads only the explicitly-checked path checkboxes. */
+export function selectedTeachingPathIds(): Set<string> {
   return new Set(
     Array.from(
       document.querySelectorAll<HTMLInputElement>(
