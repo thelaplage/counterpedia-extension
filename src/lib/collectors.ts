@@ -1,3 +1,4 @@
+import { courtListenerCollector } from "../collectors/courtlistener";
 import type { PassiveEncounterObservation } from "./history";
 
 export const COLLECTOR_SETTINGS_KEY = "counterpedia_collectors_v0_1";
@@ -86,6 +87,7 @@ const genericWebCollector: CollectorDefinition = {
 };
 
 export const COLLECTORS: readonly CollectorDefinition[] = Object.freeze([
+  courtListenerCollector,
   wikipediaCollector,
   genericWebCollector,
 ]);
