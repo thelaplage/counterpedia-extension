@@ -56,7 +56,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         "background/service-worker": resolve(__dirname, "src/background/service-worker.ts"),
-        "panel/panel": resolve(__dirname, "src/panel/panel.ts"),
+        // CP-HISTORY0 composes the existing panel unchanged with local History controls.
+        "panel/panel": resolve(__dirname, "src/panel/history.entry.ts"),
         "popup/popup": resolve(__dirname, "src/popup/popup.ts"),
       },
       output: {
