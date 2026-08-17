@@ -33,7 +33,34 @@ registered != verified
 verified != admitted
 ```
 
-The v0.1 generic browser observation starts `UNRESOLVED`. A later collector/resolver lane may bind exact registered identity keys. HISTORY0 itself does not perform source-resolution network calls.
+The generic browser observation starts `UNRESOLVED`. A collector/resolver lane may later bind exact registered identity keys.
+
+When exact resolution returns a corpus HIT, the Encounter may carry:
+
+```text
+resolution_status: MATCHED
+canonical_source_ref: ...
+corpus_presence: public_current | historical_retired | governed_capture
+```
+
+`corpus_presence` is intentionally **not standing**.
+
+The NYT/OpenAI flagship gives the intended first proof:
+
+```text
+NO-S01 complaint capture -> MATCHED / governed_capture
+NO-S02 OpenAI statement  -> UNMATCHED in current snapshot
+NO-S03 SDNY opinion      -> MATCHED / governed_capture
+```
+
+`governed_capture` means Counterpedia already has exact bytes and a real CaptureReceipt for that source identity. It does **not** mean the source has been admitted, verified, published, or granted public standing.
+
+That distinction is what lets user History avoid re-pulling NO-S01/NO-S03 while preserving NO-S02 as an honest local corpus-demand gap.
+
+The contract fails closed:
+
+- `MATCHED` requires both `canonical_source_ref` and `corpus_presence`;
+- non-MATCHED encounters may not carry either field.
 
 ## Local-only persistence
 
@@ -50,7 +77,7 @@ A limit is an explicit refusal to write more History; it is not an excuse to evi
 
 ## Corpus miss
 
-`counterpedia.local_corpus_miss.v0.1` exists so later exact resolution can preserve `UNMATCHED`/`AMBIGUOUS` encounters as local demand observations.
+`counterpedia.local_corpus_miss.v0.1` exists so exact resolution can preserve `UNMATCHED`/`AMBIGUOUS` encounters as local demand observations.
 
 Its reporting posture is structurally fixed:
 
@@ -75,7 +102,7 @@ Neither is Amnesiac memory admission.
 
 - no recursive crawl;
 - no automatic exact-byte acquisition;
-- no CourtListener/Internet Archive adapter semantics yet;
+- no source-resolution request that transmits the encountered URL as a query;
 - no Countergraph mutation;
 - no Amnesiac write;
 - no publication;
