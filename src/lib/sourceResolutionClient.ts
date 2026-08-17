@@ -31,7 +31,7 @@ export interface SourceResolutionIndexEntry {
 
 export interface SourceResolutionIndex {
   readonly schema_version: typeof SOURCE_RESOLUTION_SCHEMA;
-  readonly generated_from: "public_source_registry";
+  readonly generated_from: "known_source_material";
   readonly entries: readonly SourceResolutionIndexEntry[];
 }
 
@@ -114,8 +114,8 @@ export async function resolveObservationWithPublicIndex(
 /**
  * Resolve locally. Stable site-native IDs are preferred because a collector's
  * canonical browsing locator may intentionally be a normalized root while the
- * registry retains an exact observed slug URL. If no registered native key is
- * known, exact locator matching is attempted as the fallback.
+ * known-source artifact retains an exact observed locator. If no registered
+ * native key is known, exact locator matching is attempted as the fallback.
  */
 export function resolveObservationAgainstIndex(
   index: SourceResolutionIndex,
@@ -156,7 +156,7 @@ export function parseSourceResolutionIndex(value: unknown): SourceResolutionInde
   if (object.schema_version !== SOURCE_RESOLUTION_SCHEMA) {
     throw new Error("source_resolution_index:schema_version");
   }
-  if (object.generated_from !== "public_source_registry") {
+  if (object.generated_from !== "known_source_material") {
     throw new Error("source_resolution_index:generated_from");
   }
   if (!Array.isArray(object.entries) || object.entries.length > MAX_INDEX_ENTRIES) {
@@ -221,7 +221,7 @@ export function parseSourceResolutionIndex(value: unknown): SourceResolutionInde
 
   return {
     schema_version: SOURCE_RESOLUTION_SCHEMA,
-    generated_from: "public_source_registry",
+    generated_from: "known_source_material",
     entries,
   };
 }
@@ -328,7 +328,11 @@ function strictObject(
 }
 
 function parseCorpusPresence(value: unknown, field: string): CorpusPresence {
-  if (value !== "current" && value !== "historical_retired") {
+  if (
+    value !== "public_current" &&
+    value !== "historical_retired" &&
+    value !== "governed_capture"
+  ) {
     throw new Error(`${field}:invalid`);
   }
   return value;
