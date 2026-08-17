@@ -57,9 +57,30 @@ exact one source             -> MATCHED
 
 Only a real `UNMATCHED`/`AMBIGUOUS` result from a valid index may feed HISTORY0's LOCAL_ONLY corpus-miss ledger.
 
+## NYT/OpenAI proofcase
+
+The first real fixture is the three-source NYT/OpenAI minimum-intersection cohort:
+
+```text
+NO-S01  Times complaint / ECF 1       -> MATCHED / governed_capture
+NO-S02  OpenAI public position         -> UNMATCHED
+NO-S03  SDNY opinion / ECF 514         -> MATCHED / governed_capture
+```
+
+The two HITs resolve because merged Counterpedia Acquisition audit records bind exact RECAP locators, source IDs, CaptureReceipts, and byte digests. NO-S02 is deliberately absent: the authorized origin fetch failed closed and the authorized Wayback lookup also failed, so no governed CaptureReceipt exists.
+
+That asymmetry is the desired user behavior:
+
+```text
+already possessed -> bind locally, do not reacquire merely because user saw it
+missing           -> preserve a LOCAL_ONLY demand signal
+```
+
+It does not say that either captured source has been admitted, verified, or published.
+
 ## Exact matching policy
 
-Collectors can provide both site-native identity and a browsing locator. A normalized browsing locator is not necessarily byte-for-byte equal to a governed registered locator (for example a CourtListener collector can normalize a docket to `/docket/<id>/` while Counterpedia retains the full reviewed docket URL with slug).
+Collectors can provide both site-native identity and a browsing locator. A normalized browsing locator is not necessarily byte-for-byte equal to a governed registered locator.
 
 Therefore the local client uses:
 
@@ -76,10 +97,10 @@ A HIT carries:
 
 ```text
 canonical_source_ref
-corpus_presence: current | historical_retired
+corpus_presence: public_current | historical_retired | governed_capture
 ```
 
-`historical_retired` means Counterpedia already knows/retains the source lineage for deduplication, while current standing remains retired.
+`governed_capture` means exact governed bytes/CaptureReceipt are already known to Counterpedia. It does not confer admission, verification, publication, or standing.
 
 The Encounter contract contains no `standing`, `admitted`, `verified`, or publication field.
 
@@ -92,7 +113,7 @@ The Encounter contract contains no `standing`, `admitted`, `verified`, or public
 ## Non-goals
 
 - no source acquisition;
-- no exact-byte capture;
+- no exact-byte capture by the resolver itself;
 - no automatic public demand submission;
 - no Countergraph write;
 - no Amnesiac admission;
