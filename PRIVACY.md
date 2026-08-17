@@ -80,12 +80,15 @@ admitted, published, or given standing in Counterpedia.
 A matched source may carry:
 
 ```text
-corpus_presence: current | historical_retired
+corpus_presence: public_current | historical_retired | governed_capture
 ```
 
-This describes whether Counterpedia already retains that source identity for
-lookup/deduplication. It is not a standing claim. A `historical_retired` source
-can be recognized as already known without restoring its former public standing.
+This is source-presence metadata for lookup/deduplication, not a standing claim.
+`governed_capture` means Counterpedia already has governed exact bytes and a
+CaptureReceipt for that source identity; it does not mean the source was admitted,
+verified, or published. This distinction is used by the NYT/OpenAI proof fixture:
+the already captured complaint and court opinion are local HITs, while the
+uncaptured OpenAI public-position source remains an honest MISS.
 
 If the source-resolution index is unavailable or malformed, the Encounter stays
 `UNRESOLVED`; infrastructure failure is not converted into a false corpus miss.
