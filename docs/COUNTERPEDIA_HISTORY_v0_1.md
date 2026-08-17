@@ -33,7 +33,22 @@ registered != verified
 verified != admitted
 ```
 
-The v0.1 generic browser observation starts `UNRESOLVED`. A later collector/resolver lane may bind exact registered identity keys. HISTORY0 itself does not perform source-resolution network calls.
+The generic browser observation starts `UNRESOLVED`. A collector/resolver lane may later bind exact registered identity keys.
+
+When exact resolution returns a corpus HIT, the Encounter may carry:
+
+```text
+resolution_status: MATCHED
+canonical_source_ref: ...
+corpus_presence: current | historical_retired
+```
+
+`corpus_presence` is intentionally **not standing**. A source retained in a historical/retired proofcase can be recognized so Counterpedia does not needlessly reacquire it, without implying that the source or its former record has current admitted standing.
+
+The contract fails closed:
+
+- `MATCHED` requires both `canonical_source_ref` and `corpus_presence`;
+- non-MATCHED encounters may not carry either field.
 
 ## Local-only persistence
 
@@ -50,7 +65,7 @@ A limit is an explicit refusal to write more History; it is not an excuse to evi
 
 ## Corpus miss
 
-`counterpedia.local_corpus_miss.v0.1` exists so later exact resolution can preserve `UNMATCHED`/`AMBIGUOUS` encounters as local demand observations.
+`counterpedia.local_corpus_miss.v0.1` exists so exact resolution can preserve `UNMATCHED`/`AMBIGUOUS` encounters as local demand observations.
 
 Its reporting posture is structurally fixed:
 
@@ -75,7 +90,7 @@ Neither is Amnesiac memory admission.
 
 - no recursive crawl;
 - no automatic exact-byte acquisition;
-- no CourtListener/Internet Archive adapter semantics yet;
+- no source-resolution request that transmits the encountered URL as a query;
 - no Countergraph mutation;
 - no Amnesiac write;
 - no publication;
