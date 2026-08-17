@@ -6,15 +6,24 @@
  * - Open side panel on action click
  * - Route messages to the side panel
  * - Update badge with match count
+ * - When Counterpedia History is explicitly ON, record completed active-tab
+ *   top-level http(s) encounters to chrome.storage.local only
  *
  * Privacy:
- * - Never accesses page DOM, cookies, history, or referrer
+ * - Never accesses page DOM, cookies, referrer, or the Chrome History API
  * - Only passes tab URL and explicitly selected text to the panel
+ * - CP-HISTORY0 is OFF by default and performs no passive write while OFF
+ * - History records are local only; this worker performs no history telemetry
  */
 
 import { sendMessage } from "../lib/messaging";
 import { capturePageData } from "../capture/captureScript";
 import { normalizeCaptureData } from "../lib/browserPageCapture";
+import {
+  observationFromTopLevelUrl,
+  recordPassiveEncounter,
+  type LocalStorageArea,
+} from "../lib/history";
 
 const CONTEXT_MENU_ID = "counterpedia_check_selection";
 
@@ -73,11 +82,29 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-  // Only fire when the URL is finalized (status === "complete")
+  // Only fire when the top-level page load is complete.
   if (changeInfo.status !== "complete") return;
   if (!tab.url) return;
   if (!tab.active) return;
+
+  // Search/panel notification is unchanged by History.
   sendMessage({ type: "TAB_CHANGED", url: tab.url });
+
+  // CP-HISTORY0: this is the sole passive write trigger in v0.1. The library
+  // checks the OFF-by-default History Gate before reading/writing the ledger.
+  // It does not fetch, resolve, capture, submit telemetry, or call Amnesiac.
+  const observation = observationFromTopLevelUrl(tab.url);
+  if (observation) {
+    void recordPassiveEncounter(
+      chrome.storage.local as unknown as LocalStorageArea,
+      observation,
+    ).catch((error: unknown) => {
+      // Never log the encountered URL. A malformed/over-limit local ledger fails
+      // closed and remains available for the user's explicit Clear History action.
+      const reason = error instanceof Error ? error.message : "unknown";
+      console.warn(`[Counterpedia] local History write refused: ${reason}`);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
