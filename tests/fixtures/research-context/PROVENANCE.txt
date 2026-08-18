@@ -1,0 +1,97 @@
+RESEARCH-CONTEXT0 fixture provenance
+=====================================
+
+These fixtures pin literal producer bytes from upstream repositories in this
+ecosystem, per this repo's CLAUDE.md "cross-repository evidence rule". This
+extension does not re-implement or hand-author the underlying packet shapes;
+it validates and displays exactly what the producer emitted.
+
+--------------------------------------------------------------------------
+research_context_packet.missing_primary_source.json
+research_context_packet.complete_neighborhood.json
+--------------------------------------------------------------------------
+producer_repository = thelaplage/countergraph
+producer_ref        = main
+producer_commit     = bb407d3e7577c81b0abdbf5d5e28e0dc6b33a87b
+producer_pr         = #88 "RESEARCH-CONTEXT0: project question evidence
+                       neighborhoods and gap rationale" — MERGED
+                       2026-08-18T06:41:41Z.
+
+  NOTE: the RESEARCH-CONTEXT0 dispatch instructions for this extension lane
+  described countergraph PR #88 as "still draft". Verified via
+  `gh pr view 88 --repo thelaplage/countergraph` at the time this lane ran:
+  the PR is in fact MERGED (state=MERGED, mergedAt=2026-08-18T06:41:41Z).
+  That is a *more* stable upstream state than the dispatch assumed, not a
+  regression, so these fixtures are pinned to countergraph's actual `main`
+  rather than to a draft branch. Flagged here for the record, per the
+  "verify remote head before merge" ecosystem lesson — assumptions about PR
+  status go stale and must be re-checked, not trusted from a prior brief.
+
+producer_modules:
+  countergraph/research_gap_packet.py      (schema countergraph.research-gap-packet/v0.1, PR #84, merged)
+  countergraph/research_context_packet.py  (schema countergraph.research-context-packet/v0.1, PR #88, merged)
+
+generation: ran build_research_gap_packet() then build_research_context_packet()
+  locally (pure computation, no network) against countergraph's own checked-in
+  snapshot fixtures, using the exact question_ref each snapshot's own test
+  suite uses:
+
+  missing_primary_source.json  <- countergraph fixtures/research_gap/missing_primary_source.json,
+                                   question_ref="q:heppner-retirement"
+                                   (countergraph's own PR #84 fixture directory already ships the
+                                   resulting ResearchGapPacket at
+                                   fixtures/research_gap/producer_packet_missing_primary_source.json —
+                                   this file is the ResearchContextPacket built on top of that same
+                                   gap packet, generated the same way.)
+
+  complete_neighborhood.json   <- countergraph fixtures/research_gap/complete_neighborhood.json,
+                                   question_ref="q:portland-head-light-history"
+                                   (empty gap_context / gap_item_counts_by_type — no-gaps case)
+
+  generation command (run from thelaplage/countergraph checkout at bb407d3):
+    python3 -c "
+    import json
+    from countergraph.research_gap_packet import build_research_gap_packet
+    from countergraph.research_context_packet import build_research_context_packet
+    snapshot = json.load(open('fixtures/research_gap/<name>.json'))
+    gap_packet = build_research_gap_packet(snapshot, question_ref='<question_ref>')
+    ctx_packet = build_research_context_packet(snapshot, gap_packet, question_ref='<question_ref>')
+    json.dump(ctx_packet, open('<out>.json', 'w'), indent=2, sort_keys=True)
+    "
+
+packet_digest (missing_primary_source)  = sha256:00d418e9902549539746bb8d2dc48a77090aa2007a9955c20689230b838f5bc0
+packet_digest (complete_neighborhood)   = sha256:c7899dba37e5ded7c46939d928c805c6ac9528f2f11032a666ae1a629424ace7
+
+This extension does NOT recompute these digests (it has no access to
+countergraph's canon.py canonicalization profile and must not become a
+second schema/digest authority per CLAUDE.md). Validation here is
+structural (required fields + schema string) only; the digest is carried
+through and displayed as an opaque provenance value.
+
+--------------------------------------------------------------------------
+public_object_link.*.json
+--------------------------------------------------------------------------
+producer_repository = thelaplage/counterpedia
+producer_ref         = feat/research-public-links0
+producer_commit      = 6833d9643826c6bf1dab71e596e50d8544335310
+producer_pr           = #475 "RESEARCH-LINK0: resolve public Counterpedia
+                         hrefs for governed refs" — OPEN / DRAFT as of this
+                         lane (verified via `gh pr view 475 --repo
+                         thelaplage/counterpedia`: isDraft=true,
+                         mergedAt=null).
+
+producer_module = lib/counterpedia/publicObjectLink.ts
+  exports resolvePublicObjectLink(objectRef, objectKind) -> PublicObjectLinkResult
+  PublicObjectLinkResult = {
+    public_status: "public_link_available" | "no_public_route" | "unknown_ref" | "not_public",
+    href?: string,   // present only when public_status === "public_link_available"
+    label?: string,
+  }
+
+These are NOT literal producer output bytes (PublicObjectLink is a server
+function with no public HTTP artifact yet, and its PR is still draft/
+unratified) — they are hand-authored fixtures matching that exact pinned
+TypeScript shape, labeled DRAFT/UNRATIFIED throughout this extension's code
+and tests. When PR #475 lands and (if) a public transport for it exists,
+these fixtures should be replaced with literal producer output the same way
+the research_context_packet.*.json fixtures above were.

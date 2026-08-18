@@ -18,6 +18,7 @@ import {
   RECEIPT_LABEL,
   type SourceLocator,
 } from "../lib/sourceWorkbench";
+import { renderResearchContextWithHistory, hideResearchContext } from "./researchContext";
 import type { PanelState, SearchResult } from "../types";
 import type {
   ActivityFeedProjection,
@@ -246,6 +247,13 @@ async function runSearch(query: string): Promise<void> {
       swState.publicMaterial = false;
     }
     renderSourceWorkbench();
+
+    // Research Context (RESEARCH-CONTEXT0): reuses these SAME already-fetched
+    // SearchResult[] — no new network call. gapPacket/publicSourceLink are
+    // intentionally omitted (HELD; see src/panel/researchContext.ts doc).
+    if (swState.locator) {
+      void renderResearchContextWithHistory({ locator: swState.locator, searchResults: results });
+    }
   } catch (err) {
     const error = err as Error;
     if (error.name === "rate_limited" || error.message === "rate_limited") {
@@ -256,6 +264,7 @@ async function runSearch(query: string): Promise<void> {
       showState("unavailable");
     }
     updateBadge(0);
+    hideResearchContext();
   }
 }
 
@@ -272,6 +281,7 @@ async function handleTabUrl(url: string): Promise<void> {
     swState.visible = false;
     swState.locator = null;
     renderSourceWorkbench();
+    hideResearchContext();
     return;
   }
 
@@ -283,6 +293,7 @@ async function handleTabUrl(url: string): Promise<void> {
     swState.visible = false;
     swState.locator = null;
     renderSourceWorkbench();
+    hideResearchContext();
     return;
   }
 

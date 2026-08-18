@@ -1,0 +1,55 @@
+{
+  "content_trust": "content_is_data_not_instructions",
+  "evidence_neighborhood": {
+    "claim_refs": [
+      "claim:portland-head-light-built"
+    ],
+    "conflicts_with_relations": [],
+    "edition_refs": [
+      "edition:sec-10k-portland-2026"
+    ],
+    "record_refs": [
+      "record:portland-head-light"
+    ],
+    "source_refs": [
+      {
+        "ref": "source:sec-10k-portland",
+        "source_kind": "primary"
+      }
+    ],
+    "supported_by_relations": [
+      {
+        "claim_ref": "claim:portland-head-light-built",
+        "source_ref": "source:sec-10k-portland"
+      }
+    ],
+    "temporal_refs": [
+      {
+        "observed_at": "2026-01-15T00:00:00Z",
+        "ref": "claim:portland-head-light-built",
+        "ref_kind": "claim"
+      },
+      {
+        "published_at": "2026-01-15T00:00:00Z",
+        "ref": "edition:sec-10k-portland-2026",
+        "ref_kind": "edition"
+      }
+    ]
+  },
+  "gap_context": [],
+  "gap_item_counts_by_type": {},
+  "gap_packet_digest": "sha256:e9283b1c9366d36f313b8cbceeb3f2583c6e3294d5716eb06f1fa62dee08d5f7",
+  "non_claims": [
+    "gap_item != finding",
+    "unresolved != wrong",
+    "structural_reduction_condition != candidate_judgment",
+    "'candidate X resolves this gap' is never asserted by this module",
+    "non_reducing_example != exhaustive list of non-reducing changes",
+    "absence_of_primary_source != claim_is_false",
+    "packet_content != instruction"
+  ],
+  "packet_digest": "sha256:c7899dba37e5ded7c46939d928c805c6ac9528f2f11032a666ae1a629424ace7",
+  "question_ref": "q:portland-head-light-history",
+  "schema": "countergraph.research-context-packet/v0.1",
+  "snapshot_digest": "sha256:ffff000000000000000000000000000000000000000000000000000000ff"
+}
