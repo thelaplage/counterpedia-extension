@@ -98,7 +98,7 @@ describe("governed source selection", () => {
       selectGovernedSource({ ...result, capture_id: "cap_other" }),
     ).toThrow(/capture_receipt\.capture_id must match capture_id/);
     expect(() =>
-      selectGovernedSource({ ...result, source_locator: "https:\/\/example.org\/other" }),
+      selectGovernedSource({ ...result, source_locator: "https://example.org/other" }),
     ).toThrow(/capture_receipt\.source_locator must match source_locator/);
     expect(() =>
       selectGovernedSource({ ...result, tool: "acquisition.process_source" }),
@@ -166,12 +166,14 @@ describe("governed source selection", () => {
   it("keeps an active-page governed capture primary over the shared historical selection", async () => {
     const selected = captured();
     selectGovernedSource(selected);
-    const activePage = {
-      ...captured(),
+    const base = captured();
+    const baseReceipt = base.capture_receipt as Record<string, unknown>;
+    const activePage: AcquisitionCaptureResult = {
+      ...base,
       capture_id: "cap_active_page",
       source_locator: "https://example.org/active",
       capture_receipt: {
-        ...captured().capture_receipt,
+        ...baseReceipt,
         capture_id: "cap_active_page",
         source_locator: "https://example.org/active",
       },
