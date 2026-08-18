@@ -78,7 +78,6 @@ export function resolveDraftGovernedSource(
 export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<void> {
   const source = resolveDraftGovernedSource(deps);
   if (!source) {
-    // Defensive: the button is disabled without a captured source. Never draft.
     deps.setStatus(renderDraftUnavailable());
     return;
   }
@@ -96,11 +95,6 @@ export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<voi
 
   deps.setStatus(renderDraftPending());
   try {
-    // ONLY the historical action. When `capture_id` (or the continuity URL, or
-    // operator claims) is missing, `draftFromHeldCapture()` itself refuses —
-    // with zero network calls — and returns `invalid_source`. That refusal is
-    // rendered as a terminal failed/unavailable state; it NEVER triggers a
-    // call to `draftFromUrl()`.
     const result: AuthoringClientResult = await client.draftFromHeldCapture(
       source,
       material,
@@ -117,12 +111,14 @@ export function wireDraftFromSourceButton(deps: DraftFromSourceDeps): void {
     void runDraftFromSource(deps);
   });
 
-  // A shared historical selection changes availability only. It never fires the
-  // click handler and never drafts. The active-page lane remains primary when it
-  // already holds a capture; otherwise this makes the existing button available.
+  // Only stateful button surfaces (the real HTML button and matching test
+  // doubles) need readiness subscriptions. Pure dispatch doubles without a
+  // disabled property stay subscription-free.
+  if (!("disabled" in deps.button)) return;
+
   subscribeGovernedSourceSelection((selected) => {
     if (!selected || deps.getGovernedSource()) return;
-    if ("disabled" in deps.button) deps.button.disabled = false;
+    deps.button.disabled = false;
     deps.setStatus(renderDraftReady());
   });
 }
