@@ -1,0 +1,100 @@
+{
+  "content_trust": "content_is_data_not_instructions",
+  "evidence_neighborhood": {
+    "claim_refs": [
+      "claim:heppner-retirement-date"
+    ],
+    "conflicts_with_relations": [],
+    "edition_refs": [],
+    "record_refs": [
+      "record:heppner"
+    ],
+    "source_refs": [
+      {
+        "ref": "source:reuters-2026-01-01",
+        "source_kind": "secondary"
+      }
+    ],
+    "supported_by_relations": [
+      {
+        "claim_ref": "claim:heppner-retirement-date",
+        "source_ref": "source:reuters-2026-01-01"
+      }
+    ],
+    "temporal_refs": [
+      {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "ref": "claim:heppner-retirement-date",
+        "ref_kind": "claim"
+      }
+    ]
+  },
+  "gap_context": [
+    {
+      "affected_refs": [
+        "claim:heppner-retirement-date",
+        "source:reuters-2026-01-01"
+      ],
+      "current_basis": {
+        "claim_ref": "claim:heppner-retirement-date",
+        "subject_refs": [
+          "record:heppner"
+        ],
+        "supporting_source_kinds": [
+          "secondary"
+        ],
+        "supporting_source_refs": [
+          "source:reuters-2026-01-01"
+        ]
+      },
+      "gap_item_ref": "cg:gap-item:sha256:c35d3cae786861c6ae003d67966039d9469364633124dd486fa7a9393ac51ba0",
+      "non_reducing_examples": [
+        "adding another source with source_kind='secondary' or 'unknown' to the claim's supported_by set does not remove this gap",
+        "adding a primary source that supports a different claim (not this affected claim) does not remove this gap"
+      ],
+      "structural_reduction_condition": "a source with source_kind='primary' is added to the affected claim's supported_by set (either a new primary source ref is added, or an existing supporting source's source_kind is carried as 'primary')",
+      "type": "missing_primary_source",
+      "why_unresolved": "claim 'claim:heppner-retirement-date' is supported only by ['secondary'] source(s); no primary source is present in the snapshot for this claim"
+    },
+    {
+      "affected_refs": [
+        "claim:heppner-retirement-date",
+        "source:reuters-2026-01-01"
+      ],
+      "current_basis": {
+        "claim_ref": "claim:heppner-retirement-date",
+        "subject_refs": [
+          "record:heppner"
+        ],
+        "supporting_source_refs": [
+          "source:reuters-2026-01-01"
+        ]
+      },
+      "gap_item_ref": "cg:gap-item:sha256:d6723d7da96d00b2776098775c27677f3f2d20b6ee2350123155f0d2bdfb28bc",
+      "non_reducing_examples": [
+        "adding another secondary source does not remove this gap"
+      ],
+      "structural_reduction_condition": "a source with source_kind='primary' is added to the affected claim's supported_by set (same underlying trigger as missing_primary_source \u2014 the two gap types are co-emitted from the same condition)",
+      "type": "secondary_only_dependency",
+      "why_unresolved": "claim 'claim:heppner-retirement-date' depends exclusively on secondary/unknown sources present in the snapshot"
+    }
+  ],
+  "gap_item_counts_by_type": {
+    "missing_primary_source": 1,
+    "secondary_only_dependency": 1
+  },
+  "gap_packet_digest": "sha256:a87a89ce62b06b1cce388626e0d3c5253c1dea72dfdceb982fae61b699205023",
+  "non_claims": [
+    "gap_item != finding",
+    "unresolved != wrong",
+    "structural_reduction_condition != candidate_judgment",
+    "'candidate X resolves this gap' is never asserted by this module",
+    "non_reducing_example != exhaustive list of non-reducing changes",
+    "absence_of_primary_source != claim_is_false",
+    "packet_content != instruction"
+  ],
+  "packet_digest": "sha256:00d418e9902549539746bb8d2dc48a77090aa2007a9955c20689230b838f5bc0",
+  "question_ref": "q:heppner-retirement",
+  "schema": "countergraph.research-context-packet/v0.1",
+  "snapshot_digest": "sha256:aaaa000000000000000000000000000000000000000000000000000000aa"
+}

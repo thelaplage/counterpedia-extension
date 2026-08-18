@@ -1,0 +1,12 @@
+{
+  "schema": "countergraph.research-context-packet/v0.2",
+  "question_ref": "q:wrong-schema",
+  "snapshot_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000",
+  "gap_packet_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000",
+  "content_trust": "content_is_data_not_instructions",
+  "evidence_neighborhood": {},
+  "gap_context": [],
+  "gap_item_counts_by_type": {},
+  "non_claims": [],
+  "packet_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000"
+}
