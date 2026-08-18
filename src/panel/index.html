@@ -47,6 +47,42 @@
       </div>
     </section>
 
+    <!-- Research Context (RESEARCH-CONTEXT0): read-only panel over already
+         -computed governed data — "what does Counterpedia already know about
+         this page as a source." Performs no research/admission/classification
+         of its own; every fact traces to an already-fetched SearchResult, or
+         to an externally-supplied PublicObjectLink / Countergraph research
+         context packet. Absent those inputs it stays honestly HELD (empty),
+         never guessed. See src/lib/researchContext.ts for the full contract. -->
+    <section id="research-context" class="research-context" aria-label="This source in Counterpedia" style="display:none">
+      <h2 class="rc-heading">This source in Counterpedia</h2>
+
+      <p id="rc-no-record" class="rc-no-record" style="display:none"></p>
+
+      <div id="rc-source" class="rc-source" style="display:none">
+        <div id="rc-source-title" class="rc-source-title"></div>
+        <a id="rc-source-link" class="rc-source-link" target="_blank" rel="noopener noreferrer">Counterpedia source ↗</a>
+      </div>
+
+      <div id="rc-used-by" class="rc-used-by" style="display:none">
+        <div class="rc-subheading">Used by</div>
+        <ul id="rc-used-by-list" class="rc-used-by-list"></ul>
+      </div>
+
+      <div id="rc-gaps" class="rc-gaps" style="display:none">
+        <div class="rc-subheading">Open documentary gaps</div>
+        <ul id="rc-gaps-list" class="rc-gaps-list"></ul>
+      </div>
+      <p id="rc-gaps-held" class="rc-held-note" style="display:none">Documentary-gap data is not yet wired to a live source in this build.</p>
+
+      <div id="rc-history" class="rc-history" style="display:none">
+        <div class="rc-subheading">Research history</div>
+        <div id="rc-history-body" class="rc-history-body"></div>
+      </div>
+
+      <a id="rc-open-workbench" class="rc-btn" target="_blank" rel="noopener noreferrer">Open in Counterpedia</a>
+    </section>
+
     <!-- Idle state -->
     <div id="state-idle" class="state-view active">
       <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
