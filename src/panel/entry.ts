@@ -6,6 +6,7 @@ import { initInquiryTrace } from "./inquiryTrace";
 import { initResearcherProfiles } from "./researcherProfiles";
 import { initResearcherTeaching } from "./researcherTeaching";
 import { initHistoryControls } from "./historyControls";
+import { initWikipediaHarvestPanel } from "./wikipediaHarvest";
 
 initDirectionalActions();
 initCheckAnatomy();
@@ -14,3 +15,4 @@ initInquiryTrace();
 initResearcherProfiles();
 initResearcherTeaching();
 void initHistoryControls();
+void initWikipediaHarvestPanel();
