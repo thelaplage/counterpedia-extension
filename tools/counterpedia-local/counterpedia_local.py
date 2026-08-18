@@ -2,14 +2,17 @@
 """Counterpedia Local — team-beta supervisor and browser pairing service.
 
 Operational boundary only: this starts the existing acquisition and authoring
-processes, pairs one Chrome extension instance to local transport, and reports
-bounded health. It performs no admission, publication, verification, standing,
-or corpus writes.
+processes, pairs one Chrome extension instance to local transport, exposes one
+explicit Wikipedia-reference discovery proxy into the existing acquisition
+producer, and reports bounded health. It performs no admission, publication,
+verification, standing, or corpus writes.
 
 Security posture:
 - binds only to 127.0.0.1;
 - pairing accepts only chrome-extension:// origins whose runtime id matches the
   request body;
+- Wikipedia harvesting accepts only the currently paired extension origin and
+  runs only after a separate explicit browser action;
 - acquisition transport credentials are generated in memory and never logged;
 - OPENAI_API_KEY is read from this process environment only and never returned;
 - pairing values are transport/runtime configuration, never epistemic authority.
@@ -45,6 +48,7 @@ LOCAL_ROOT = Path.home() / ".counterpedia" / "local"
 LOG_ROOT = LOCAL_ROOT / "logs"
 EXTENSION_ID_RE = re.compile(r"^[a-p]{32}$")
 CHROME_ORIGIN_RE = re.compile(r"^chrome-extension://([a-p]{32})$")
+MAX_WIKIPEDIA_HARVEST_BYTES = 5_000_000
 
 
 def default_acquisition_dir() -> Path:
@@ -150,12 +154,16 @@ class LocalSupervisor:
         acq_launcher = self.acquisition_dir / "scripts" / "run_acquisition_http.py"
         acq_python = self.acquisition_dir / ".venv" / "bin" / "python"
         acq_mcp = self.acquisition_dir / ".venv" / "bin" / "counterpedia-acquisition-mcp"
+        wiki_harvester = (
+            self.acquisition_dir / ".venv" / "bin" / "counterpedia-wikipedia-harvest"
+        )
         author_cmd = self.authoring_dir / ".venv" / "bin" / "counterpedia-authoring-live-source"
         return {
             "acquisition_dir": str(self.acquisition_dir),
             "acquisition_launcher_present": acq_launcher.is_file(),
             "acquisition_python_present": acq_python.is_file(),
             "acquisition_mcp_present": acq_mcp.is_file(),
+            "wikipedia_harvester_present": wiki_harvester.is_file(),
             "authoring_dir": str(self.authoring_dir),
             "authoring_launcher_present": author_cmd.is_file(),
             "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
@@ -308,6 +316,69 @@ class LocalSupervisor:
                 "admission": "not_performed",
             }
 
+    def is_paired_extension(self, extension_id: str | None) -> bool:
+        with self._lock:
+            return extension_id is not None and extension_id == self._paired_extension_id
+
+    def harvest_wikipedia(self, page: str) -> dict[str, Any]:
+        if not isinstance(page, str) or not page.strip() or len(page) > 4096:
+            raise ValueError("Wikipedia page must be a bounded non-empty URL")
+        harvester = (
+            self.acquisition_dir / ".venv" / "bin" / "counterpedia-wikipedia-harvest"
+        )
+        if not harvester.is_file():
+            raise RuntimeError("Counterpedia Wikipedia harvester is not installed")
+
+        user_agent = os.environ.get(
+            "CP_WIKIPEDIA_HARVEST_USER_AGENT",
+            "Counterpedia Local/0.1 (explicit Wikipedia reference discovery)",
+        ).strip()
+        if not user_agent:
+            raise RuntimeError("Wikipedia harvest User-Agent is not configured")
+
+        try:
+            completed = subprocess.run(
+                [str(harvester), page, "--user-agent", user_agent],
+                cwd=self.acquisition_dir,
+                env=os.environ.copy(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Wikipedia reference harvest timed out") from exc
+        except OSError as exc:
+            raise RuntimeError("Wikipedia reference harvester could not start") from exc
+
+        if completed.returncode != 0:
+            raise RuntimeError("Wikipedia reference harvest failed")
+        encoded = completed.stdout.encode("utf-8")
+        if not encoded or len(encoded) > MAX_WIKIPEDIA_HARVEST_BYTES:
+            raise RuntimeError("Wikipedia reference harvest output size refused")
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Wikipedia reference harvester returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("Wikipedia reference harvester returned a non-object")
+        if payload.get("schema_version") != "acquisition.wikipedia_reference_manifest.v0.1":
+            raise RuntimeError("Wikipedia reference harvester returned an unexpected schema")
+        boundary = payload.get("boundary")
+        if not isinstance(boundary, dict):
+            raise RuntimeError("Wikipedia reference harvester omitted its discovery boundary")
+        if (
+            boundary.get("article_prose_copied") is not False
+            or boundary.get("wikipedia_support_inferred") is not False
+            or boundary.get("capture_receipts_emitted") is not False
+            or boundary.get("srs_receipts_emitted") is not False
+            or boundary.get("governed_declaration_bound") is not False
+            or boundary.get("srs_binding_state") != "unbound_discovery"
+        ):
+            raise RuntimeError("Wikipedia reference harvester crossed its discovery boundary")
+        return payload
+
     def restart_authoring(self) -> bool:
         with self._lock:
             return self.start_authoring()
@@ -442,6 +513,28 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(503, {"error": "local_service_start_failed", "detail": str(exc)})
                 return
             self.send_json(200, paired)
+            return
+
+        if self.path == "/v0/wikipedia-harvest":
+            origin_id = self.extension_origin_id()
+            if not self.supervisor.is_paired_extension(origin_id):
+                self.send_json(403, {"error": "paired_extension_origin_required"})
+                return
+            try:
+                data = self.read_json()
+                if set(data) != {"page"}:
+                    raise ValueError("Wikipedia harvest request accepts only page")
+                page = data.get("page")
+                if not isinstance(page, str):
+                    raise ValueError("Wikipedia harvest page must be a string")
+                manifest = self.supervisor.harvest_wikipedia(page)
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_json(400, {"error": "invalid_wikipedia_harvest_request", "detail": str(exc)})
+                return
+            except RuntimeError as exc:
+                self.send_json(503, {"error": "wikipedia_harvest_failed", "detail": str(exc)})
+                return
+            self.send_json(200, manifest)
             return
 
         if self.path == "/v0/restart-authoring":
