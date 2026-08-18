@@ -5,6 +5,7 @@ import {
   readWikipediaReferenceFrontier,
 } from "../lib/wikipediaFrontierCapture";
 import type { AcquisitionCaptureResult } from "../lib/acquisitionResponseGuard";
+import { selectGovernedSource } from "../lib/governedSourceSelection";
 import { WIKIPEDIA_REFERENCE_FRONTIER_KEY } from "../lib/wikipediaHarvestBridge";
 
 const SECTION_ID = "wikipedia-frontier-capture-section";
@@ -71,7 +72,9 @@ function buildSection() {
   capture.style.marginTop = "8px";
 
   const note = document.createElement("div");
-  note.textContent = `Maximum ${MAX_CAPTURE_PER_RUN} explicit captures per click. No crawl or recursion.`;
+  note.textContent =
+    `Maximum ${MAX_CAPTURE_PER_RUN} explicit captures per click. No crawl or recursion. ` +
+    "A successful capture may be selected for the separate existing Draft-from-source act.";
   note.style.fontSize = "11px";
   note.style.color = "#687572";
   note.style.marginTop = "5px";
@@ -84,7 +87,11 @@ function buildSection() {
   return { section, context, status, list, capture, results };
 }
 
-function renderResult(container: HTMLElement, result: AcquisitionCaptureResult): void {
+function renderResult(
+  container: HTMLElement,
+  result: AcquisitionCaptureResult,
+  onUseForDraft: (result: AcquisitionCaptureResult) => void,
+): void {
   const row = document.createElement("div");
   row.style.padding = "5px 0";
   row.style.borderTop = "1px solid #eef1f0";
@@ -101,6 +108,15 @@ function renderResult(container: HTMLElement, result: AcquisitionCaptureResult):
       : `Capture failed · ${result.failure_detail ?? "producer returned no failure detail"}`;
 
   row.append(locator, detail);
+
+  if (result.capture_status === "captured") {
+    const useForDraft = makeButton("Use for Draft from source");
+    useForDraft.style.marginTop = "5px";
+    useForDraft.style.padding = "5px 8px";
+    useForDraft.addEventListener("click", () => onUseForDraft(result));
+    row.appendChild(useForDraft);
+  }
+
   container.appendChild(row);
 }
 
@@ -161,6 +177,24 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
     }
   };
 
+  const useForDraft = (result: AcquisitionCaptureResult): void => {
+    try {
+      selectGovernedSource(result);
+      ui.status.textContent =
+        `Selected ${result.capture_id ?? "captured source"} for the existing Draft-from-source lane. ` +
+        "No draft has been performed; enter operator claim material and click Draft from source separately.";
+      document.getElementById("authoring-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    } catch (err) {
+      ui.status.textContent =
+        err instanceof Error
+          ? err.message
+          : "Captured source could not be selected for drafting.";
+    }
+  };
+
   ui.capture.addEventListener("click", () => {
     void (async () => {
       if (!currentFrontier) return;
@@ -191,7 +225,7 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
           try {
             const result = await captureWikipediaFrontierUrl(url);
             results.push(result);
-            renderResult(ui.results, result);
+            renderResult(ui.results, result, useForDraft);
           } catch (err) {
             ui.status.textContent =
               err instanceof Error
@@ -207,7 +241,8 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
           const captured = results.filter((result) => result.capture_status === "captured").length;
           const failed = results.length - captured;
           ui.status.textContent =
-            `Explicit capture run recorded · ${captured} captured · ${failed} producer-level failures · admission not performed.`;
+            `Explicit capture run recorded · ${captured} captured · ${failed} producer-level failures · ` +
+            "admission not performed. Select a captured source separately if you want to offer it to Draft from source.";
         }
       } finally {
         ui.capture.disabled = false;
