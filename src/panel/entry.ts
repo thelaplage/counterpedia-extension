@@ -7,6 +7,7 @@ import { initResearcherProfiles } from "./researcherProfiles";
 import { initResearcherTeaching } from "./researcherTeaching";
 import { initHistoryControls } from "./historyControls";
 import { initWikipediaHarvestPanel } from "./wikipediaHarvest";
+import { initWikipediaFrontierCapturePanel } from "./wikipediaFrontierCapture";
 
 initDirectionalActions();
 initCheckAnatomy();
@@ -16,3 +17,4 @@ initResearcherProfiles();
 initResearcherTeaching();
 void initHistoryControls();
 void initWikipediaHarvestPanel();
+void initWikipediaFrontierCapturePanel();
