@@ -13,9 +13,19 @@
  * `capture_id` is absent, and not as a fallback when `draftFromHeldCapture()`
  * itself fails. An unresolved or absent historical capture reference is a
  * refused terminal state, never a reason to re-acquire from the URL.
+ *
+ * WIKI-CAPTURE-AUTHOR0 adds exactly one source-selection seam: when the active
+ * page lane has no governed capture, the button may consume an explicitly
+ * selected successful capture from `governedSourceSelection`. Selection is
+ * inert; it never invokes authoring. The SAME button and SAME held-capture
+ * dispatch below remain the only drafting act.
  */
 
 import type { AcquisitionCaptureResult } from "../lib/acquisitionResponseGuard";
+import {
+  getSelectedGovernedSource,
+  subscribeGovernedSourceSelection,
+} from "../lib/governedSourceSelection";
 import type {
   AuthoringClient,
   OperatorDraftMaterial,
@@ -25,25 +35,38 @@ import {
   renderDraftUnavailable,
   renderDraftFailed,
   renderDraftPending,
+  renderDraftReady,
   renderAuthoringClientResult,
   type AuthoringRender,
 } from "../lib/authoringState";
 
 /** Minimal button surface — satisfied by HTMLButtonElement and by test doubles. */
 export interface DraftFromSourceButtonLike {
+  disabled?: boolean;
   addEventListener(type: "click", listener: () => void): void;
 }
 
 export interface DraftFromSourceDeps {
   readonly button: DraftFromSourceButtonLike;
+  /** The currently-captured active-page governed source, or null when none is held. */
+  readonly getGovernedSource: () => AcquisitionCaptureResult | null;
   /** Render the draft lane status. */
   readonly setStatus: (render: AuthoringRender) => void;
-  /** The currently-captured governed source, or null when none is held. */
-  readonly getGovernedSource: () => AcquisitionCaptureResult | null;
   /** Build operator-authored material from the panel inputs; null when incomplete. */
   readonly readMaterial: () => OperatorDraftMaterial | null;
   /** Resolve the configured authoring client (may be `notConfigured`). */
   readonly getClient: () => Promise<AuthoringClient>;
+}
+
+/**
+ * Active-page capture wins when present; otherwise consume the separately and
+ * explicitly selected historical source. No source is inferred from URL/page
+ * state, and a capture_failed result can never enter the shared selection seam.
+ */
+export function resolveDraftGovernedSource(
+  deps: Pick<DraftFromSourceDeps, "getGovernedSource">,
+): AcquisitionCaptureResult | null {
+  return deps.getGovernedSource() ?? getSelectedGovernedSource();
 }
 
 /**
@@ -53,7 +76,7 @@ export interface DraftFromSourceDeps {
  * the no-fallback invariant.
  */
 export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<void> {
-  const source = deps.getGovernedSource();
+  const source = resolveDraftGovernedSource(deps);
   if (!source) {
     // Defensive: the button is disabled without a captured source. Never draft.
     deps.setStatus(renderDraftUnavailable());
@@ -92,5 +115,14 @@ export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<voi
 export function wireDraftFromSourceButton(deps: DraftFromSourceDeps): void {
   deps.button.addEventListener("click", () => {
     void runDraftFromSource(deps);
+  });
+
+  // A shared historical selection changes availability only. It never fires the
+  // click handler and never drafts. The active-page lane remains primary when it
+  // already holds a capture; otherwise this makes the existing button available.
+  subscribeGovernedSourceSelection((selected) => {
+    if (!selected || deps.getGovernedSource()) return;
+    if ("disabled" in deps.button) deps.button.disabled = false;
+    deps.setStatus(renderDraftReady());
   });
 }
