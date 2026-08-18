@@ -117,7 +117,9 @@ function buildSection(): {
   return { section, status, harvest, summary, list, queue, queueNote };
 }
 
-function firstOccurrenceByUrl(manifest: WikipediaReferenceManifest): Map<string, WikipediaReferenceManifest["references"][number]> {
+function firstOccurrenceByUrl(
+  manifest: WikipediaReferenceManifest,
+): Map<string, WikipediaReferenceManifest["references"][number]> {
   const first = new Map<string, WikipediaReferenceManifest["references"][number]>();
   for (const ref of manifest.references) {
     if (ref.source_url && !first.has(ref.source_url)) first.set(ref.source_url, ref);
@@ -212,7 +214,9 @@ function renderHarvest(
   ui.queueNote.style.display = fresh > 0 ? "" : "none";
 }
 
-async function classifyManifest(manifest: WikipediaReferenceManifest): Promise<ClassifiedWikipediaSource[]> {
+async function classifyManifest(
+  manifest: WikipediaReferenceManifest,
+): Promise<ClassifiedWikipediaSource[]> {
   try {
     const index = await loadSourceResolutionIndex(chrome.storage.session);
     return classifyWikipediaReferenceUrls(manifest, index);
@@ -226,14 +230,19 @@ function selectedSources(
   classified: ClassifiedWikipediaSource[],
 ): ClassifiedWikipediaSource[] {
   const selectedUrls = new Set(
-    Array.from(ui.list.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-source-url]'))
+    Array.from(
+      ui.list.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-source-url]'),
+    )
       .filter((input) => input.checked && !input.disabled)
       .map((input) => input.dataset["sourceUrl"] ?? ""),
   );
   return classified.filter((source) => selectedUrls.has(source.url));
 }
 
-async function refreshForUrl(ui: ReturnType<typeof buildSection>, rawUrl: string | null): Promise<void> {
+async function refreshForUrl(
+  ui: ReturnType<typeof buildSection>,
+  rawUrl: string | null,
+): Promise<void> {
   const pageUrl = rawUrl ? wikipediaPageUrl(rawUrl) : null;
   state.pageUrl = pageUrl;
   state.manifest = null;
@@ -259,17 +268,24 @@ export async function initWikipediaHarvestPanel(): Promise<void> {
 
   ui.harvest.addEventListener("click", () => {
     void (async () => {
-      if (!state.pageUrl) return;
+      const requestedPageUrl = state.pageUrl;
+      if (!requestedPageUrl) return;
       ui.harvest.disabled = true;
       ui.status.textContent = "Harvesting exact MediaWiki revision through Counterpedia Local…";
       try {
-        const manifest = await harvestWikipediaReferences(state.pageUrl);
-        // Refuse a late response from a page that is no longer active.
-        if (!state.pageUrl || wikipediaPageUrl(state.pageUrl) !== manifest.page.canonical_url) {
+        const manifest = await harvestWikipediaReferences(requestedPageUrl);
+        // Refuse a late response from a page that is no longer active. A normal
+        // MediaWiki redirect is allowed: the producer may return a different
+        // canonical page URL while the browser is still on the original request.
+        if (state.pageUrl !== requestedPageUrl) {
           ui.status.textContent = "Page changed before harvest completed; result not applied.";
           return;
         }
         const classified = await classifyManifest(manifest);
+        if (state.pageUrl !== requestedPageUrl) {
+          ui.status.textContent = "Page changed before classification completed; result not applied.";
+          return;
+        }
         state.manifest = manifest;
         state.classified = classified;
         renderHarvest(ui, manifest, classified);
