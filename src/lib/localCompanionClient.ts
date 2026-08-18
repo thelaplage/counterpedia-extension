@@ -25,7 +25,8 @@ export interface LocalCompanionStatus {
     readonly acquisition_launcher_present: boolean;
     readonly acquisition_python_present: boolean;
     readonly acquisition_mcp_present: boolean;
-    readonly wikipedia_harvester_present: boolean;
+    /** Additive status signal; older local companions may omit it. */
+    readonly wikipedia_harvester_present?: boolean;
     readonly authoring_dir: string;
     readonly authoring_launcher_present: boolean;
     readonly openai_key_configured: boolean;
