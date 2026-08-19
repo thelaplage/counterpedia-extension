@@ -9,7 +9,8 @@
     "activeTab",
     "storage",
     "contextMenus",
-    "scripting"
+    "scripting",
+    "pageCapture"
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
@@ -49,10 +50,12 @@
     "telemetry": false,
     "form_values": false,
     "all_urls_permission": false,
+    "page_capture_permission": "explicit operator MHTML snapshot only",
     "acquisition_host_permission": "http://127.0.0.1:8787/* only",
     "authoring_host_permission": "http://127.0.0.1:8788/* only",
     "local_companion_host_permission": "http://127.0.0.1:8790/* only",
     "capture_requires_explicit_click": true,
+    "operator_snapshot_requires_explicit_click": true,
     "draft_requires_separate_explicit_click": true,
     "draft_reuses_retained_capture": true,
     "draft_live_source_fetch": false,

@@ -22,4 +22,4 @@ if [[ -z "${OPENAI_API_KEY:-}" ]] && command -v security >/dev/null 2>&1; then
 fi
 
 cd "$HERE"
-exec "$PYTHON" counterpedia_local.py --open
+exec "$PYTHON" counterpedia_local_operator.py --open
