@@ -242,6 +242,8 @@ async function upsertCorpusMiss(
 
   if (index >= 0) {
     const existing = misses[index];
+    // `index >= 0` guarantees the element exists; narrow for noUncheckedIndexedAccess.
+    if (existing === undefined) throw new Error("corpus_miss_ledger:index_desync");
     const next = parseCorpusMiss({
       ...existing,
       last_seen_at: encounter.occurred_at,

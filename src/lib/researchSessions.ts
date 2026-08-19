@@ -105,6 +105,7 @@ export async function stopResearchSession(
   const index = sessions.findIndex((session) => session.session_ref === activeRef);
   if (index < 0) throw new Error("research_session:active_missing");
   const current = sessions[index];
+  if (current === undefined) throw new Error("research_session:active_missing");
   if (Date.parse(stoppedAt) < Date.parse(current.started_at)) {
     throw new Error("research_session:stop_before_start");
   }
@@ -125,6 +126,7 @@ export async function appendEncounterToResearchSession(
   const index = sessions.findIndex((session) => session.session_ref === sessionRef);
   if (index < 0) throw new Error("research_session:not_found");
   const session = sessions[index];
+  if (session === undefined) throw new Error("research_session:not_found");
   if (session.stopped_at) throw new Error("research_session:already_stopped");
   if (session.encounter_ids.includes(encounterId)) return;
   if (session.encounter_ids.length >= MAX_ENCOUNTERS_PER_SESSION) {

@@ -188,8 +188,10 @@ describe("CP-CORPUS-RESOLVER-CLIENT0", () => {
     });
     expect(second).toMatchObject({ resolution_status: "MATCHED" });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0][0]).toBe(SOURCE_RESOLUTION_INDEX_URL);
-    expect(JSON.stringify(fetchSpy.mock.calls[0])).not.toContain("gov.uscourts.nysd.612697");
+    const firstCall = fetchSpy.mock.calls[0];
+    if (firstCall === undefined) throw new Error("expected fetch to have been called");
+    expect(firstCall[0]).toBe(SOURCE_RESOLUTION_INDEX_URL);
+    expect(JSON.stringify(firstCall)).not.toContain("gov.uscourts.nysd.612697");
     expect(storage.state[SOURCE_RESOLUTION_CACHE_KEY]).toEqual(index());
   });
 

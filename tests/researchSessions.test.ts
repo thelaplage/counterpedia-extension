@@ -85,6 +85,7 @@ describe("CP-RESEARCH-SESSION0", () => {
     await appendEncounterToResearchSession(storage, session.session_ref, "encounter-001");
     await appendEncounterToResearchSession(storage, session.session_ref, "encounter-001");
     const [saved] = await readResearchSessions(storage);
+    if (saved === undefined) throw new Error("expected a saved research session");
     expect(saved.encounter_ids).toEqual(["encounter-001"]);
     expect(JSON.stringify(saved)).not.toContain("wikipedia.org");
   });
@@ -116,7 +117,9 @@ describe("CP-RESEARCH-SESSION0", () => {
         onResult.encounter.encounter_id,
       );
     }
-    expect((await readResearchSessions(storage))[0].encounter_ids).toEqual(["enc-on"]);
+    const [persisted] = await readResearchSessions(storage);
+    if (persisted === undefined) throw new Error("expected a persisted research session");
+    expect(persisted.encounter_ids).toEqual(["enc-on"]);
   });
 
   it("stops the session explicitly and preserves its encounter references", async () => {

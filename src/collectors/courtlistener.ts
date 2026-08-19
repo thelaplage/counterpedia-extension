@@ -17,12 +17,22 @@ export const courtListenerCollector: CollectorDefinition = {
     const docket = url.pathname.match(DOCKET);
     if (docket) {
       const docketId = docket[1];
+      // The DOCKET regex's `(\d+)` group is only present when it matched, but
+      // TS types capture groups as `string | undefined`; narrow explicitly so
+      // `source_native_ids` stays `Record<string, string>`.
+      if (docketId === undefined) return null;
+      // Typed as Record<string, string> so the two observe() branches don't
+      // union-widen into cross `?: undefined` keys that break the
+      // PassiveEncounterObservation index signature.
+      const source_native_ids: Record<string, string> = {
+        courtlistener_docket_id: docketId,
+      };
       return {
         collector_id: "courtlistener_v0_1",
         observed_url: observedUrl(url),
         canonical_locator: `https://www.courtlistener.com/docket/${docketId}/`,
         source_kind: "courtlistener_docket",
-        source_native_ids: { courtlistener_docket_id: docketId },
+        source_native_ids,
         resolution_status: "UNRESOLVED",
       };
     }
@@ -30,14 +40,19 @@ export const courtListenerCollector: CollectorDefinition = {
     const opinion = url.pathname.match(OPINION_CLUSTER);
     if (opinion) {
       const clusterId = opinion[1];
+      if (clusterId === undefined) return null;
+      // CourtListener's case-law website opinion URL uses cluster_id, not
+      // opinion_id. Keep that distinction explicit for later API enrichment.
+      // Typed as Record<string, string> for the same reason as the docket branch.
+      const source_native_ids: Record<string, string> = {
+        courtlistener_cluster_id: clusterId,
+      };
       return {
         collector_id: "courtlistener_v0_1",
         observed_url: observedUrl(url),
         canonical_locator: `https://www.courtlistener.com/opinion/${clusterId}/`,
         source_kind: "courtlistener_opinion_cluster",
-        // CourtListener's case-law website opinion URL uses cluster_id, not
-        // opinion_id. Keep that distinction explicit for later API enrichment.
-        source_native_ids: { courtlistener_cluster_id: clusterId },
+        source_native_ids,
         resolution_status: "UNRESOLVED",
       };
     }

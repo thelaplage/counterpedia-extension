@@ -16,9 +16,11 @@ export const internetArchiveCollector: CollectorDefinition = {
     const match = url.pathname.match(ITEM);
     if (!match) return null;
 
+    const rawIdentifier = match[1];
+    if (rawIdentifier === undefined) return null;
     let identifier: string;
     try {
-      identifier = decodeURIComponent(match[1]);
+      identifier = decodeURIComponent(rawIdentifier);
     } catch {
       return null;
     }
@@ -48,6 +50,7 @@ export const waybackCollector: CollectorDefinition = {
     if (!match) return null;
 
     const captureToken = match[1];
+    if (captureToken === undefined) return null;
     const timestamp = captureToken.match(/^(\d{4,14})/)?.[1];
     if (!timestamp) return null;
 

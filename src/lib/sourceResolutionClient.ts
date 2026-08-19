@@ -243,15 +243,18 @@ function resolveExactKeys(
       entry.identity_keys.some((candidate) => sameIdentityKey(candidate, query)),
     );
     if (matches.length > 1) return { status: "AMBIGUOUS" };
-    if (matches.length === 1) {
+    const only = matches[0];
+    if (only !== undefined) {
       anyRegisteredKey = true;
-      matchedEntries.set(matches[0].canonical_source_ref, matches[0]);
+      matchedEntries.set(only.canonical_source_ref, only);
     }
   }
 
   if (!anyRegisteredKey) return { status: "UNMATCHED" };
   if (matchedEntries.size !== 1) return { status: "AMBIGUOUS" };
-  return { status: "MATCHED", entry: [...matchedEntries.values()][0] };
+  const entry = [...matchedEntries.values()][0];
+  if (entry === undefined) return { status: "AMBIGUOUS" };
+  return { status: "MATCHED", entry };
 }
 
 function matchedObservation(
