@@ -18,7 +18,9 @@
  * page lane has no governed capture, the button may consume an explicitly
  * selected successful capture from `governedSourceSelection`. Selection is
  * inert; it never invokes authoring. The SAME button and SAME held-capture
- * dispatch below remain the only drafting act.
+ * dispatch below remain the only drafting act. A selection restored from
+ * LOCAL_ONLY persistence is treated exactly like the same explicit selection
+ * before lifecycle loss; restore never drafts by itself.
  */
 
 import type { AcquisitionCaptureResult } from "../lib/acquisitionResponseGuard";
@@ -116,8 +118,21 @@ export function wireDraftFromSourceButton(deps: DraftFromSourceDeps): void {
   // disabled property stay subscription-free.
   if (!("disabled" in deps.button)) return;
 
+  // A LOCAL_ONLY selection may have been restored before this UI surface was
+  // wired. Subscriptions intentionally do not replay, so establish readiness
+  // from the already-restored state once before listening for future changes.
+  if (resolveDraftGovernedSource(deps)) {
+    deps.button.disabled = false;
+    deps.setStatus(renderDraftReady());
+  }
+
   subscribeGovernedSourceSelection((selected) => {
-    if (!selected || deps.getGovernedSource()) return;
+    if (deps.getGovernedSource()) return;
+    if (!selected) {
+      deps.button.disabled = true;
+      deps.setStatus(renderDraftUnavailable());
+      return;
+    }
     deps.button.disabled = false;
     deps.setStatus(renderDraftReady());
   });

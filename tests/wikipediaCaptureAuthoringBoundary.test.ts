@@ -11,9 +11,11 @@ const BUTTON = readFileSync(
 );
 
 describe("Wikipedia captured-source -> authoring boundary", () => {
-  it("Wikipedia capture only selects a governed source; it never invokes authoring", () => {
+  it("Wikipedia capture only persists/selects a governed source; it never invokes authoring", () => {
     expect(PANEL).toContain('makeButton("Use for Draft from source")');
+    expect(PANEL).toContain("persistGovernedSourceSelection(chrome.storage.local, result)");
     expect(PANEL).toContain("selectGovernedSource(result)");
+    expect(PANEL).toContain("restoreGovernedSourceSelection(chrome.storage.local)");
     expect(PANEL).not.toContain("draftFromHeldCapture(");
     expect(PANEL).not.toContain("draftFromUrl(");
     expect(PANEL).not.toContain("/v0/draft-from-source");

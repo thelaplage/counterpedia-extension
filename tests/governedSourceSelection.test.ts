@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AcquisitionCaptureResult } from "../src/lib/acquisitionResponseGuard";
 import {
+  GOVERNED_SOURCE_SELECTION_KEY,
   clearGovernedSourceSelection,
   getSelectedGovernedSource,
+  persistGovernedSourceSelection,
+  restoreGovernedSourceSelection,
   selectGovernedSource,
+  type GovernedSourceSelectionStorage,
 } from "../src/lib/governedSourceSelection";
 import type {
   AuthoringClient,
@@ -81,6 +85,25 @@ class FakeButton implements DraftFromSourceButtonLike {
   }
 }
 
+class MemoryStorage implements GovernedSourceSelectionStorage {
+  readonly state: Record<string, unknown> = {};
+
+  async get(keys: string | string[]): Promise<Record<string, unknown>> {
+    const wanted = Array.isArray(keys) ? keys : [keys];
+    return Object.fromEntries(
+      wanted.filter((key) => key in this.state).map((key) => [key, this.state[key]]),
+    );
+  }
+
+  async set(items: Record<string, unknown>): Promise<void> {
+    Object.assign(this.state, items);
+  }
+
+  async remove(keys: string | string[]): Promise<void> {
+    for (const key of Array.isArray(keys) ? keys : [keys]) delete this.state[key];
+  }
+}
+
 afterEach(() => {
   clearGovernedSourceSelection();
 });
@@ -103,6 +126,42 @@ describe("governed source selection", () => {
     expect(() =>
       selectGovernedSource({ ...result, tool: "acquisition.process_source" }),
     ).toThrow(/tool must be acquisition\.capture_url/);
+  });
+
+  it("round-trips an explicit selection through LOCAL_ONLY storage and revalidates it on restore", async () => {
+    const storage = new MemoryStorage();
+    const result = captured();
+    await persistGovernedSourceSelection(storage, result, {
+      now: () => "2026-08-18T22:00:00.000Z",
+    });
+
+    expect(storage.state[GOVERNED_SOURCE_SELECTION_KEY]).toMatchObject({
+      schema_version: "counterpedia.governed_source_selection.v0.1",
+      selected_at: "2026-08-18T22:00:00.000Z",
+      retention: "LOCAL_ONLY",
+      authority_posture: "selection_only",
+      source: result,
+    });
+
+    clearGovernedSourceSelection();
+    expect(getSelectedGovernedSource()).toBeNull();
+    expect(await restoreGovernedSourceSelection(storage)).toEqual(result);
+    expect(getSelectedGovernedSource()).toEqual(result);
+  });
+
+  it("fails closed on a contaminated persisted source instead of fabricating recovery", async () => {
+    const storage = new MemoryStorage();
+    const result = captured();
+    storage.state[GOVERNED_SOURCE_SELECTION_KEY] = {
+      schema_version: "counterpedia.governed_source_selection.v0.1",
+      selected_at: "2026-08-18T22:00:00.000Z",
+      retention: "LOCAL_ONLY",
+      authority_posture: "selection_only",
+      source: { ...result, admitted: true },
+    };
+
+    await expect(restoreGovernedSourceSelection(storage)).rejects.toThrow(/unknown top-level field|authority/);
+    expect(getSelectedGovernedSource()).toBeNull();
   });
 
   it("selection alone only makes the existing draft button ready; it does not draft", () => {
@@ -129,6 +188,56 @@ describe("governed source selection", () => {
     expect(statuses.some((status) => status.state === "DRAFT_READY")).toBe(true);
     expect(draftFromHeldCapture).toHaveBeenCalledTimes(0);
     expect(draftFromUrl).toHaveBeenCalledTimes(0);
+  });
+
+  it("makes a selection restored before button wiring immediately ready without drafting", async () => {
+    const storage = new MemoryStorage();
+    await persistGovernedSourceSelection(storage, captured(), {
+      now: () => "2026-08-18T22:00:00.000Z",
+    });
+    clearGovernedSourceSelection();
+    await restoreGovernedSourceSelection(storage);
+
+    const button = new FakeButton();
+    const statuses: AuthoringRender[] = [];
+    const draftFromHeldCapture = vi.fn();
+    wireDraftFromSourceButton({
+      button,
+      setStatus: (render) => statuses.push(render),
+      getGovernedSource: () => null,
+      readMaterial: () => material(),
+      getClient: async () => ({
+        kind: "http",
+        draftFromHeldCapture,
+        draftFromUrl: vi.fn(),
+      } as unknown as AuthoringClient),
+    });
+
+    expect(button.disabled).toBe(false);
+    expect(statuses.at(-1)?.state).toBe("DRAFT_READY");
+    expect(draftFromHeldCapture).toHaveBeenCalledTimes(0);
+  });
+
+  it("clearing a restored historical selection removes stale draft readiness", async () => {
+    const button = new FakeButton();
+    const statuses: AuthoringRender[] = [];
+    wireDraftFromSourceButton({
+      button,
+      setStatus: (render) => statuses.push(render),
+      getGovernedSource: () => null,
+      readMaterial: () => material(),
+      getClient: async () => ({
+        kind: "http",
+        draftFromHeldCapture: vi.fn(),
+        draftFromUrl: vi.fn(),
+      } as unknown as AuthoringClient),
+    });
+
+    selectGovernedSource(captured());
+    expect(button.disabled).toBe(false);
+    clearGovernedSourceSelection();
+    expect(button.disabled).toBe(true);
+    expect(statuses.at(-1)?.state).toBe("DRAFT_UNAVAILABLE");
   });
 
   it("uses the selected Wikipedia capture only through draftFromHeldCapture, never draftFromUrl", async () => {
