@@ -1,1 +1,1 @@
-Trigger exact-head differential validation for Lane 11 candidate 86f2eba4a9951db8702331bccc821684bfbd4634. Pass 4.
+Trigger real Chrome restart recovery validation for Lane 11 candidate 86f2eba4a9951db8702331bccc821684bfbd4634. Pass 5.
