@@ -78,7 +78,17 @@ jobs:
           echo "main lint exit=$(cat /tmp/main-lint.rc); candidate lint exit=$rc"
           echo "Candidate diagnostics:"
           cat /tmp/candidate-lint.errors
-          diff -u /tmp/main-lint.errors /tmp/candidate-lint.errors
+          new_diagnostics="$(comm -13 /tmp/main-lint.errors /tmp/candidate-lint.errors)"
+          if [ -n "$new_diagnostics" ]; then
+            echo "Lane 11 introduces new TypeScript diagnostics:" >&2
+            printf '%s\n' "$new_diagnostics" >&2
+            exit 1
+          fi
+          removed_diagnostics="$(comm -23 /tmp/main-lint.errors /tmp/candidate-lint.errors)"
+          if [ -n "$removed_diagnostics" ]; then
+            echo "Lane 11 removes baseline TypeScript diagnostics:"
+            printf '%s\n' "$removed_diagnostics"
+          fi
           echo "Lane 11 introduces zero TypeScript diagnostics beyond main baseline."
 
       - name: Authoring-dev build gate
