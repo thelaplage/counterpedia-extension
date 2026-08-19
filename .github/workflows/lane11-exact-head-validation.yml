@@ -156,7 +156,7 @@ jobs:
           }
           EOF
 
-          cat > /tmp/lane11-restart-probe.mjs <<'EOF'
+          cat > .lane11-restart-probe.mjs <<'EOF'
           import puppeteer from 'puppeteer';
           import path from 'node:path';
           import fs from 'node:fs';
@@ -248,4 +248,4 @@ jobs:
           console.log('REAL_CHROME_RESTART_RECOVERY_OK');
           EOF
 
-          node /tmp/lane11-restart-probe.mjs
+          node .lane11-restart-probe.mjs
