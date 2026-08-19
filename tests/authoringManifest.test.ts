@@ -78,10 +78,36 @@ describe("manifest.authoring-dev.json", () => {
     expect(auth.host_permissions).toContain("http://127.0.0.1:8788/*");
   });
 
-  it("keeps the same minimal permission set as production", () => {
+  it("keeps production's minimal permission set plus only the operator-capture permission(s)", () => {
+    // The authoring-dev build is a superset of production: it carries every
+    // production permission and adds exactly the operator page-capture
+    // permission `pageCapture`. This is intentional and NOT a leak —
+    // OPERATOR-BROWSER0 introduced an explicit, operator-mediated MHTML
+    // snapshot route (chrome.pageCapture.saveAsMHTML in
+    // src/panel/operatorSnapshotCapture.ts). The permission is documented in
+    // this manifest's own `_privacy_audit.page_capture_permission`
+    // ("explicit operator MHTML snapshot only") and never appears in
+    // production (asserted separately below). The assertion is written as an
+    // exact superset so that (a) any DROPPED production permission still
+    // fails, and (b) any NEW permission beyond the sanctioned operator-capture
+    // set still fails — this remains a genuine parity/security check, only now
+    // it correctly accounts for the operator-capture extension.
+    const PRODUCTION_PERMISSIONS = [
+      "activeTab",
+      "contextMenus",
+      "scripting",
+      "sidePanel",
+      "storage",
+    ];
+    const OPERATOR_CAPTURE_PERMISSIONS = ["pageCapture"];
     expect([...(auth.permissions ?? [])].sort()).toEqual(
-      ["activeTab", "contextMenus", "scripting", "sidePanel", "storage"].sort(),
+      [...PRODUCTION_PERMISSIONS, ...OPERATOR_CAPTURE_PERMISSIONS].sort(),
     );
+    // Production itself must NOT carry any operator-capture permission.
+    const prod = JSON.parse(read("manifest.json")) as Manifest;
+    for (const perm of OPERATOR_CAPTURE_PERMISSIONS) {
+      expect(prod.permissions ?? []).not.toContain(perm);
+    }
   });
 
   it("marks itself authoring-dev; production never does", () => {

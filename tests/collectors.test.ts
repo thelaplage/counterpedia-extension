@@ -32,9 +32,11 @@ class MemoryStorage implements LocalStorageArea, CollectorStorageArea {
 
 describe("CP-COLLECTOR0", () => {
   it("rejects duplicate collector ids", () => {
-    const duplicate: CollectorDefinition = { ...COLLECTORS[0] };
-    expect(() => assertCollectorRegistry([COLLECTORS[0], duplicate])).toThrow(
-      `collector:duplicate_id:${COLLECTORS[0].id}`,
+    const first = COLLECTORS[0];
+    if (first === undefined) throw new Error("expected at least one registered collector");
+    const duplicate: CollectorDefinition = { ...first };
+    expect(() => assertCollectorRegistry([first, duplicate])).toThrow(
+      `collector:duplicate_id:${first.id}`,
     );
   });
 
