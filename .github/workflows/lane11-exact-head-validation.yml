@@ -99,12 +99,16 @@ jobs:
           test -f dist/manifest.json
           node -e 'const m=require("./dist/manifest.json"); if(m.manifest_version!==3) process.exit(1); console.log(m.name, m.version, m.manifest_version)'
 
+      - name: Install supported extension E2E harness
+        env:
+          PUPPETEER_CACHE_DIR: ${{ runner.temp }}/puppeteer
+        run: npm install --no-save --no-package-lock puppeteer@25.5.0
+
       - name: Real Chrome process-restart recovery probe
+        env:
+          PUPPETEER_CACHE_DIR: ${{ runner.temp }}/puppeteer
         run: |
           set -euo pipefail
-          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
-          test -n "$CHROME"
-          "$CHROME" --version
 
           cat > dist/lifecycle-probe.html <<'EOF'
           <!doctype html>
@@ -152,80 +156,96 @@ jobs:
           }
           EOF
 
-          PROFILE="$RUNNER_TEMP/lane11-chrome-profile"
-          DIST="$GITHUB_WORKSPACE/dist"
-          rm -rf "$PROFILE"
-          mkdir -p "$PROFILE"
+          cat > /tmp/lane11-restart-probe.mjs <<'EOF'
+          import puppeteer from 'puppeteer';
+          import path from 'node:path';
+          import fs from 'node:fs';
 
-          "$CHROME" \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --user-data-dir="$PROFILE" \
-            --disable-extensions-except="$DIST" \
-            --load-extension="$DIST" \
-            about:blank > /tmp/lane11-register.log 2>&1 &
-          chrome_pid=$!
-          sleep 4
-          kill -TERM "$chrome_pid" || true
-          wait "$chrome_pid" || true
+          const dist = path.resolve(process.cwd(), 'dist');
+          const profile = path.join(process.env.RUNNER_TEMP, 'lane11-puppeteer-profile');
+          fs.rmSync(profile, {recursive: true, force: true});
 
-          PREFS="$PROFILE/Default/Preferences"
-          test -f "$PREFS"
-          EXT_ID="$(python - "$PREFS" "$DIST" <<'PY'
-          import json, os, sys
-          prefs_path, dist = sys.argv[1], os.path.realpath(sys.argv[2])
-          with open(prefs_path, encoding='utf-8') as fh:
-              prefs = json.load(fh)
-          settings = prefs.get('extensions', {}).get('settings', {})
-          for ext_id, cfg in settings.items():
-              path = cfg.get('path') if isinstance(cfg, dict) else None
-              if path and os.path.realpath(path) == dist:
-                  print(ext_id)
-                  break
-          else:
-              print('unpacked extension id not found in Preferences', file=sys.stderr)
-              print(json.dumps(settings, indent=2)[:12000], file=sys.stderr)
-              raise SystemExit(1)
-          PY
-          )"
-          test -n "$EXT_ID"
-          echo "Loaded extension id: $EXT_ID"
+          const launch = () => puppeteer.launch({
+            headless: true,
+            userDataDir: profile,
+            enableExtensions: [dist],
+            args: ['--no-sandbox', '--disable-dev-shm-usage'],
+          });
 
-          "$CHROME" \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --user-data-dir="$PROFILE" \
-            --disable-extensions-except="$DIST" \
-            --load-extension="$DIST" \
-            --virtual-time-budget=3000 \
-            --dump-dom "chrome-extension://$EXT_ID/lifecycle-probe.html?mode=write" > /tmp/lane11-write.html
-          grep -F "WRITE_OK" /tmp/lane11-write.html
+          async function findCounterpedia(browser) {
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              const extensions = await browser.extensions();
+              for (const extension of extensions.values()) {
+                if (
+                  extension.name === 'Counterpedia (Draft-from-source Dev)' ||
+                  path.resolve(extension.path) === dist
+                ) {
+                  return extension;
+                }
+              }
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            const extensions = await browser.extensions();
+            throw new Error(`Counterpedia extension not loaded; saw: ${[...extensions.values()].map(e => `${e.name}:${e.id}:${e.path}`).join(', ')}`);
+          }
 
-          "$CHROME" \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --user-data-dir="$PROFILE" \
-            --disable-extensions-except="$DIST" \
-            --load-extension="$DIST" \
-            --virtual-time-budget=3000 \
-            --dump-dom "chrome-extension://$EXT_ID/lifecycle-probe.html?mode=read" > /tmp/lane11-read.html
-          grep -F "READ_OK" /tmp/lane11-read.html
+          async function openExtensionPage(browser, url, expected) {
+            const page = await browser.newPage();
+            await page.goto(url, {waitUntil: 'domcontentloaded'});
+            await page.waitForFunction(
+              expectedText => document.body.textContent?.includes(expectedText),
+              {timeout: 10000},
+              expected,
+            );
+            const text = await page.evaluate(() => document.body.textContent ?? '');
+            if (!text.includes(expected)) {
+              throw new Error(`Expected ${expected}, got ${text}`);
+            }
+            await page.close();
+          }
 
-          "$CHROME" \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --user-data-dir="$PROFILE" \
-            --disable-extensions-except="$DIST" \
-            --load-extension="$DIST" \
-            --virtual-time-budget=5000 \
-            --dump-dom "chrome-extension://$EXT_ID/panel/index.html" > /tmp/lane11-panel.html
-          grep -F "Draft-source selection recovered locally · cap_restart_probe" /tmp/lane11-panel.html
-          echo "Real Chrome restart recovery probe passed."
+          console.log('Launching first real Chrome-for-Testing process');
+          const first = await launch();
+          const firstExtension = await findCounterpedia(first);
+          const extensionId = firstExtension.id;
+          console.log(`Loaded extension ${firstExtension.name} ${extensionId}`);
+          await openExtensionPage(
+            first,
+            `chrome-extension://${extensionId}/lifecycle-probe.html?mode=write`,
+            'WRITE_OK',
+          );
+          await first.close();
+          console.log('First browser process closed after durable local write');
+
+          console.log('Launching second real Chrome-for-Testing process with same profile');
+          const second = await launch();
+          const secondExtension = await findCounterpedia(second);
+          if (secondExtension.id !== extensionId) {
+            throw new Error(`Extension ID changed across restart: ${extensionId} -> ${secondExtension.id}`);
+          }
+          await openExtensionPage(
+            second,
+            `chrome-extension://${extensionId}/lifecycle-probe.html?mode=read`,
+            'READ_OK',
+          );
+
+          const panel = await second.newPage();
+          await panel.goto(`chrome-extension://${extensionId}/panel/index.html`, {
+            waitUntil: 'domcontentloaded',
+          });
+          const expectedRecovery = 'Draft-source selection recovered locally · cap_restart_probe';
+          await panel.waitForFunction(
+            expectedText => document.body.textContent?.includes(expectedText),
+            {timeout: 15000},
+            expectedRecovery,
+          );
+          const panelText = await panel.evaluate(() => document.body.textContent ?? '');
+          if (!panelText.includes(expectedRecovery)) {
+            throw new Error(`Actual panel did not render recovery state: ${panelText}`);
+          }
+          console.log('Actual built panel restored and rendered persisted selection after browser process restart');
+          await second.close();
+          console.log('REAL_CHROME_RESTART_RECOVERY_OK');
+          EOF
+
+          node /tmp/lane11-restart-probe.mjs
