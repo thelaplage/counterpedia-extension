@@ -29,7 +29,9 @@ The Wikipedia reference frontier already lives in `chrome.storage.local`. Reopen
 
 Completed Wikipedia capture runs already live in `chrome.storage.local`. This lane adds a strict read/recovery path for that existing store and renders recent matching runs when the panel is reopened. The reader rejects malformed or authority-widened records instead of treating them as trustworthy history.
 
-The capture-run record is committed at the end of the explicit batch operation; this lane does **not** turn per-click UI progress into a durable transaction log. Once committed, the run summary survives panel/window/browser restart. Exact bytes, CaptureReceipt authority, and registry custody remain in `counterpedia-acquisition`.
+The capture-run record is committed at the end of the explicit batch operation; this lane does **not** turn per-click UI progress into a durable transaction log. Once committed, the run summary is designed to survive panel/window/browser restart, because it is read back from `chrome.storage.local` on panel initialization rather than kept in module memory. Exact bytes, CaptureReceipt authority, and registry custody remain in `counterpedia-acquisition`.
+
+**Proof status:** storage-based session persistence is implemented and unit-tested (the recovery reader in `tests/wikipediaSessionPersistence.test.ts` is exercised against an in-memory `chrome.storage.local` mock, not a real browser). A live Chrome kill/restart acceptance test is **not yet established** — there is no puppeteer/playwright browser-automation harness in this repo that actually kills and relaunches Chrome against a persisted profile. Treat "survives restart" as an implemented-and-unit-tested design property, not as a live-verified fact, until the scripted regression proof below has actually been run and recorded.
 
 If lifecycle loss occurs before the batch's local run record is committed, even producer responses that may already have completed are not reconstructed from UI memory. Those local outcomes are classified as unknown until a producer-owned reconciliation path proves them. This is intentional and avoids duplicate automatic capture acts.
 
@@ -72,11 +74,13 @@ This lane deliberately does **not** auto-retry that URL. Automatic retry could c
 | --- | --- | --- | --- | --- | --- |
 | Close/reopen side panel | recover | recover if batch committed | recover | not resumed; unknown if batch/local result not committed | unchanged |
 | Close/reopen browser window | recover | recover if batch committed | recover | not resumed; unknown if batch/local result not committed | unchanged |
-| Browser restart | recover | recover if batch committed | recover | not resumed; unknown if batch/local result not committed | unchanged |
+| Browser restart* | recover | recover if batch committed | recover | not resumed; unknown if batch/local result not committed | unchanged |
 | MV3 service-worker suspension | recover | recover if committed | recover | no correctness assumption from worker/UI memory | unchanged |
 | Clear extension local storage / uninstall | local state removed | local state removed | local state removed | unknown | **unchanged in acquisition** |
 
 `chrome.storage.session` transport credentials follow their existing secret/session lifecycle and may require re-pairing after browser restart. That is separate from capture persistence.
+
+\* "recover" on browser restart is the unit-tested storage-read design behavior against a `chrome.storage.local` mock; it is not yet confirmed by a live Chrome kill/restart run (see "Proof status" above).
 
 ## User-visible recovery surface
 
