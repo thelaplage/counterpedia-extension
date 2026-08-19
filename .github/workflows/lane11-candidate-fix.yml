@@ -1,0 +1,88 @@
+name: Lane 11 candidate surgical fix
+
+on:
+  pull_request:
+    branches:
+      - agent/wiki-session-persistence0-validation
+
+permissions:
+  contents: write
+
+jobs:
+  patch-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/wiki-session-persistence0
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify pre-fix candidate
+        run: test "$(git rev-parse HEAD)" = "e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3"
+
+      - name: Apply surgical nullability fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          panel = Path('src/panel/wikipediaFrontierCapture.ts')
+          text = panel.read_text()
+          old = '          const url = selected[index];\n'
+          new = '          const url = selected[index]!;\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one panel target, found {text.count(old)}')
+          panel.write_text(text.replace(old, new))
+
+          test = Path('tests/wikipediaSessionPersistence.test.ts')
+          text = test.read_text()
+          if text.count('recovered[0].') != 4:
+              raise SystemExit(f'expected four recovered[0] targets, found {text.count("recovered[0].")}')
+          text = text.replace('recovered[0].', 'recovered[0]!.')
+          if text.count('attempts[0].') != 1:
+              raise SystemExit(f'expected one attempts[0] target, found {text.count("attempts[0].")}')
+          text = text.replace('attempts[0].', 'attempts[0]!.')
+          test.write_text(text)
+          PY
+          git diff --check
+          git diff -- src/panel/wikipediaFrontierCapture.ts tests/wikipediaSessionPersistence.test.ts
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused regression tests
+        run: |
+          npx vitest run \
+            tests/governedSourceSelection.test.ts \
+            tests/wikipediaFrontierCapture.test.ts \
+            tests/wikipediaSessionPersistence.test.ts \
+            tests/wikipediaCaptureAuthoringBoundary.test.ts \
+            tests/draftFromSourceButton.test.ts
+
+      - name: Verify no Lane 11 TypeScript diagnostics
+        run: |
+          set +e
+          npm run lint > /tmp/tsc.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/tsc.log
+          if grep -E 'src/panel/wikipediaFrontierCapture\.ts|tests/wikipediaSessionPersistence\.test\.ts|src/lib/governedSourceSelection\.ts|src/lib/wikipediaCaptureRunRecovery\.ts|src/panel/draftFromSourceButton\.ts|tests/governedSourceSelection\.test\.ts|tests/wikipediaCaptureAuthoringBoundary\.test\.ts' /tmp/tsc.log; then
+            echo 'Lane 11 still introduces TypeScript diagnostics' >&2
+            exit 1
+          fi
+          echo "Repository lint exit remains $rc; no Lane 11 diagnostics remain."
+
+      - name: Commit and push candidate fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/panel/wikipediaFrontierCapture.ts tests/wikipediaSessionPersistence.test.ts
+          git commit -m "fix: satisfy Lane 11 strict TypeScript indexing"
+          git push origin HEAD:agent/wiki-session-persistence0
