@@ -55,10 +55,10 @@ describe("Wikipedia completed-run lifecycle recovery", () => {
 
     const recovered = await readWikipediaCaptureRunsForRecovery(storage);
     expect(recovered).toHaveLength(1);
-    expect(recovered[0].run_id).toBe("run:restart-proof");
-    expect(recovered[0].attempts[0].capture_id).toBe("cap_reference");
-    expect(recovered[0].authority_posture).toBe("capture_receipt_projection_only");
-    expect(recovered[0].admission).toBe("not_performed");
+    expect(recovered[0]!.run_id).toBe("run:restart-proof");
+    expect(recovered[0]!.attempts[0]!.capture_id).toBe("cap_reference");
+    expect(recovered[0]!.authority_posture).toBe("capture_receipt_projection_only");
+    expect(recovered[0]!.admission).toBe("not_performed");
   });
 
   it("fails closed instead of trusting authority widening in local recovery state", () => {

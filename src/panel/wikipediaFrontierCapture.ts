@@ -356,7 +356,7 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
       const results: AcquisitionCaptureResult[] = [];
       try {
         for (let index = 0; index < selected.length; index += 1) {
-          const url = selected[index];
+          const url = selected[index]!;
           ui.status.textContent = `Capturing ${index + 1} of ${selected.length} through the acquisition producer…`;
           try {
             const result = await captureWikipediaFrontierUrl(url);
