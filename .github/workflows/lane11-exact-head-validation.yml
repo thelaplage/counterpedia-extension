@@ -98,3 +98,134 @@ jobs:
         run: |
           test -f dist/manifest.json
           node -e 'const m=require("./dist/manifest.json"); if(m.manifest_version!==3) process.exit(1); console.log(m.name, m.version, m.manifest_version)'
+
+      - name: Real Chrome process-restart recovery probe
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME"
+          "$CHROME" --version
+
+          cat > dist/lifecycle-probe.html <<'EOF'
+          <!doctype html>
+          <html><body>PENDING<script type="module" src="lifecycle-probe.js"></script></body></html>
+          EOF
+
+          cat > dist/lifecycle-probe.js <<'EOF'
+          const KEY = "counterpedia_governed_source_selection_v0_1";
+          const digest = "sha256:" + "a".repeat(64);
+          const source = {
+            tool: "acquisition.capture_url",
+            surface_schema: "acquisition.mcp_surface.v0.1",
+            capture_status: "captured",
+            capture_id: "cap_restart_probe",
+            source_id: "src_restart_probe",
+            source_locator: "https://example.org/restart-proof",
+            captured_object_address: digest,
+            byte_count: 123,
+            failure_detail: null,
+            capture_receipt: {
+              capture_id: "cap_restart_probe",
+              source_id: "src_restart_probe",
+              source_locator: "https://example.org/restart-proof",
+              exact_bytes_sha256: digest,
+              byte_count: 123
+            }
+          };
+          const mode = new URL(location.href).searchParams.get("mode");
+          if (mode === "write") {
+            await chrome.storage.local.set({
+              [KEY]: {
+                schema_version: "counterpedia.governed_source_selection.v0.1",
+                selected_at: "2026-08-19T02:00:00.000Z",
+                source,
+                retention: "LOCAL_ONLY",
+                authority_posture: "selection_only"
+              }
+            });
+            document.body.textContent = "WRITE_OK";
+          } else if (mode === "read") {
+            const stored = (await chrome.storage.local.get(KEY))[KEY];
+            document.body.textContent = stored?.source?.capture_id === "cap_restart_probe" ? "READ_OK" : "READ_FAILED";
+          } else {
+            document.body.textContent = "UNKNOWN_MODE";
+          }
+          EOF
+
+          PROFILE="$RUNNER_TEMP/lane11-chrome-profile"
+          DIST="$GITHUB_WORKSPACE/dist"
+          rm -rf "$PROFILE"
+          mkdir -p "$PROFILE"
+
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --user-data-dir="$PROFILE" \
+            --disable-extensions-except="$DIST" \
+            --load-extension="$DIST" \
+            about:blank > /tmp/lane11-register.log 2>&1 &
+          chrome_pid=$!
+          sleep 4
+          kill -TERM "$chrome_pid" || true
+          wait "$chrome_pid" || true
+
+          PREFS="$PROFILE/Default/Preferences"
+          test -f "$PREFS"
+          EXT_ID="$(python - "$PREFS" "$DIST" <<'PY'
+          import json, os, sys
+          prefs_path, dist = sys.argv[1], os.path.realpath(sys.argv[2])
+          with open(prefs_path, encoding='utf-8') as fh:
+              prefs = json.load(fh)
+          settings = prefs.get('extensions', {}).get('settings', {})
+          for ext_id, cfg in settings.items():
+              path = cfg.get('path') if isinstance(cfg, dict) else None
+              if path and os.path.realpath(path) == dist:
+                  print(ext_id)
+                  break
+          else:
+              print('unpacked extension id not found in Preferences', file=sys.stderr)
+              print(json.dumps(settings, indent=2)[:12000], file=sys.stderr)
+              raise SystemExit(1)
+          PY
+          )"
+          test -n "$EXT_ID"
+          echo "Loaded extension id: $EXT_ID"
+
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --user-data-dir="$PROFILE" \
+            --disable-extensions-except="$DIST" \
+            --load-extension="$DIST" \
+            --virtual-time-budget=3000 \
+            --dump-dom "chrome-extension://$EXT_ID/lifecycle-probe.html?mode=write" > /tmp/lane11-write.html
+          grep -F "WRITE_OK" /tmp/lane11-write.html
+
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --user-data-dir="$PROFILE" \
+            --disable-extensions-except="$DIST" \
+            --load-extension="$DIST" \
+            --virtual-time-budget=3000 \
+            --dump-dom "chrome-extension://$EXT_ID/lifecycle-probe.html?mode=read" > /tmp/lane11-read.html
+          grep -F "READ_OK" /tmp/lane11-read.html
+
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --user-data-dir="$PROFILE" \
+            --disable-extensions-except="$DIST" \
+            --load-extension="$DIST" \
+            --virtual-time-budget=5000 \
+            --dump-dom "chrome-extension://$EXT_ID/panel/index.html" > /tmp/lane11-panel.html
+          grep -F "Draft-source selection recovered locally · cap_restart_probe" /tmp/lane11-panel.html
+          echo "Real Chrome restart recovery probe passed."
