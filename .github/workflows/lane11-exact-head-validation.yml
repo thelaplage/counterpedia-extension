@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/wiki-session-persistence0-validation
+  pull_request:
+    branches:
+      - agent/wiki-session-persistence0-validation
 
 permissions:
   contents: read
