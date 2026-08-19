@@ -17,6 +17,24 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+export function normalizeExpectedUrl(value: string | null): string | null {
+  if (value === null) return null;
+  if (!isHttpUrl(value)) throw new Error("Expected source URL must be HTTP(S).");
+  return value;
+}
+
+export function requireStableCapturedLocator(beforeUrl: string, afterUrl: string): string {
+  if (!isHttpUrl(beforeUrl) || !isHttpUrl(afterUrl)) {
+    throw new Error("Captured tab must remain on an HTTP(S) URL.");
+  }
+  if (beforeUrl !== afterUrl) {
+    throw new Error(
+      "Tab navigated while Chrome was generating the snapshot; capture refused to avoid mismatched bytes/locator provenance.",
+    );
+  }
+  return beforeUrl;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   const chunk = 32_768;
   let binary = "";
@@ -53,11 +71,8 @@ export async function captureActiveTabOperatorSnapshot(
   if (!before?.id || !before.url || !isHttpUrl(before.url)) {
     throw new Error("Open an HTTP(S) source page before capturing a browser snapshot.");
   }
-  if (expectedUrl !== null && !isHttpUrl(expectedUrl)) {
-    throw new Error("Expected source URL must be HTTP(S).");
-  }
+  const normalizedExpected = normalizeExpectedUrl(expectedUrl);
 
-  const capturedAt = new Date().toISOString();
   const blob = await saveTabAsMhtml(before.id);
   if (blob.size <= 0) throw new Error("Chrome produced an empty page snapshot.");
   if (blob.size > MAX_SNAPSHOT_BYTES) {
@@ -65,14 +80,14 @@ export async function captureActiveTabOperatorSnapshot(
   }
 
   const after = await chrome.tabs.get(before.id);
-  const currentUrl = after.url ?? before.url;
-  if (!isHttpUrl(currentUrl)) throw new Error("Captured tab no longer has an HTTP(S) URL.");
+  const currentUrl = requireStableCapturedLocator(before.url, after.url ?? "");
+  const capturedAt = new Date().toISOString();
 
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return ingestOperatorSnapshot({
     snapshot_base64: bytesToBase64(bytes),
     current_url: currentUrl,
-    expected_url: expectedUrl ?? before.url,
+    expected_url: normalizedExpected,
     captured_at: capturedAt,
     media_type: "multipart/related",
   });
@@ -149,9 +164,11 @@ export function initOperatorSnapshotCapture(): void {
         const rawExpected = ui.expected.value.trim();
         const result = await captureActiveTabOperatorSnapshot(rawExpected || null);
         if (result.locator_continuity === "exact") {
-          ui.status.textContent = `Snapshot retained · ${result.snapshot_ref}`;
-        } else {
+          ui.status.textContent = `Snapshot retained · expected locator matched · ${result.snapshot_ref}`;
+        } else if (result.locator_continuity === "drift") {
           ui.status.textContent = `Snapshot retained · locator changed · review required · ${result.snapshot_ref}`;
+        } else {
+          ui.status.textContent = `Snapshot retained · no expected locator supplied · ${result.snapshot_ref}`;
         }
       } catch (error) {
         ui.status.textContent = error instanceof Error ? error.message : "Operator snapshot failed.";
