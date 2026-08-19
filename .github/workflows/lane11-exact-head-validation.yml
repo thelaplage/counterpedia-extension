@@ -1,0 +1,57 @@
+name: Lane 11 exact-head validation
+
+on:
+  push:
+    branches:
+      - agent/wiki-session-persistence0-validation
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3
+          fetch-depth: 0
+
+      - name: Verify exact head
+        run: |
+          test "$(git rev-parse HEAD)" = "e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3"
+          git status --short --branch
+          git diff --check 12e2b91eace6b7587b85c32ea25749f4baf0a2cc HEAD
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused Lane 11 tests
+        run: |
+          npx vitest run \
+            tests/governedSourceSelection.test.ts \
+            tests/wikipediaFrontierCapture.test.ts \
+            tests/wikipediaSessionPersistence.test.ts \
+            tests/wikipediaCaptureAuthoringBoundary.test.ts \
+            tests/draftFromSourceButton.test.ts
+
+      - name: Full test suite
+        run: npm test
+
+      - name: TypeScript lint gate
+        run: npm run lint
+
+      - name: Authoring-dev build gate
+        run: npm run build:authoring-dev
+
+      - name: Inspect built manifest
+        run: |
+          test -f dist/manifest.json
+          node -e 'const m=require("./dist/manifest.json"); if(m.manifest_version!==3) process.exit(1); console.log(m.name, m.version, m.manifest_version)'
