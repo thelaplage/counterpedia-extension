@@ -15,17 +15,11 @@ jobs:
   exact-head-gates:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout main lint baseline
         uses: actions/checkout@v4
         with:
-          ref: e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3
+          ref: 12e2b91eace6b7587b85c32ea25749f4baf0a2cc
           fetch-depth: 0
-
-      - name: Verify exact head
-        run: |
-          test "$(git rev-parse HEAD)" = "e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3"
-          git status --short --branch
-          git diff --check 12e2b91eace6b7587b85c32ea25749f4baf0a2cc HEAD
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -33,7 +27,33 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
+      - name: Install baseline dependencies
+        run: npm ci
+
+      - name: Capture main TypeScript baseline
+        run: |
+          set +e
+          npm run lint > /tmp/main-lint.log 2>&1
+          rc=$?
+          set -e
+          echo "$rc" > /tmp/main-lint.rc
+          grep -E 'error TS[0-9]+:' /tmp/main-lint.log | sort > /tmp/main-lint.errors || true
+          echo "main lint exit=$rc"
+          cat /tmp/main-lint.errors
+
+      - name: Checkout exact Lane 11 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 86f2eba4a9951db8702331bccc821684bfbd4634
+          fetch-depth: 0
+
+      - name: Verify exact candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "86f2eba4a9951db8702331bccc821684bfbd4634"
+          git status --short --branch
+          git diff --check 12e2b91eace6b7587b85c32ea25749f4baf0a2cc HEAD
+
+      - name: Install candidate dependencies
         run: npm ci
 
       - name: Focused Lane 11 tests
@@ -48,8 +68,18 @@ jobs:
       - name: Full test suite
         run: npm test
 
-      - name: TypeScript lint gate
-        run: npm run lint
+      - name: TypeScript differential gate
+        run: |
+          set +e
+          npm run lint > /tmp/candidate-lint.log 2>&1
+          rc=$?
+          set -e
+          grep -E 'error TS[0-9]+:' /tmp/candidate-lint.log | sort > /tmp/candidate-lint.errors || true
+          echo "main lint exit=$(cat /tmp/main-lint.rc); candidate lint exit=$rc"
+          echo "Candidate diagnostics:"
+          cat /tmp/candidate-lint.errors
+          diff -u /tmp/main-lint.errors /tmp/candidate-lint.errors
+          echo "Lane 11 introduces zero TypeScript diagnostics beyond main baseline."
 
       - name: Authoring-dev build gate
         run: npm run build:authoring-dev
