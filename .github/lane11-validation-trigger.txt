@@ -1,1 +1,1 @@
-Trigger pull-request validation and surgical fix for Lane 11 candidate e8c19b0e0a33b319d2f5db0a4708accb7a2be2b3. Pass 2.
+Trigger exact-head differential validation for Lane 11 candidate 86f2eba4a9951db8702331bccc821684bfbd4634. Pass 3.
