@@ -123,10 +123,6 @@ describe("manifest.json", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// EXT-BROWSER1 + EXT-ACQ1: localhost transport remains demo-only.
-// ---------------------------------------------------------------------------
-
 describe("manifest.json — production permission byte audit", () => {
   it("permission set is EXACTLY the pre-existing minimal set (no additions)", () => {
     const EXPECTED = ["sidePanel", "activeTab", "storage", "contextMenus", "scripting"];
@@ -139,21 +135,19 @@ describe("manifest.json — production permission byte audit", () => {
     expect(asText).not.toContain("<all_urls>");
     expect(asText).not.toContain("127.0.0.1");
     expect(asText).not.toContain("_demo_mode");
-    expect(asText).not.toContain("_acquisition_endpoint");
+    expect(asText).not.toContain("_pitch_acquisition_endpoint");
+    expect(asText).not.toContain("_authoring_endpoint");
   });
 });
 
-// ---------------------------------------------------------------------------
-// Demo manifest separation: both local transports are exact loopback grants.
-// 4317 = legacy demo orchestrator; 8787 = ACQ1 acquisition. Neither may leak to
-// production and neither is a broad host permission.
-// ---------------------------------------------------------------------------
-
+// Pitch demo separation: 4317 = historical orchestrator, 8787 = exact-byte
+// acquisition producer, 8788 = proposal-only Draft-from-source authoring.
 describe("manifest.demo.json — demo separation", () => {
   let demo: ManifestJson & {
     _demo_mode?: boolean;
     _demo_endpoint?: string;
-    _acquisition_endpoint?: string;
+    _pitch_acquisition_endpoint?: string;
+    _authoring_endpoint?: string;
     _privacy_audit?: Record<string, unknown>;
   };
 
@@ -168,11 +162,12 @@ describe("manifest.demo.json — demo separation", () => {
     expect(demoBytes).not.toBe(prodBytes);
   });
 
-  it("scopes host_permissions to the exact two loopback services — never <all_urls>", () => {
+  it("scopes host_permissions to the exact three loopback services — never <all_urls>", () => {
     const hosts = demo.host_permissions ?? [];
     expect(hosts).toEqual([
       "http://127.0.0.1:4317/*",
       "http://127.0.0.1:8787/*",
+      "http://127.0.0.1:8788/*",
     ]);
     expect(hosts).not.toContain("<all_urls>");
     expect(hosts).not.toContain("*://*/*");
@@ -181,8 +176,9 @@ describe("manifest.demo.json — demo separation", () => {
     }
   });
 
-  it("pins ACQ1 to 127.0.0.1:8787 without embedding a token", () => {
-    expect(demo._acquisition_endpoint).toBe("http://127.0.0.1:8787");
+  it("pins pitch acquisition and authoring to exact loopback ports without embedding a token", () => {
+    expect(demo._pitch_acquisition_endpoint).toBe("http://127.0.0.1:8787");
+    expect(demo._authoring_endpoint).toBe("http://127.0.0.1:8788");
     const raw = readFileSync(join(__dirname, "../manifest.demo.json"), "utf-8");
     expect(raw).not.toContain("CP_ACQUISITION_TRANSPORT_TOKEN");
     expect(raw.toLowerCase()).not.toContain("test-transport-token");
@@ -193,12 +189,14 @@ describe("manifest.demo.json — demo separation", () => {
     expect((manifest as unknown as Record<string, unknown>)["_demo_mode"]).toBeUndefined();
   });
 
-  it("carries a privacy audit asserting no passive capture / no broad host", () => {
+  it("carries a privacy audit asserting explicit capture and operator-authored Draft from source", () => {
     const audit = demo._privacy_audit ?? {};
     expect(audit["passive_capture"]).toBe(false);
     expect(audit["all_urls_permission"]).toBe(false);
     expect(audit["send_requires_explicit_click"]).toBe(true);
     expect(audit["acquisition_requires_explicit_capture_click"]).toBe(true);
     expect(audit["acquisition_token_storage"]).toBe("chrome.storage.session only");
+    expect(audit["draft_from_source_requires_explicit_operator_claim"]).toBe(true);
+    expect(audit["draft_from_source_reuses_historical_capture_ref"]).toBe(true);
   });
 });
