@@ -65,6 +65,12 @@ const swState: {
   visible: boolean;
 } = { locator: null, observed: false, publicMaterial: false, visible: false };
 
+// Monotonic page-context generation. Bumped at every page-context boundary the
+// panel already owns (navigation / restricted page / CLEAR) and at the start of
+// each acquisition run, so a stale in-flight acquisition response from page A can
+// never project onto page B. See src/lib/acquisitionNavGuard.ts.
+const pageContext = createPageContextGeneration();
+
 function setAnchor(id: string, href: string | null, show: boolean): void {
   const el = document.getElementById(id) as HTMLAnchorElement | null;
   if (!el) return;
@@ -273,6 +279,12 @@ async function runSearch(query: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleTabUrl(url: string): Promise<void> {
+  // Page-context boundary: any tab change supersedes an in-flight acquisition
+  // from the prior page and clears its (now stale) visible status, so page B
+  // never inherits page A's acquisition state.
+  pageContext.invalidate();
+  setAcquisitionStatus(null);
+
   if (isRestrictedUrl(url)) {
     currentState = { kind: "restricted" };
     showState("restricted");
@@ -324,6 +336,10 @@ chrome.runtime.onMessage.addListener((rawMessage, _sender, _sendResponse) => {
     if (queryDisplay) queryDisplay.textContent = message.text;
     void runSearch(message.text);
   } else if (message.type === "CLEAR") {
+    // Context cleared: supersede any in-flight acquisition and drop its stale
+    // visible status so a late response cannot repopulate the panel.
+    pageContext.invalidate();
+    setAcquisitionStatus(null);
     currentState = { kind: "idle" };
     showState("idle");
     updateBadge(0);
@@ -481,11 +497,13 @@ import {
   readAcquisitionConfig,
 } from "../lib/acquisitionClient";
 import {
-  renderAcquisitionPending,
-  renderAcquisitionClientResult,
   renderTransportError,
   type AcquisitionRender,
 } from "../lib/acquisitionState";
+import {
+  createPageContextGeneration,
+  runGuardedAcquisition,
+} from "../lib/acquisitionNavGuard";
 import {
   selectAuthoringClient,
   readAuthoringConfig,
@@ -541,25 +559,30 @@ function setAcquisitionStatus(render: AcquisitionRender | null): void {
 }
 
 async function runAcquisition(capture: BrowserPageCapture): Promise<void> {
+  // Snapshot (and advance) the page context this run belongs to. Advancing here
+  // means a newer overlapping capture strictly supersedes this one.
+  const token = pageContext.invalidate();
+
   const config = await readAcquisitionConfig();
   const client = selectAcquisitionClient(config);
   if (client.kind === "not_configured") {
     // Opt-in dev capability: stay silent rather than nag on every capture.
-    setAcquisitionStatus(null);
+    // Only clear if this run's context is still current (don't wipe page B).
+    if (pageContext.current() === token) setAcquisitionStatus(null);
     return;
   }
-  setAcquisitionStatus(renderAcquisitionPending());
-  const result = await client.capture(capture);
-  setAcquisitionStatus(renderAcquisitionClientResult(result));
 
-  // Third-act gate: ONLY a `captured` acquisition makes drafting an option.
-  // This is the single, one-directional touch between the two lanes: the
-  // capture gates the Draft *option*; it never performs the draft. A recapture
-  // of a new page replaces the prior governed source; a failed/absent capture
-  // withdraws the option (Draft becomes unavailable again).
-  setDraftGovernedSource(
-    result.kind === "captured" ? result.result : null,
-  );
+  // Project the result IFF the initiating context is still current at
+  // completion. A navigation / CLEAR / newer capture drops this response — it
+  // never writes the status line or the governed source, and cannot overwrite
+  // newer state. On success the third-act Draft option is gated ONLY here.
+  await runGuardedAcquisition({
+    token,
+    currentGeneration: () => pageContext.current(),
+    capture: () => client.capture(capture),
+    setStatus: setAcquisitionStatus,
+    setGovernedSource: setDraftGovernedSource,
+  });
 }
 
 // ---------------------------------------------------------------------------
