@@ -2,14 +2,9 @@
  * PITCH-RESEARCH1B — narrow browser client for the existing
  * counterpedia-authoring POST /v0/draft-from-source action.
  *
- * The client accepts only an already-validated ACQ1 captured result plus an
- * explicit operator-authored proposition. Browser rendered/main/selected text
- * is never copied into ClaimMap material. The historical acquisition capture_id
- * is carried as capture_ref; source_locator is carried separately as the exact
- * governed selection/continuity fact.
- *
- * This module composes existing producer contracts. It does not admit, publish,
- * verify, assign standing, or reinterpret evidence/support semantics.
+ * Inputs are an already-validated ACQ1 capture plus an explicit operator claim.
+ * Browser prose is never copied into claim material. This client composes
+ * producer contracts; it does not admit, publish, verify, or assign standing.
  */
 
 import type { CaptureUrlCapturedResult } from "./acquisitionTransport";
@@ -51,14 +46,12 @@ export interface DraftFromSourceRequestWire {
   readonly candidates: readonly [{ readonly candidate_id: string; readonly url: string }];
   readonly selected_candidate_ids: readonly [string];
   readonly capture_ref: string;
-  readonly claims: readonly [
-    {
-      readonly claim_id: string;
-      readonly claim_text: string;
-      readonly supports: readonly [];
-      readonly contradicts: readonly [];
-    },
-  ];
+  readonly claims: readonly [{
+    readonly claim_id: string;
+    readonly claim_text: string;
+    readonly supports: readonly [];
+    readonly contradicts: readonly [];
+  }];
   readonly coverage_requirements: readonly [];
   readonly coverage_assessments: readonly [];
   readonly conflicts: readonly [];
@@ -83,7 +76,6 @@ export interface AuthoringHandoffProjection {
   readonly claim_support_assessment_set?: unknown;
   readonly draft_completeness_binding?: unknown;
   readonly handoff_digest: string;
-  /** Exact validated producer payload, retained for inspection/export. */
   readonly raw: Readonly<Record<string, unknown>>;
 }
 
@@ -130,20 +122,12 @@ function requireNonEmptyString(value: unknown, what: string): string {
   return value;
 }
 
-/** True only for an uncredentialed http:// loopback origin with no path/query/hash. */
 export function isSafeAuthoringEndpoint(endpoint: string): boolean {
   try {
     const url = new URL(endpoint);
     const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
-    return (
-      url.protocol === "http:" &&
-      loopback &&
-      url.username === "" &&
-      url.password === "" &&
-      (url.pathname === "/" || url.pathname === "") &&
-      url.search === "" &&
-      url.hash === ""
-    );
+    return url.protocol === "http:" && loopback && !url.username && !url.password &&
+      (url.pathname === "/" || url.pathname === "") && !url.search && !url.hash;
   } catch {
     return false;
   }
@@ -155,11 +139,7 @@ export function authoringEndpointFromManifest(manifest: Record<string, unknown>)
   return typeof endpoint === "string" && isSafeAuthoringEndpoint(endpoint) ? endpoint : null;
 }
 
-/**
- * Construct only operator-owned request material. Producer/runtime fields are
- * absent by construction except the one legitimate top-level capture_ref that
- * identifies the already-held acquisition attempt.
- */
+/** Build only operator-owned material plus the legitimate historical capture_ref. */
 export function buildDraftFromSourceRequest(
   input: DraftFromSourceOperatorInput,
 ): DraftFromSourceRequestWire {
@@ -172,29 +152,22 @@ export function buildDraftFromSourceRequest(
   }
 
   const sourceUrl = input.acquisition.source_locator;
-  const titleSeed = input.subjectSeed?.trim() || new URL(sourceUrl).hostname;
   const candidateId = "src:browser-current";
-
   return {
-    subject_seed: titleSeed,
-    operator_objective:
-      input.operatorObjective?.trim() ||
+    subject_seed: input.subjectSeed?.trim() || new URL(sourceUrl).hostname,
+    operator_objective: input.operatorObjective?.trim() ||
       "Produce a bounded proposal from the exact source bytes already captured by the operator.",
     candidates: [{ candidate_id: candidateId, url: sourceUrl }],
     selected_candidate_ids: [candidateId],
     capture_ref: input.acquisition.capture_id,
-    claims: [
-      {
-        claim_id: "claim-browser-source",
-        claim_text: claim,
-        // Do not guess evidence handles before the producer constructs the real
-        // EvidenceBundle. The downstream draft itself remains evidence-bound by
-        // the authoring pipeline; this operator claim is carried without a fake
-        // support edge rather than guessing evidence:E001.
-        supports: [],
-        contradicts: [],
-      },
-    ],
+    claims: [{
+      claim_id: "claim-browser-source",
+      claim_text: claim,
+      // Evidence handles are producer-owned. Do not guess evidence:E001 before
+      // the real EvidenceBundle exists; the draft remains evidence-bound downstream.
+      supports: [],
+      contradicts: [],
+    }],
     coverage_requirements: [],
     coverage_assessments: [],
     conflicts: [],
@@ -209,12 +182,7 @@ export function buildDraftFromSourceRequest(
   };
 }
 
-/**
- * Validate the handoff's crossing boundary without reimplementing nested
- * authoring semantics. Known top-level fields only; exact producer/posture;
- * required materialized components; canonical digest shape. The exact raw
- * payload is retained rather than reconstructed by the UI.
- */
+/** Validate the crossing boundary while retaining exact nested producer bytes. */
 export function validateAuthoringHandoff(input: unknown): AuthoringHandoffProjection {
   const payload = requireObject(input, "AuthoringAdmissionHandoff");
   for (const key of Object.keys(payload)) {
@@ -245,7 +213,9 @@ export function validateAuthoringHandoff(input: unknown): AuthoringHandoffProjec
     throw new AuthoringTransportError("invalid_response", "handoff_digest is malformed");
   }
 
-  const projection: AuthoringHandoffProjection = {
+  const hasSupport = Object.prototype.hasOwnProperty.call(payload, "claim_support_assessment_set");
+  const hasCompleteness = Object.prototype.hasOwnProperty.call(payload, "draft_completeness_binding");
+  return {
     schema_version: schemaVersion,
     producer: "counterpedia-authoring",
     authority_posture: "proposal_only",
@@ -253,16 +223,11 @@ export function validateAuthoringHandoff(input: unknown): AuthoringHandoffProjec
     evidence_bundle: requireObject(payload["evidence_bundle"], "evidence_bundle"),
     claim_map: requireObject(payload["claim_map"], "claim_map"),
     draft_proposal: requireObject(payload["draft_proposal"], "draft_proposal"),
+    ...(hasSupport ? { claim_support_assessment_set: payload["claim_support_assessment_set"] } : {}),
+    ...(hasCompleteness ? { draft_completeness_binding: payload["draft_completeness_binding"] } : {}),
     handoff_digest: handoffDigest,
     raw: Object.freeze({ ...payload }),
   };
-  if (Object.prototype.hasOwnProperty.call(payload, "claim_support_assessment_set")) {
-    projection.claim_support_assessment_set = payload["claim_support_assessment_set"];
-  }
-  if (Object.prototype.hasOwnProperty.call(payload, "draft_completeness_binding")) {
-    projection.draft_completeness_binding = payload["draft_completeness_binding"];
-  }
-  return projection;
 }
 
 export async function draftFromCapturedSource(
