@@ -1,17 +1,23 @@
 /**
- * EXT-ACQ1 cross-process producer-consumer exact-byte proof.
+ * PITCH-RESEARCH1A cross-process producer-consumer exact-byte proof.
  *
  * This test is intentionally opt-in because counterpedia-extension does not
  * vendor the Python acquisition producer. When COUNTERPEDIA_ACQUISITION_REPO is
- * set, the test FAILS unless that checkout is at the exact candidate head pinned
- * below, then spawns the real ACQ1 server from that checkout.
+ * set, the test FAILS unless that checkout is at the exact current pitch producer
+ * head pinned below, then spawns the producer's dedicated TEST-ONLY HTTP launcher.
+ *
+ * The test launcher differs from production only in outbound target-address
+ * classification so a loopback source fixture can stand in for a remote site.
+ * The production launcher has no permissive-mode switch. Origin, token, body,
+ * schema, source identity, fetcher, capture receipt, and response projection are
+ * the same real producer path.
  *
  * Proven path when exercised:
  *
  *   TS BrowserPageCapture
  *     -> EXT-ACQ1 fetch client
  *     -> real Python localhost HTTP transport
- *     -> resolve_browser_capture_source()
+ *     -> resolve_browser_capture_source_for_capture()
  *     -> AcquisitionMcpSurface.capture_url()
  *     -> real HttpFetcher
  *     -> this test's real local HTTP source fixture
@@ -32,7 +38,10 @@ import { describe, expect, it } from "vitest";
 import type { BrowserPageCapture } from "../../src/lib/browserPageCapture";
 import { acquireBrowserPageCapture } from "../../src/lib/acquisitionTransport";
 
-const ACQUISITION_CANDIDATE_HEAD = "ef285bf447b19d8b5962bf0ea1f9bc1c3e3adb55";
+// counterpedia-acquisition feat/pitch-research1a-http.  That head is the
+// current runtime tree plus only the PITCH dispatch record. Any producer change
+// requires an explicit re-pin and a fresh cross-process run.
+const ACQUISITION_PITCH_HEAD = "dfa7a3b00c105f9cc0796b7777ef88eaef36d30d";
 const TEST_ORIGIN = "chrome-extension://extacq1integrationfixture";
 const TEST_TOKEN = "ext-acq1-integration-token";
 const SOURCE_BYTES = Buffer.from(
@@ -76,8 +85,10 @@ function closeServer(server: Server): Promise<void> {
 }
 
 function assertPinnedAcquisitionCheckout(repo: string): void {
-  if (!existsSync(join(repo, "scripts", "run_acquisition_http.py"))) {
-    throw new Error(`COUNTERPEDIA_ACQUISITION_REPO is not an acquisition checkout: ${repo}`);
+  if (!existsSync(join(repo, "scripts", "run_acquisition_http_test_fixture.py"))) {
+    throw new Error(
+      `COUNTERPEDIA_ACQUISITION_REPO lacks the isolated ACQ1 test launcher: ${repo}`,
+    );
   }
   const probe = spawnSync("git", ["-C", repo, "rev-parse", "HEAD"], {
     encoding: "utf8",
@@ -86,9 +97,9 @@ function assertPinnedAcquisitionCheckout(repo: string): void {
     throw new Error(`unable to resolve acquisition HEAD: ${probe.stderr}`);
   }
   const actual = probe.stdout.trim();
-  if (actual !== ACQUISITION_CANDIDATE_HEAD) {
+  if (actual !== ACQUISITION_PITCH_HEAD) {
     throw new Error(
-      `acquisition checkout drift: expected ${ACQUISITION_CANDIDATE_HEAD}, got ${actual}`,
+      `acquisition checkout drift: expected ${ACQUISITION_PITCH_HEAD}, got ${actual}`,
     );
   }
 }
@@ -98,7 +109,10 @@ function startAcquisitionServer(repo: string): Promise<{
   endpoint: string;
 }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", ["scripts/run_acquisition_http.py"], {
+    // Deliberately use the producer-owned, source-separated TEST-ONLY launcher.
+    // The production launcher must retain its default SSRF/loopback refusal and
+    // cannot be switched into permissive egress by environment or request input.
+    const child = spawn("python3", ["scripts/run_acquisition_http_test_fixture.py"], {
       cwd: repo,
       env: {
         ...process.env,
@@ -107,11 +121,6 @@ function startAcquisitionServer(repo: string): Promise<{
         CP_ACQUISITION_TRANSPORT_TOKEN: TEST_TOKEN,
         CP_ACQUISITION_HTTP_HOST: "127.0.0.1",
         CP_ACQUISITION_HTTP_PORT: "0",
-        // TEST-ONLY: the fixture "source" server below simulates a remote site
-        // but is itself on loopback, so the real (correct, default-on) SSRF
-        // egress boundary must be explicitly relaxed for this subprocess.
-        // Never set in production or the demo build.
-        CP_ACQUISITION_HTTP_EGRESS_TEST_PERMISSIVE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -137,9 +146,7 @@ function startAcquisitionServer(repo: string): Promise<{
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
-      const match = stdout.match(
-        /acquisition HTTP transport listening on (http:\/\/127\.0\.0\.1:\d+)/,
-      );
+      const match = stdout.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/);
       if (match && !settled) {
         const endpoint = match[1];
         if (!endpoint) {
@@ -193,20 +200,20 @@ function bpc(sourceUrl: string): BrowserPageCapture {
     requested_url: sourceUrl,
     current_url: sourceUrl,
     canonical_url: sourceUrl,
-    document_title: "EXT-ACQ1 cross-process fixture",
+    document_title: "PITCH-RESEARCH1A cross-process fixture",
     document_language: "en",
     meta_description: null,
     json_ld: [],
     selected_text: "browser hint only",
     main_text: "THIS MUST NEVER BECOME SOURCE BYTES",
     rendered_text: "THIS MUST NEVER BECOME SOURCE BYTES",
-    captured_at: "2026-08-12T22:00:00Z",
+    captured_at: "2026-08-27T00:00:00Z",
   };
 }
 
-integrationDescribe("EXT-ACQ1 cross-process producer-consumer exact-byte proof", () => {
+integrationDescribe("PITCH-RESEARCH1A cross-process producer-consumer exact-byte proof", () => {
   it(
-    "drives the real Python producer and independently matches exact fetched bytes",
+    "drives the current real Python producer and independently matches exact fetched bytes",
     async () => {
       assertPinnedAcquisitionCheckout(acquisitionRepo);
       const source = await startSourceServer();
