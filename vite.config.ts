@@ -1,12 +1,9 @@
 /**
  * Vite configuration for the Counterpedia Chrome extension.
  *
- * Produces three separate bundles:
- *   dist/background/service-worker.js
- *   dist/panel/panel.js
- *   dist/popup/popup.js
- *
- * Also copies static assets (HTML, CSS, manifest, icons).
+ * Produces separate bundles for the background worker, panel, pitch-research
+ * demo composition, and popup. Static HTML/CSS/manifest assets are copied after
+ * build so the Chrome package remains inspectable.
  */
 
 import { defineConfig } from "vite";
@@ -57,6 +54,7 @@ export default defineConfig({
       input: {
         "background/service-worker": resolve(__dirname, "src/background/service-worker.ts"),
         "panel/panel": resolve(__dirname, "src/panel/panel.ts"),
+        "panel/pitchResearchDemo": resolve(__dirname, "src/panel/pitchResearchDemo.ts"),
         "popup/popup": resolve(__dirname, "src/popup/popup.ts"),
       },
       output: {
