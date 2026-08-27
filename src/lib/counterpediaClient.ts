@@ -49,6 +49,53 @@ interface SearchIndex {
   entries: SearchIndexEntry[];
 }
 
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+/**
+ * Structural validator for the search index.
+ *
+ * Fail-closed contract check applied to BOTH the remote fetch and the
+ * session-cache read, so a poisoned or schema-drifted cache cannot be trusted
+ * just because it deserializes.
+ *
+ * This mirrors the producer-owned `CounterpediaSearchIndex` contract
+ * (`thelaplage/counterpedia` → `lib/counterpedia/searchIndex.ts`) — no more,
+ * no less. It deliberately does NOT invent stricter local semantics (e.g.
+ * non-empty `title`/`edition`, or `entry_count === entries.length`): the
+ * extension consumes that contract, it does not become a second schema
+ * authority. It DOES require the label/url fields to be arrays of strings,
+ * because the scoring path calls `.toLowerCase()` on their members.
+ */
+export function isValidSearchIndex(data: unknown): data is SearchIndex {
+  if (typeof data !== "object" || data === null) return false;
+  const idx = data as Record<string, unknown>;
+  if (idx["schema_version"] !== 1) return false;
+  if (typeof idx["generated_at"] !== "string") return false;
+  if (typeof idx["entry_count"] !== "number") return false;
+  if (!Array.isArray(idx["entries"])) return false;
+
+  return (idx["entries"] as unknown[]).every((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const e = entry as Record<string, unknown>;
+    return (
+      typeof e["record_id"] === "string" &&
+      typeof e["title"] === "string" &&
+      // subtitle is optional in the producer contract: absent or a string.
+      (e["subtitle"] === undefined || typeof e["subtitle"] === "string") &&
+      typeof e["corpus_posture"] === "string" &&
+      typeof e["claim_text_tokens"] === "string" &&
+      typeof e["edition"] === "string" &&
+      typeof e["record_url"] === "string" &&
+      isStringArray(e["entity_labels"]) &&
+      isStringArray(e["source_labels"]) &&
+      isStringArray(e["source_canonical_urls"]) &&
+      isStringArray(e["refused_candidate_labels"])
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Corpus posture labels (pinned from W1)
 // ---------------------------------------------------------------------------
@@ -87,10 +134,22 @@ async function loadSearchIndex(): Promise<SearchIndex> {
       SESSION_CACHE_FETCHED_KEY,
     ]);
     const fetchedAt = cached[SESSION_CACHE_FETCHED_KEY] as number | undefined;
-    const cachedData = cached[SESSION_CACHE_KEY] as SearchIndex | undefined;
+    const cachedData = cached[SESSION_CACHE_KEY] as unknown;
     if (cachedData && fetchedAt && Date.now() - fetchedAt < CACHE_TTL_MS) {
-      inMemoryIndex = cachedData;
-      return inMemoryIndex;
+      // Fail closed: a cached blob that no longer matches the pinned contract
+      // is discarded, not trusted. Drop the poisoned entry and re-fetch.
+      if (isValidSearchIndex(cachedData)) {
+        inMemoryIndex = cachedData;
+        return inMemoryIndex;
+      }
+      try {
+        await chrome.storage.session.remove([
+          SESSION_CACHE_KEY,
+          SESSION_CACHE_FETCHED_KEY,
+        ]);
+      } catch {
+        // Non-fatal — fall through to fetch regardless
+      }
     }
   } catch {
     // Session storage unavailable — fall through to fetch
@@ -114,10 +173,10 @@ async function loadSearchIndex(): Promise<SearchIndex> {
     throw new Error(`HTTP ${response.status}`);
   }
 
-  const data = (await response.json()) as SearchIndex;
+  const data = (await response.json()) as unknown;
 
-  // Basic validation
-  if (data.schema_version !== 1 || !Array.isArray(data.entries)) {
+  // Fail closed on schema mismatch (same contract as the cache read).
+  if (!isValidSearchIndex(data)) {
     throw new Error("Invalid search index schema");
   }
 

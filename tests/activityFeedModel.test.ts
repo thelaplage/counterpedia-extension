@@ -6,6 +6,8 @@
  * and absence discipline (inspected-empty distinct from not-inspected).
  */
 
+import { readFileSync } from "fs";
+import { createHash } from "crypto";
 import { describe, it, expect } from "vitest";
 import {
   PINNED_ACTIVITY_INDEX_SCHEMA_FAMILY,
@@ -18,6 +20,33 @@ import {
   type ActivityIndex,
   type ActivityFeedProjection,
 } from "../src/lib/activityFeedModel";
+
+// ---------------------------------------------------------------------------
+// Vendored J1 artifact — exact bytes from the merged Counterpedia PR #230.
+//   source repo:   thelaplage/counterpedia
+//   source commit: d512f1edb17042a964e5c3d2ec8e07913bcc82bd
+//   source path:   public/counterpedia/activity-index.json
+// Do not hand-edit this fixture. Regenerate from source commit if updated.
+// ---------------------------------------------------------------------------
+
+const J1_FIXTURE_RAW = readFileSync(
+  new URL("./vendor/counterpedia_j1_activity_index_v0_1.json", import.meta.url),
+  "utf8",
+);
+const PINNED_J1_FIXTURE_SHA256 =
+  "81313f01a91153ba2b01bc8edb8b422bc9e96073044ba333daa917d050144125";
+
+const j1Index: ActivityIndex = validateActivityIndex(
+  JSON.parse(J1_FIXTURE_RAW) as unknown,
+);
+// Derived removal case: same inspection scope, entries cleared.
+// Represents the honest inspected-empty state, not a second source artifact.
+const j1EmptyIndex: ActivityIndex = {
+  ...j1Index,
+  inspection: { ...j1Index.inspection, receipt_count: 0 },
+  entries: [],
+};
+const J1_RECEIPT_ID = j1Index.entries[0]!.receipt_id;
 
 // The honest inspected-empty index, byte-shaped like the committed artifact.
 const emptyIndex: ActivityIndex = {
@@ -170,6 +199,87 @@ describe("projectIndexToFeed — populated, basis-descent preserved", () => {
   it("reports the source substrates were inspected", () => {
     expect(feed.is_empty).toBe(false);
     expect(feed.inspection.receipts_inspected).toBe(2);
+  });
+});
+
+describe("J1 golden test — genuine Counterpedia activity-index.json (PR #230)", () => {
+  it("raw fixture SHA-256 matches pinned provenance (thelaplage/counterpedia@d512f1e:public/counterpedia/activity-index.json)", () => {
+    const actual = createHash("sha256").update(J1_FIXTURE_RAW).digest("hex");
+    expect(actual).toBe(PINNED_J1_FIXTURE_SHA256);
+  });
+
+  it("schema_family is counterpedia.activity_index", () => {
+    expect(j1Index.schema_family).toBe("counterpedia.activity_index");
+  });
+
+  it("schema_version is 1", () => {
+    expect(j1Index.schema_version).toBe(1);
+  });
+
+  it("parser accepts the genuine one-entry PUBLIC index", () => {
+    expect(() => validateActivityIndex(j1Index)).not.toThrow();
+  });
+
+  it("exact governed_read line appears in the recall_activity lane", () => {
+    const feed = projectIndexToFeed(j1Index);
+    const recall = feed.lanes.find((l) => l.lane === "recall_activity")!;
+    expect(recall.lines).toHaveLength(1);
+    const line = recall.lines[0]!;
+    expect(line.profile_key).toBe("governed_read");
+    expect(line.profile).toBe("srs.activity.governed_read.v0.1");
+  });
+
+  it("basis_receipt_id survives to the feed line", () => {
+    const feed = projectIndexToFeed(j1Index);
+    const recall = feed.lanes.find((l) => l.lane === "recall_activity")!;
+    expect(recall.lines[0]!.basis_receipt_id).toBe(J1_RECEIPT_ID);
+  });
+
+  it("descend_ref resolves to the J1 basis receipt_id", () => {
+    const feed = projectIndexToFeed(j1Index);
+    const recall = feed.lanes.find((l) => l.lane === "recall_activity")!;
+    const line = recall.lines[0]!;
+    expect(line.descend_ref).toContain(J1_RECEIPT_ID);
+    expect(line.descend_ref).toContain("/counterpedia/activity-index.json#");
+  });
+
+  it("no trust/reputation/rank/score/standing aggregate is generated", () => {
+    const feed = projectIndexToFeed(j1Index);
+    expect(() => validateActivityFeed(feed)).not.toThrow();
+    const serialized = JSON.stringify(feed);
+    for (const banned of ["trust_score", "reputation", "ranking", "standing", "aggregate_verdict"]) {
+      expect(serialized).not.toContain(`"${banned}"`);
+    }
+  });
+
+  it("no canonical SRS envelope or signature is substituted for the derived index", () => {
+    const feed = projectIndexToFeed(j1Index);
+    const serialized = JSON.stringify(feed);
+    expect(serialized).not.toContain("receipt_version");
+    expect(serialized).not.toContain("srs.core");
+    expect(serialized).not.toContain("signature");
+  });
+
+  it("inspected-empty J1 (entries removed): extension renders honest empty state", () => {
+    const feed = projectIndexToFeed(j1EmptyIndex);
+    expect(feed.is_empty).toBe(true);
+    expect(feed.inspection.inspected).toBe(true);
+    expect(feed.inspection.receipts_inspected).toBe(0);
+    for (const lane of feed.lanes) {
+      expect(lane.inspected).toBe(true);
+      expect(lane.empty_reason).toBe("no_activity_recorded");
+      expect(lane.lines).toHaveLength(0);
+    }
+  });
+
+  it("malformed schema_family fails closed", () => {
+    const bad = { ...j1Index, schema_family: "counterpedia.wrong" };
+    expect(() => validateActivityIndex(bad)).toThrow(/schema_family/);
+  });
+
+  it("malformed schema_version fails closed", () => {
+    const bad = { ...j1Index, schema_version: 99 };
+    expect(() => validateActivityIndex(bad)).toThrow(/schema_version/);
   });
 });
 

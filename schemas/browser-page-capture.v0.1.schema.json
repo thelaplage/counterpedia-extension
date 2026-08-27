@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "browser-page-capture.v0.1.schema.json",
+  "title": "BrowserPageCapture v0.1",
+  "description": "Producer-owned schema for the BrowserPageCapture observation artifact. Describes the exact output of normalizeCaptureData() in src/lib/browserPageCapture.ts. This is NOT an HTTP response capture and NOT truth evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "spec_version",
+    "requested_url",
+    "current_url",
+    "canonical_url",
+    "document_title",
+    "document_language",
+    "meta_description",
+    "json_ld",
+    "selected_text",
+    "main_text",
+    "rendered_text",
+    "captured_at"
+  ],
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "const": "BrowserPageCapture",
+      "description": "Artifact type discriminator — always 'BrowserPageCapture'."
+    },
+    "spec_version": {
+      "type": "string",
+      "const": "v0.1",
+      "description": "Spec version for this schema."
+    },
+    "requested_url": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "URL reported by Chrome for the tab at capture time. Empty string if absent after normalization."
+    },
+    "current_url": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "document.URL at the moment of capture. Empty string if absent after normalization."
+    },
+    "canonical_url": {
+      "type": ["string", "null"],
+      "maxLength": 2048,
+      "description": "<link rel='canonical'> href, or null if absent or empty after normalization."
+    },
+    "document_title": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Page title. Empty string if absent after normalization."
+    },
+    "document_language": {
+      "type": ["string", "null"],
+      "maxLength": 35,
+      "description": "html[lang] value (BCP 47, max 35 chars), or null if absent."
+    },
+    "meta_description": {
+      "type": ["string", "null"],
+      "maxLength": 500,
+      "description": "<meta name='description'> content, or null if absent."
+    },
+    "json_ld": {
+      "type": "array",
+      "items": {},
+      "maxItems": 10,
+      "description": "Parsed JSON-LD objects from <script type='application/ld+json'> blocks. Each item is the result of JSON.parse on a bounded raw block. Array is always present; may be empty."
+    },
+    "selected_text": {
+      "type": ["string", "null"],
+      "maxLength": 5000,
+      "description": "window.getSelection() text if any was selected at capture time, or null."
+    },
+    "main_text": {
+      "type": ["string", "null"],
+      "maxLength": 50000,
+      "description": "innerText of the first <main> or <article> element (forms stripped), or null."
+    },
+    "rendered_text": {
+      "type": ["string", "null"],
+      "maxLength": 50000,
+      "description": "document.body innerText with form/script/style nodes stripped, or null."
+    },
+    "captured_at": {
+      "type": "string",
+      "description": "Timestamp supplied by the capture boundary (background service worker). Intended to be ISO 8601 but the producer passes it through unchanged — no format constraint is enforced."
+    }
+  }
+}

@@ -13,6 +13,72 @@
   </header>
 
   <main class="panel-content">
+    <!-- Source Workbench (EXT-BROWSER1 + EXT-ACQ1): source-first header.
+         Browser observation, local acquisition, Counterpedia source work, and
+         downstream receipts remain distinct states. The ACQ1 block is demo-only
+         and never upgrades source-work/SRS/admission posture. -->
+    <section id="source-workbench" class="source-workbench" aria-label="Source" style="display:none">
+      <h2 class="sw-heading">Source</h2>
+      <div id="sw-title" class="sw-title"></div>
+      <a id="sw-url" class="sw-url" target="_blank" rel="noopener noreferrer"></a>
+
+      <div class="sw-postures" aria-label="Source status">
+        <div class="sw-posture" id="sw-posture-observation" data-posture="not_observed">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-observation-label" class="sw-posture-label"></span>
+        </div>
+        <div class="sw-posture" id="sw-posture-source-work" data-posture="not_yet_available">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-source-work-label" class="sw-posture-label"></span>
+        </div>
+        <div class="sw-posture" id="sw-posture-receipt" data-posture="not_yet_available">
+          <span class="sw-posture-dot"></span>
+          <span id="sw-receipt-label" class="sw-posture-label"></span>
+        </div>
+      </div>
+
+      <!-- EXT-ACQ1: local acquisition is a separate product/ingestion lane.
+           It is deliberately NOT the generic source-work receipt above and NOT
+           an SRS receipt or admission signal. Hidden in production builds. -->
+      <div id="sw-acquisition" class="sw-acquisition" style="display:none" aria-label="Local acquisition">
+        <div class="sw-acquisition-heading">Local acquisition</div>
+        <div id="sw-acquisition-status" class="sw-acquisition-status" data-posture="not_configured">
+          Acquisition capture receipt: local token not configured
+        </div>
+        <div id="sw-acquisition-digest" class="sw-acquisition-detail" style="display:none"></div>
+        <div id="sw-acquisition-source" class="sw-acquisition-detail" style="display:none"></div>
+        <div class="sw-acquisition-boundary">SRS source-capture receipt: not represented</div>
+        <div class="sw-acquisition-boundary">Admission: not established</div>
+
+        <div id="sw-acquisition-config" class="sw-acquisition-config">
+          <label for="sw-acquisition-token">Local transport token</label>
+          <input
+            id="sw-acquisition-token"
+            class="sw-acquisition-token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Local acquisition transport token"
+          />
+          <div class="sw-acquisition-config-actions">
+            <button id="sw-acquisition-token-save" type="button">Set for session</button>
+            <button id="sw-acquisition-token-clear" type="button">Clear</button>
+          </div>
+          <span id="sw-acquisition-config-status" class="sw-acquisition-config-status" aria-live="polite"></span>
+          <p class="sw-acquisition-config-note">Stored in browser-session memory only. This token authenticates localhost transport; it is not epistemic authority.</p>
+        </div>
+      </div>
+
+      <p id="sw-no-record" class="sw-no-record" style="display:none"></p>
+      <p id="sw-observation-copy" class="sw-observation-copy"></p>
+
+      <div class="sw-actions">
+        <a id="sw-open-workbench" class="sw-btn sw-btn-link" target="_blank" rel="noopener noreferrer">Open Source Workbench</a>
+        <a id="sw-open-object" class="sw-btn sw-btn-object" target="_blank" rel="noopener noreferrer" style="display:none">Open Counterpedia source work</a>
+        <a id="sw-open-receipt" class="sw-btn sw-btn-receipt" target="_blank" rel="noopener noreferrer" style="display:none">View source-work receipt</a>
+      </div>
+    </section>
+
     <!-- Idle state -->
     <div id="state-idle" class="state-view active">
       <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
@@ -77,6 +143,44 @@
     <p id="activity-empty" class="activity-empty"></p>
     <p id="activity-no-aggregate" class="activity-note"></p>
     <p id="activity-status" class="activity-status"></p>
+  </section>
+
+  <section class="capture-bar" aria-label="Page capture">
+    <button id="capture-btn" class="capture-btn" type="button">Capture this source</button>
+    <span id="capture-status" class="capture-status" aria-live="polite"></span>
+    <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
+  </section>
+
+  <!-- Legacy demo-orchestrator section. EXT-ACQ1 is independent of this old 4317
+       path and talks only to the new 8787 acquisition transport. -->
+  <section id="demo-section" class="demo-section" aria-label="Demo: Send to local Counterpedia demo" style="display:none">
+    <div class="demo-capture-info" id="demo-capture-info" style="display:none">
+      <div class="demo-capture-label" id="demo-capture-label"></div>
+      <div class="demo-capture-digest" id="demo-capture-digest"></div>
+      <div class="demo-observation-warning">&#9888; Browser observation &#8212; not HTTP evidence</div>
+      <button id="demo-send-btn" class="demo-send-btn" type="button">Send to local Counterpedia demo</button>
+      <span id="demo-send-status" class="demo-send-status" aria-live="polite"></span>
+    </div>
+
+    <div class="demo-session-info" id="demo-session-info" style="display:none">
+      <div id="demo-session-status-line"></div>
+      <div id="demo-http-capture-line" style="display:none"></div>
+      <div id="demo-http-digest-line" style="display:none"></div>
+      <div id="demo-proposal-line" style="display:none"></div>
+    </div>
+
+    <div class="demo-proposal-ready" id="demo-proposal-ready" style="display:none">
+      <div class="demo-proposed-badge" id="demo-proposed-badge">PROPOSED &#8212; NOT PUBLISHED</div>
+      <div id="demo-proposal-fields" class="demo-proposal-fields"></div>
+      <button id="demo-admit-btn" class="demo-admit-btn" type="button">ADMIT</button>
+      <div class="demo-admit-warning">&#9888; Requires confirmation</div>
+    </div>
+
+    <div class="demo-admitted" id="demo-admitted" style="display:none">
+      <div class="demo-admitted-badge">ADMITTED</div>
+      <div id="demo-admitted-digest"></div>
+      <div id="demo-admitted-link" class="demo-admitted-link"></div>
+    </div>
   </section>
 
   <footer class="panel-footer">

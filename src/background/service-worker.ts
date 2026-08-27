@@ -13,6 +13,8 @@
  */
 
 import { sendMessage } from "../lib/messaging";
+import { capturePageData } from "../capture/captureScript";
+import { normalizeCaptureData } from "../lib/browserPageCapture";
 
 const CONTEXT_MENU_ID = "counterpedia_check_selection";
 
@@ -82,8 +84,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 // Badge utilities (called from panel via message, or can be called directly)
 // ---------------------------------------------------------------------------
 
-chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
-  if (typeof message !== "object" || message === null) return;
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (typeof message !== "object" || message === null) return false;
   const msg = message as Record<string, unknown>;
 
   if (msg["type"] === "SET_BADGE") {
@@ -94,5 +96,47 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
     } else {
       chrome.action.setBadgeText({ text: "" });
     }
+    return false;
   }
+
+  if (msg["type"] === "CAPTURE_PAGE") {
+    handleCapturePage(sendResponse);
+    return true; // keep message channel open for async sendResponse
+  }
+
+  return false;
 });
+
+// ---------------------------------------------------------------------------
+// Page capture — user-gesture only, requires scripting + activeTab
+// ---------------------------------------------------------------------------
+
+async function handleCapturePage(
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url) {
+      sendResponse({ type: "PAGE_CAPTURE_ERROR", reason: "no_active_tab" });
+      return;
+    }
+
+    const results = await chrome.scripting.executeScript<[string], ReturnType<typeof capturePageData>>({
+      target: { tabId: tab.id, allFrames: false },
+      func: capturePageData,
+      args: [tab.url],
+    });
+
+    const rawData = results[0]?.result;
+    if (!rawData) {
+      sendResponse({ type: "PAGE_CAPTURE_ERROR", reason: "no_result" });
+      return;
+    }
+
+    const capturedAt = new Date().toISOString();
+    const capture = normalizeCaptureData(rawData, capturedAt);
+    sendResponse({ type: "PAGE_CAPTURE_RESULT", capture });
+  } catch (err) {
+    sendResponse({ type: "PAGE_CAPTURE_ERROR", reason: String(err) });
+  }
+}

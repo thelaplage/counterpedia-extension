@@ -20,10 +20,15 @@ export interface ClearMessage {
   type: "CLEAR";
 }
 
+export interface CapturePageMessage {
+  type: "CAPTURE_PAGE";
+}
+
 export type ExtensionMessage =
   | TabChangedMessage
   | CheckSelectionMessage
-  | ClearMessage;
+  | ClearMessage
+  | CapturePageMessage;
 
 // ---------------------------------------------------------------------------
 // Search results

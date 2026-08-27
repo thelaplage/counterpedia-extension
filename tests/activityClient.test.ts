@@ -6,12 +6,42 @@
  * Chrome storage and fetch are mocked in-memory (node env).
  */
 
+import { readFileSync } from "fs";
+import { createHash } from "crypto";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   PINNED_ACTIVITY_INDEX_SCHEMA_FAMILY,
   PINNED_ACTIVITY_INDEX_SCHEMA_VERSION,
 } from "../src/lib/activityFeedModel";
 import { getActivityFeed, clearActivityCache } from "../src/lib/activityClient";
+
+// ---------------------------------------------------------------------------
+// Vendored J1 artifact — exact bytes from the merged Counterpedia PR #230.
+//   source repo:   thelaplage/counterpedia
+//   source commit: d512f1edb17042a964e5c3d2ec8e07913bcc82bd
+//   source path:   public/counterpedia/activity-index.json
+// ---------------------------------------------------------------------------
+
+const J1_FIXTURE_RAW = readFileSync(
+  new URL("./vendor/counterpedia_j1_activity_index_v0_1.json", import.meta.url),
+  "utf8",
+);
+const PINNED_J1_FIXTURE_SHA256 =
+  "81313f01a91153ba2b01bc8edb8b422bc9e96073044ba333daa917d050144125";
+
+const j1IndexJson = JSON.parse(J1_FIXTURE_RAW) as unknown;
+// Derived removal case: same inspection scope, entries cleared.
+const j1EmptyIndexJson = {
+  ...(j1IndexJson as Record<string, unknown>),
+  inspection: {
+    ...((j1IndexJson as Record<string, unknown>)["inspection"] as Record<string, unknown>),
+    receipt_count: 0,
+  },
+  entries: [],
+};
+const J1_RECEIPT_ID = (
+  (j1IndexJson as Record<string, unknown>)["entries"] as Array<Record<string, unknown>>
+)[0]!["receipt_id"] as string;
 
 // ---------------------------------------------------------------------------
 // In-memory chrome mock
@@ -133,6 +163,35 @@ describe("getActivityFeed — error handling", () => {
       json: async () => ({}),
     }));
     await expect(getActivityFeed()).rejects.toThrow(/HTTP 503/);
+  });
+});
+
+describe("getActivityFeed — J1 golden test (genuine PR #230 index)", () => {
+  it("raw fixture SHA-256 matches pinned provenance (thelaplage/counterpedia@d512f1e:public/counterpedia/activity-index.json)", () => {
+    const actual = createHash("sha256").update(J1_FIXTURE_RAW).digest("hex");
+    expect(actual).toBe(PINNED_J1_FIXTURE_SHA256);
+  });
+
+  it("genuine J1 index → governed_read line appears in recall_activity lane", async () => {
+    (globalThis as any).fetch = vi.fn(async () => okResponse(j1IndexJson));
+
+    const feed = await getActivityFeed();
+    expect(feed.is_empty).toBe(false);
+    const recall = feed.lanes.find((l) => l.lane === "recall_activity")!;
+    expect(recall.lines).toHaveLength(1);
+    const line = recall.lines[0]!;
+    expect(line.basis_receipt_id).toBe(J1_RECEIPT_ID);
+    expect(line.profile_key).toBe("governed_read");
+    expect(line.descend_ref).toContain(J1_RECEIPT_ID);
+  });
+
+  it("inspected-empty J1 (entries removed) → is_empty true, honest empty state", async () => {
+    (globalThis as any).fetch = vi.fn(async () => okResponse(j1EmptyIndexJson));
+
+    const feed = await getActivityFeed();
+    expect(feed.is_empty).toBe(true);
+    expect(feed.inspection.inspected).toBe(true);
+    expect(feed.inspection.receipts_inspected).toBe(0);
   });
 });
 

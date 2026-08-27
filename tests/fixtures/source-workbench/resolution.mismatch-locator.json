@@ -1,0 +1,16 @@
+{
+  "kind": "source_work_resolution",
+  "schema_version": 1,
+  "locator": {
+    "current_url": "https://different-site.example/other-page",
+    "canonical_url": "https://different-site.example/other-page"
+  },
+  "source_work": {
+    "available": true,
+    "workbench_ref": "/counterpedia/source/other999"
+  },
+  "receipt": {
+    "available": true,
+    "receipt_ref": "/counterpedia/receipt/other999"
+  }
+}
