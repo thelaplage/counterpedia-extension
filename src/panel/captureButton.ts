@@ -8,8 +8,8 @@
  * Privacy / correctness invariant:
  * - A single user click registers ONE click handler that issues EXACTLY ONE
  *   `CAPTURE_PAGE` request. The resulting BrowserPageCapture is passed to
- *   `onCapture` for REUSE (e.g. by the demo panel). It is never recaptured with
- *   a second independent request.
+ *   `onCapture` and to any registered in-process observers for REUSE. It is
+ *   never recaptured with a second independent request.
  */
 
 import type { BrowserPageCapture } from "../lib/browserPageCapture";
@@ -39,6 +39,33 @@ export interface CaptureButtonDeps {
 }
 
 /**
+ * In-process observers for product composition surfaces that need the exact same
+ * explicit browser capture. Observers receive the already-created object only;
+ * they have no ability to cause capture or mutate the object held by this module.
+ *
+ * This is deliberately a tiny presentation seam, not an event/authority bus.
+ */
+export type BrowserCaptureObserver = (capture: BrowserPageCapture) => void;
+const captureObservers = new Set<BrowserCaptureObserver>();
+
+export function observeBrowserCaptures(observer: BrowserCaptureObserver): () => void {
+  captureObservers.add(observer);
+  return () => captureObservers.delete(observer);
+}
+
+function publishBrowserCapture(capture: BrowserPageCapture): void {
+  for (const observer of captureObservers) {
+    try {
+      observer(capture);
+    } catch {
+      // An optional presentation observer must never convert a successful browser
+      // observation into a failed capture. Each downstream surface owns/render its
+      // own failure state.
+    }
+  }
+}
+
+/**
  * Perform one capture: exactly one CAPTURE_PAGE request per invocation.
  * Exported for direct unit testing of the request-count invariant.
  */
@@ -59,6 +86,7 @@ export async function runCapture(deps: CaptureButtonDeps): Promise<void> {
       deps.setStatus(`Captured: ${c.document_title || c.current_url}`, false);
       // Reuse the exact capture object — no second CAPTURE_PAGE request.
       if (deps.onCapture) await deps.onCapture(c);
+      publishBrowserCapture(c);
     } else {
       deps.setStatus(`Error: ${response.reason}`, true);
     }
