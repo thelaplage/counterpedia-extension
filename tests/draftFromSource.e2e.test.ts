@@ -302,12 +302,27 @@ function allKeys(node: unknown, out: Set<string> = new Set()): Set<string> {
 
 const acqDir = resolveAcquisitionDir();
 const authDir = resolveAuthoringDir();
+// DRAFT-E2E-HARNESS0: an explicit release-gate invocation (CP_DRAFT_E2E_REQUIRE=1,
+// set by scripts/draft-e2e-gate.sh) must FAIL LOUDLY when the cross-repo fixture
+// environment is unavailable, rather than letting describe.skip convert
+// "not tested" into apparent green. Ordinary `npm test` runs leave the var unset
+// and keep the expensive cross-repo fixture skippable.
+const requireE2E = process.env["CP_DRAFT_E2E_REQUIRE"] === "1";
 if (!acqDir || !authDir) {
+  const detail =
+    `acquisition=${acqDir ?? "UNRESOLVED (set COUNTERPEDIA_ACQUISITION_DIR)"}, ` +
+    `authoring=${authDir ?? "UNRESOLVED (set COUNTERPEDIA_AUTHORING_DIR)"}`;
+  if (requireE2E) {
+    throw new Error(
+      "[DRAFT-FROM-SOURCE E2E] REQUIRED but the cross-repo environment is " +
+        `unavailable — ${detail}. This is a release gate: refusing to report ` +
+        "green for an unexercised loop. Run via scripts/draft-e2e-gate.sh.",
+    );
+  }
   // eslint-disable-next-line no-console
   console.warn(
     "[DRAFT-FROM-SOURCE E2E] SKIPPED: missing checkout(s) — " +
-      `acquisition=${acqDir ?? "UNRESOLVED (set COUNTERPEDIA_ACQUISITION_DIR)"}, ` +
-      `authoring=${authDir ?? "UNRESOLVED (set COUNTERPEDIA_AUTHORING_DIR)"}. ` +
+      `${detail}. ` +
       "The real two-server three-act loop was NOT exercised in this run.",
   );
 }
