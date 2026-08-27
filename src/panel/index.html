@@ -13,10 +13,9 @@
   </header>
 
   <main class="panel-content">
-    <!-- Source Workbench (EXT-BROWSER1 + EXT-ACQ1): source-first header.
-         Browser observation, local acquisition, Counterpedia source work, and
-         downstream receipts remain distinct states. The ACQ1 block is demo-only
-         and never upgrades source-work/SRS/admission posture. -->
+    <!-- Source Workbench: browser observation, exact-byte acquisition,
+         proposal-only authoring, Counterpedia source work, and downstream
+         receipts are explicitly separate postures. -->
     <section id="source-workbench" class="source-workbench" aria-label="Source" style="display:none">
       <h2 class="sw-heading">Source</h2>
       <div id="sw-title" class="sw-title"></div>
@@ -37,16 +36,15 @@
         </div>
       </div>
 
-      <!-- EXT-ACQ1: local acquisition is a separate product/ingestion lane.
-           It is deliberately NOT the generic source-work receipt above and NOT
-           an SRS receipt or admission signal. Hidden in production builds. -->
+      <!-- Pitch ACQ1: exact-byte producer lane. Hidden in production builds. -->
       <div id="sw-acquisition" class="sw-acquisition" style="display:none" aria-label="Local acquisition">
-        <div class="sw-acquisition-heading">Local acquisition</div>
+        <div class="sw-acquisition-heading">Local acquisition · REAL BYTES</div>
         <div id="sw-acquisition-status" class="sw-acquisition-status" data-posture="not_configured">
           Acquisition capture receipt: local token not configured
         </div>
         <div id="sw-acquisition-digest" class="sw-acquisition-detail" style="display:none"></div>
         <div id="sw-acquisition-source" class="sw-acquisition-detail" style="display:none"></div>
+        <div id="sw-acquisition-capture-id" class="sw-acquisition-detail" style="display:none"></div>
         <div class="sw-acquisition-boundary">SRS source-capture receipt: not represented</div>
         <div class="sw-acquisition-boundary">Admission: not established</div>
 
@@ -69,6 +67,28 @@
         </div>
       </div>
 
+      <!-- Pitch RESEARCH1B: consumes the historical acquisition capture_ref.
+           The proposition is explicitly operator-authored. Browser text is not
+           silently promoted into claim material. -->
+      <div id="sw-authoring" class="sw-acquisition" style="display:none" aria-label="Draft from source">
+        <div class="sw-acquisition-heading">Draft from source · PROPOSAL</div>
+        <label for="sw-operator-claim">Operator proposition</label>
+        <textarea
+          id="sw-operator-claim"
+          rows="4"
+          spellcheck="true"
+          placeholder="Type the bounded proposition you want to draft from this captured source."
+          aria-label="Operator proposition for Draft from source"
+        ></textarea>
+        <div class="sw-acquisition-config-actions">
+          <button id="sw-draft-source-btn" type="button" disabled>Draft from source</button>
+        </div>
+        <div id="sw-authoring-status" class="sw-acquisition-status" aria-live="polite">Draft from source: waiting for a REAL-BYTES acquisition receipt</div>
+        <div id="sw-authoring-handoff" class="sw-acquisition-detail" style="display:none"></div>
+        <div id="sw-authoring-package" class="sw-acquisition-detail" style="display:none"></div>
+        <div id="sw-authoring-boundary" class="sw-acquisition-boundary">Operator proposition required. Browser text is never silently converted into a claim.</div>
+      </div>
+
       <p id="sw-no-record" class="sw-no-record" style="display:none"></p>
       <p id="sw-observation-copy" class="sw-observation-copy"></p>
 
@@ -79,12 +99,10 @@
       </div>
     </section>
 
-    <!-- Idle state -->
     <div id="state-idle" class="state-view active">
       <p class="status-message">Navigate to a page to check for Counterpedia records.</p>
     </div>
 
-    <!-- Loading state -->
     <div id="state-loading" class="state-view">
       <div class="loading-indicator">
         <div class="spinner"></div>
@@ -92,7 +110,6 @@
       </div>
     </div>
 
-    <!-- Results state -->
     <div id="state-results" class="state-view">
       <div class="query-display-label">Checking</div>
       <div id="query-display" class="query-display"></div>
@@ -100,14 +117,12 @@
       <div id="results-list"></div>
     </div>
 
-    <!-- No match state -->
     <div id="state-no-match" class="state-view">
       <div class="query-display-label">Checked</div>
       <div id="no-match-query" class="query-display"></div>
       <p class="status-message">No matching Counterpedia records found. This is not a judgment about the page.</p>
     </div>
 
-    <!-- Restricted page state -->
     <div id="state-restricted" class="state-view">
       <p class="status-message">
         <strong>Cannot check this page</strong>
@@ -115,7 +130,6 @@
       </p>
     </div>
 
-    <!-- Service unavailable state -->
     <div id="state-unavailable" class="state-view">
       <p class="status-message">
         <strong>Counterpedia unavailable</strong>
@@ -123,7 +137,6 @@
       </p>
     </div>
 
-    <!-- Rate limited state -->
     <div id="state-rate-limited" class="state-view">
       <p class="status-message">
         <strong>Too many requests</strong>
@@ -132,9 +145,6 @@
     </div>
   </main>
 
-  <!-- Activity feed: a read-only projection over admitted PUBLIC activity
-       receipts. Independent of the current tab. Honest-empty until PUBLIC
-       receipts are projected. -->
   <section id="activity-section" class="activity-section" aria-label="Recent Counterpedia activity">
     <h2 class="activity-heading">Recent Counterpedia activity</h2>
     <p id="activity-boundary" class="activity-boundary"></p>
@@ -151,8 +161,8 @@
     <p class="capture-observation-copy">Captures what the browser rendered. It does not establish that the page's claims are true.</p>
   </section>
 
-  <!-- Legacy demo-orchestrator section. EXT-ACQ1 is independent of this old 4317
-       path and talks only to the new 8787 acquisition transport. -->
+  <!-- Historical local 4317 demo remains available but is separate from the
+       pitch ACQ1→Authoring composition above. -->
   <section id="demo-section" class="demo-section" aria-label="Demo: Send to local Counterpedia demo" style="display:none">
     <div class="demo-capture-info" id="demo-capture-info" style="display:none">
       <div class="demo-capture-label" id="demo-capture-label"></div>
@@ -189,5 +199,6 @@
   </footer>
 
   <script type="module" src="panel.js"></script>
+  <script type="module" src="pitchResearchDemo.js"></script>
 </body>
 </html>
