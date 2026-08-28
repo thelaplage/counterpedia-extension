@@ -1,0 +1,10 @@
+# SELF-LOAD0: private key for the deterministic demo/dev extension id.
+# NEVER commit key material. Public half only exists as the manifest "key" field.
+.self-load-key.pem
+demo-profile/
+__pycache__/
+*.pyc
+
+# Program C: generated per-run cohort output (live-network-derived, not
+# deterministic across runs -- the script writes this fresh every time).
+cohort_results.json
