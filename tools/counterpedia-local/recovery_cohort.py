@@ -107,9 +107,35 @@ SETTLE_HARD_CEILING_S = 15.0
 SETTLE_GROWTH_MIN_ABS_WORDS = 5
 SETTLE_GROWTH_MIN_RATIO = 0.05
 
+# C1b CORRECTNESS FIX -- premature-settle-at-EMPTY defect (ground-truth
+# traces on C1/bb5d773 showed [0,0,0,0] -> STABLE at ~2s for
+# mastodon.online/explore, bsky.app/, app.element.io/: an UNCHANGED empty
+# observation was being accepted as "stable" just because it hadn't grown,
+# even though nothing had rendered yet -- a timing artifact, proven by
+# mastodon.social/explore (SAME product/page) getting its feed one sample
+# LATER and correctly reaching RECOVERED). "Stabilized" must mean "stopped
+# changing AFTER something meaningful appeared", not merely "hasn't grown".
+#
+# SETTLE_MIN_CONTENT_WORDS is a DISTINCT, SMALL "has anything meaningful
+# rendered" floor -- NOT the RECOVERED threshold (RECOVERED_MIN_BROWSER_WORDS
+# = 200, unchanged, defined near render_word_count_table). A sample only
+# counts toward the consecutive-stable streak once it is AT OR ABOVE this
+# floor; below-floor samples never increment the streak (so an empty/near-
+# empty page keeps sampling instead of settling early), but growth-based
+# re-arming above the floor is unaffected. The floor guard is AUTHORITATIVE
+# over the network-idle relaxation: an idle network never lets a below-floor
+# observation settle early either.
+SETTLE_MIN_CONTENT_WORDS = 20
+
 SETTLE_REASON_STABLE = "STABLE"
 SETTLE_REASON_MAX_TIMEOUT = "MAX_TIMEOUT"
 SETTLE_REASON_NAVIGATION_ERROR = "NAVIGATION_ERROR"
+
+# #3 diagnostic classification for ELIGIBLE + STILL_NOT_OBSERVED rows --
+# display-only, computed from settle_reason/below_content_floor/final word
+# count, never fed back into the recovery_outcome itself.
+THIN_CLASS_GENUINELY_THIN = "GENUINELY_THIN"
+THIN_CLASS_THIN_BUT_RENDERED = "THIN_BUT_RENDERED"
 
 # ---------------------------------------------------------------------------
 # THE 27-URL COHORT, with the reference (may-drift) baseline classification
@@ -318,6 +344,12 @@ class CohortRow:
     # per URL, not just asserted.
     settle_reason: str | None = None
     word_count_trajectory: list[int] = field(default_factory=list)
+    # True iff settle_reason == MAX_TIMEOUT and the final local sample never
+    # reached SETTLE_MIN_CONTENT_WORDS -- see RenderSettleResult.
+    below_content_floor: bool = False
+    # Best-effort, display-only hint (see detect_gate_marker) -- only ever
+    # populated for GENUINELY_THIN candidates; None otherwise.
+    gate_marker_hint: str | None = None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -336,8 +368,44 @@ class CohortRow:
             "browser_visible_word_count": self.browser_visible_word_count,
             "settle_reason": self.settle_reason,
             "word_count_trajectory": self.word_count_trajectory,
+            "below_content_floor": self.below_content_floor,
+            "gate_marker_hint": self.gate_marker_hint,
+            "thin_classification": classify_thin_outcome(
+                eligibility=self.eligibility,
+                recovery_outcome=self.recovery_outcome,
+                settle_reason=self.settle_reason,
+                below_content_floor=self.below_content_floor,
+            ),
             "error": self.error,
         }
+
+
+def classify_thin_outcome(
+    *,
+    eligibility: str | None,
+    recovery_outcome: str | None,
+    settle_reason: str | None,
+    below_content_floor: bool,
+) -> str | None:
+    """Pure #3 diagnostic classifier. Unit-testable.
+
+    Display-only -- NEVER feeds back into recovery_outcome itself. Only
+    meaningful for ELIGIBLE rows that ended STILL_NOT_OBSERVED; returns None
+    for every other row (NOT_ELIGIBLE, RECOVERED, AMBIGUOUS, errored, etc.).
+
+    - GENUINELY_THIN: settle_reason == MAX_TIMEOUT and below_content_floor
+      -- nothing meaningful ever rendered even with the full 15s budget
+      (likely a headless auth/consent gate or a canvas-only app shell).
+    - THIN_BUT_RENDERED: real content rendered and settled/timed-out above
+      the floor, it just never cleared the (much higher) RECOVERED
+      threshold (browser >= 200 words AND >= 3x HTTP words) -- e.g.
+      excalidraw's 26 words, desmos's 42.
+    """
+    if eligibility != "ELIGIBLE" or recovery_outcome != "STILL_NOT_OBSERVED":
+        return None
+    if settle_reason == SETTLE_REASON_MAX_TIMEOUT and below_content_floor:
+        return THIN_CLASS_GENUINELY_THIN
+    return THIN_CLASS_THIN_BUT_RENDERED
 
 
 def tally_recovery_outcomes(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -472,6 +540,7 @@ def render_word_count_table(rows: list[dict[str, Any]]) -> str:
         "ratio",
         "meets_threshold",
         "recovery_outcome",
+        "thin_class",
         "settle_reason",
         "trajectory",
     ]
@@ -487,6 +556,12 @@ def render_word_count_table(rows: list[dict[str, Any]]) -> str:
         meets = browser_words >= RECOVERED_MIN_BROWSER_WORDS and browser_words >= RECOVERED_MIN_RATIO * max(
             1, http_words
         )
+        thin_class = classify_thin_outcome(
+            eligibility=row.get("eligibility"),
+            recovery_outcome=row.get("recovery_outcome"),
+            settle_reason=row.get("settle_reason"),
+            below_content_floor=bool(row.get("below_content_floor")),
+        )
         col_rows.append(
             [
                 row["url"],
@@ -495,6 +570,7 @@ def render_word_count_table(rows: list[dict[str, Any]]) -> str:
                 f"{ratio:.1f}x",
                 "yes" if meets else "no",
                 row.get("recovery_outcome") or "-",
+                thin_class or "-",
                 row.get("settle_reason") or "-",
                 format_trajectory(row.get("word_count_trajectory") or []),
             ]
@@ -590,6 +666,40 @@ def local_browser_word_count(raw: dict[str, Any]) -> int:
     return best
 
 
+# Cheap, best-effort diagnostic ONLY for GENUINELY_THIN rows (see
+# classify_thin_outcome) -- not a strong classifier, just a hint. Deliberately
+# not over-engineered per the mission: MAX_TIMEOUT + below_content_floor is
+# the primary evidence for "genuinely gated/thin"; this only adds a one-word
+# note when an obvious marker happens to be present in whatever little text
+# (or the title) did render.
+_GATE_MARKERS = (
+    "sign in",
+    "log in",
+    "login",
+    "enable javascript",
+    "please enable js",
+    "verify you are human",
+    "captcha",
+    "consent",
+    "accept cookies",
+)
+
+
+def detect_gate_marker(raw: dict[str, Any] | None) -> str | None:
+    """Pure. Best-effort scan of whatever little text/title rendered for an
+    obvious login/consent/JS-required marker. Returns the first match, or
+    None. Unit-testable."""
+    if not raw:
+        return None
+    haystack = " ".join(
+        str(raw.get(key) or "") for key in ("document_title", "main_text", "rendered_text", "meta_description")
+    ).lower()
+    for marker in _GATE_MARKERS:
+        if marker in haystack:
+            return marker
+    return None
+
+
 def is_material_growth(
     prev: int,
     curr: int,
@@ -610,23 +720,50 @@ def is_material_growth(
     return delta > max(min_abs, prev * min_ratio)
 
 
+def meets_content_floor(word_count: int, floor: int = SETTLE_MIN_CONTENT_WORDS) -> bool:
+    """Pure. Has ANYTHING meaningful rendered yet?
+
+    Deliberately a small, distinct concept from the RECOVERED threshold
+    (RECOVERED_MIN_BROWSER_WORDS = 200): this only asks "is the page no
+    longer empty/near-empty", not "is it substantial enough to count as
+    recovered". Conflating the two would make settling wait for recovery
+    itself, which is not this function's job -- it only decides WHEN to stop
+    sampling, never the recovery_outcome.
+    """
+    return word_count >= floor
+
+
 def is_render_settled(
     *,
     consecutive_stable_samples: int,
     network_idle: bool,
+    meets_floor: bool,
     required_stable_samples: int = SETTLE_REQUIRED_STABLE_SAMPLES,
     network_idle_relaxed_stable_samples: int = SETTLE_NETWORK_IDLE_RELAXED_STABLE_SAMPLES,
 ) -> bool:
     """Pure settle predicate. Unit-testable (test_recovery_cohort.py).
 
-    AUTHORITATIVE condition: `consecutive_stable_samples` (samples in a row
-    that were not a material growth over the one before) has reached
-    `required_stable_samples`. `network_idle` is advisory-only: it may permit
-    an EARLIER determination (fewer consecutive stable samples required),
-    never a later one, and its absence never causes a failure -- a caller
-    that never observes network_idle=True still settles once the stable-
-    sample requirement is met on its own.
+    C1b CORRECTNESS FIX: `meets_floor` (see meets_content_floor) is
+    AUTHORITATIVE and gates BOTH paths below -- an empty/near-empty
+    observation must never be accepted as "settled" merely because it
+    hasn't changed; "stabilized" means "stopped changing AFTER something
+    meaningful appeared". This is what fixed the C1 premature-settle-at-
+    EMPTY defect ([0,0,0,0] -> STABLE at ~2s for mastodon.online/explore,
+    bsky.app/, app.element.io/ -- proven a timing artifact by
+    mastodon.social/explore, the SAME product/page, getting its feed one
+    sample later and correctly reaching RECOVERED).
+
+    AUTHORITATIVE condition (given meets_floor): `consecutive_stable_samples`
+    (samples in a row that were not a material growth over the one before,
+    and were individually at/above the floor) has reached
+    `required_stable_samples`. `network_idle` is advisory-only: it may
+    permit an EARLIER determination (fewer consecutive stable samples
+    required) once the floor is already met, never a later one, and its
+    absence never causes a failure on its own -- but it can NEVER let a
+    below-floor observation settle early either.
     """
+    if not meets_floor:
+        return False
     if network_idle and consecutive_stable_samples >= network_idle_relaxed_stable_samples:
         return True
     return consecutive_stable_samples >= required_stable_samples
@@ -642,6 +779,12 @@ class RenderSettleResult:
     raw: dict[str, Any] | None
     settle_reason: str  # STABLE / MAX_TIMEOUT / NAVIGATION_ERROR
     trajectory: list[int]  # word-count sample sequence, in order, for audit
+    # True iff settle_reason == MAX_TIMEOUT AND the final sample was still
+    # below SETTLE_MIN_CONTENT_WORDS -- i.e. nothing meaningful ever
+    # rendered even with the FULL 15s budget (genuinely thin/gated in
+    # headless), as distinct from a page that rendered real content but
+    # just didn't clear the (much higher) RECOVERED threshold.
+    below_content_floor: bool = False
     error: str | None = None
 
 
@@ -652,12 +795,18 @@ def wait_for_render_settle(conn: cdp.CDPConnection, session: str, url: str) -> R
     Samples the SAME real DOM-extraction JS used for the BPC itself (never a
     separate/fake signal) every SETTLE_POLL_INTERVAL_S, tracking in-flight
     network requests via the CDP Network domain purely as an ADVISORY signal
-    (requestWillBeSent / loadingFinished / loadingFailed). Bounded at
+    (requestWillBeSent / loadingFinished / loadingFailed). A sample below
+    SETTLE_MIN_CONTENT_WORDS never counts toward the stable streak (C1b fix
+    -- see meets_content_floor / is_render_settled), so an empty/near-empty
+    page keeps sampling instead of settling prematurely. Bounded at
     SETTLE_HARD_CEILING_S: if the page never reaches 3 consecutive
-    not-materially-grown samples (e.g. a persistent streaming/poll connection
-    keeps growing content right up to the ceiling), settle_reason is
+    above-floor, not-materially-grown samples (e.g. a persistent streaming/
+    poll connection keeps growing content right up to the ceiling, or the
+    page never renders anything past the floor at all), settle_reason is
     MAX_TIMEOUT and the LAST extraction taken is used -- still the real
-    rendered DOM at that point, never fabricated.
+    rendered DOM at that point, never fabricated. `below_content_floor` on
+    the result distinguishes "genuinely thin/gated -- nothing ever rendered
+    even with the full budget" from "grew real content, just kept changing".
     """
     conn.call("Network.enable", {}, session_id=session, timeout=5)
 
@@ -696,8 +845,15 @@ def wait_for_render_settle(conn: cdp.CDPConnection, session: str, url: str) -> R
             raise VerifyFailure(f"capture script returned unexpected shape for {url}: {raw!r}")
         curr_word_count = local_browser_word_count(raw)
         trajectory.append(curr_word_count)
+        floor_met = meets_content_floor(curr_word_count)
 
-        if prev_word_count is None:
+        if not floor_met:
+            # C1b fix: below the "has anything meaningful rendered" floor --
+            # never counts toward the stable streak, no matter how many
+            # consecutive samples read the same (still-empty) value. Keep
+            # sampling; do not settle.
+            consecutive_stable = 0
+        elif prev_word_count is None:
             consecutive_stable = 0
         elif is_material_growth(prev_word_count, curr_word_count):
             # Content materially grew (e.g. a late-loading feed batch just
@@ -710,7 +866,9 @@ def wait_for_render_settle(conn: cdp.CDPConnection, session: str, url: str) -> R
         now = time.monotonic()
         network_idle = in_flight <= 0 and (now - last_activity) >= SETTLE_NETWORK_IDLE_S
 
-        if is_render_settled(consecutive_stable_samples=consecutive_stable, network_idle=network_idle):
+        if is_render_settled(
+            consecutive_stable_samples=consecutive_stable, network_idle=network_idle, meets_floor=floor_met
+        ):
             settle_reason = SETTLE_REASON_STABLE
             break
 
@@ -721,7 +879,12 @@ def wait_for_render_settle(conn: cdp.CDPConnection, session: str, url: str) -> R
         prev_word_count = curr_word_count
         time.sleep(SETTLE_POLL_INTERVAL_S)
 
-    return RenderSettleResult(raw=raw, settle_reason=settle_reason, trajectory=trajectory)
+    below_floor = settle_reason == SETTLE_REASON_MAX_TIMEOUT and not meets_content_floor(
+        trajectory[-1] if trajectory else 0
+    )
+    return RenderSettleResult(
+        raw=raw, settle_reason=settle_reason, trajectory=trajectory, below_content_floor=below_floor
+    )
 
 
 def render_and_extract_bpc(conn: cdp.CDPConnection, url: str) -> RenderSettleResult:
@@ -777,7 +940,13 @@ def process_one_url(
 
     row.settle_reason = settle.settle_reason
     row.word_count_trajectory = settle.trajectory
-    log(f"  [{url}] settle_reason={settle.settle_reason} trajectory={settle.trajectory}")
+    row.below_content_floor = settle.below_content_floor
+    if settle.below_content_floor:
+        row.gate_marker_hint = detect_gate_marker(settle.raw)
+    log(
+        f"  [{url}] settle_reason={settle.settle_reason} below_content_floor={settle.below_content_floor} "
+        f"gate_marker_hint={row.gate_marker_hint!r} trajectory={settle.trajectory}"
+    )
 
     if settle.raw is None:
         row.error = f"render_failed: {settle.error or 'no extraction produced'}"

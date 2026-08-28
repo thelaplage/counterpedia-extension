@@ -270,39 +270,93 @@ class IsMaterialGrowthTests(unittest.TestCase):
         self.assertTrue(rc.is_material_growth(1000, 1051))
 
 
-class IsRenderSettledTests(unittest.TestCase):
-    """Pure settle predicate -- see module docstring 'Adaptive render-settle'.
+class MeetsContentFloorTests(unittest.TestCase):
+    """Pure 'has anything meaningful rendered' floor -- distinct from, and
+    much smaller than, the RECOVERED threshold (200 words)."""
 
-    AUTHORITATIVE: consecutive_stable_samples has reached the required count.
-    ADVISORY-ONLY: network_idle may permit an EARLIER determination (fewer
-    samples required), but its absence must never block settling once the
-    stable-sample requirement is met on its own -- this is the owner's
-    explicit correction over network-idle ever being a hard requirement.
+    def test_below_floor(self) -> None:
+        self.assertFalse(rc.meets_content_floor(0))
+        self.assertFalse(rc.meets_content_floor(rc.SETTLE_MIN_CONTENT_WORDS - 1))
+
+    def test_at_or_above_floor(self) -> None:
+        self.assertTrue(rc.meets_content_floor(rc.SETTLE_MIN_CONTENT_WORDS))
+        self.assertTrue(rc.meets_content_floor(rc.SETTLE_MIN_CONTENT_WORDS + 1))
+
+    def test_floor_is_much_smaller_than_the_recovered_threshold(self) -> None:
+        # These must stay clearly distinct concepts -- the floor guards
+        # settling, the threshold decides RECOVERED. Confusing them would
+        # make settling wait for recovery itself.
+        self.assertLess(rc.SETTLE_MIN_CONTENT_WORDS, rc.RECOVERED_MIN_BROWSER_WORDS)
+
+
+class IsRenderSettledTests(unittest.TestCase):
+    """Pure settle predicate -- see module docstring 'Adaptive render-settle'
+    and the C1b CORRECTNESS FIX comment.
+
+    AUTHORITATIVE: meets_floor gates everything (C1b fix -- an empty/near-
+    empty observation must never settle just because it hasn't changed), THEN
+    consecutive_stable_samples must reach the required count. ADVISORY-ONLY:
+    network_idle may permit an EARLIER determination once the floor is
+    already met (fewer samples required), but its absence must never block
+    settling once the stable-sample requirement is met on its own, and it
+    can NEVER let a below-floor observation settle early either.
     """
 
     def test_not_settled_before_enough_stable_samples_network_not_idle(self) -> None:
-        self.assertFalse(rc.is_render_settled(consecutive_stable_samples=2, network_idle=False))
+        self.assertFalse(
+            rc.is_render_settled(consecutive_stable_samples=2, network_idle=False, meets_floor=True)
+        )
 
     def test_settled_once_required_stable_samples_reached_even_without_network_idle(self) -> None:
         # This is the core owner correction: a feed page with persistent
         # polling/SSE/WebSocket traffic that NEVER goes network-idle must
         # still settle once content has genuinely stabilized.
-        self.assertTrue(rc.is_render_settled(consecutive_stable_samples=3, network_idle=False))
+        self.assertTrue(
+            rc.is_render_settled(consecutive_stable_samples=3, network_idle=False, meets_floor=True)
+        )
 
     def test_network_idle_permits_an_earlier_determination(self) -> None:
-        # Fewer consecutive stable samples needed once network is idle too.
-        self.assertTrue(rc.is_render_settled(consecutive_stable_samples=2, network_idle=True))
+        # Fewer consecutive stable samples needed once network is idle too --
+        # but ONLY once the floor is met.
+        self.assertTrue(
+            rc.is_render_settled(consecutive_stable_samples=2, network_idle=True, meets_floor=True)
+        )
 
     def test_network_idle_alone_with_no_stability_never_settles(self) -> None:
         # Advisory-only: network_idle never substitutes for ANY stability.
-        self.assertFalse(rc.is_render_settled(consecutive_stable_samples=0, network_idle=True))
+        self.assertFalse(
+            rc.is_render_settled(consecutive_stable_samples=0, network_idle=True, meets_floor=True)
+        )
 
     def test_network_idle_absence_never_causes_a_later_settle_than_required(self) -> None:
         # Reaching the full requirement settles regardless of network state
         # -- network-idle can only help, never hinder or delay.
         self.assertEqual(
-            rc.is_render_settled(consecutive_stable_samples=3, network_idle=False),
-            rc.is_render_settled(consecutive_stable_samples=3, network_idle=True),
+            rc.is_render_settled(consecutive_stable_samples=3, network_idle=False, meets_floor=True),
+            rc.is_render_settled(consecutive_stable_samples=3, network_idle=True, meets_floor=True),
+        )
+
+    def test_C1B_below_floor_never_settles_regardless_of_stable_samples_or_network(self) -> None:
+        # The actual C1 defect this fixes: [0, 0, 0, 0] must NOT settle just
+        # because the (empty) value hasn't changed across many samples, with
+        # or without network-idle.
+        self.assertFalse(
+            rc.is_render_settled(consecutive_stable_samples=10, network_idle=False, meets_floor=False)
+        )
+        self.assertFalse(
+            rc.is_render_settled(consecutive_stable_samples=10, network_idle=True, meets_floor=False)
+        )
+
+    def test_floor_guard_is_authoritative_over_network_idle_relaxation(self) -> None:
+        # Even the RELAXED (network-idle) path must not fire for a
+        # below-floor observation -- this is the "authoritative over the
+        # network-idle relaxation" requirement, tested directly.
+        self.assertFalse(
+            rc.is_render_settled(
+                consecutive_stable_samples=rc.SETTLE_NETWORK_IDLE_RELAXED_STABLE_SAMPLES,
+                network_idle=True,
+                meets_floor=False,
+            )
         )
 
 
@@ -428,6 +482,92 @@ class RenderSettleTableTests(unittest.TestCase):
         # NAVIGATION_ERROR rows have no samples -- must render "-", not crash.
         broken_line = [line for line in table.splitlines() if "broken.example" in line][0]
         self.assertIn("-", broken_line)
+
+
+class ClassifyThinOutcomeTests(unittest.TestCase):
+    """Pure #3 diagnostic -- display-only, never feeds back into recovery_outcome."""
+
+    def test_none_for_non_eligible_rows(self) -> None:
+        self.assertIsNone(
+            rc.classify_thin_outcome(
+                eligibility="NOT_ELIGIBLE",
+                recovery_outcome="NOT_ELIGIBLE",
+                settle_reason="STABLE",
+                below_content_floor=False,
+            )
+        )
+
+    def test_none_for_eligible_but_recovered_rows(self) -> None:
+        self.assertIsNone(
+            rc.classify_thin_outcome(
+                eligibility="ELIGIBLE",
+                recovery_outcome="RECOVERED",
+                settle_reason="STABLE",
+                below_content_floor=False,
+            )
+        )
+
+    def test_genuinely_thin_when_max_timeout_and_below_floor(self) -> None:
+        # e.g. bsky.app/, app.element.io/ with trajectory [0, 0, 0, 0] that
+        # never cleared the floor even at the 15s ceiling.
+        self.assertEqual(
+            rc.classify_thin_outcome(
+                eligibility="ELIGIBLE",
+                recovery_outcome="STILL_NOT_OBSERVED",
+                settle_reason="MAX_TIMEOUT",
+                below_content_floor=True,
+            ),
+            rc.THIN_CLASS_GENUINELY_THIN,
+        )
+
+    def test_thin_but_rendered_when_settled_stable_above_floor(self) -> None:
+        # e.g. excalidraw's 26 words, desmos's 42 -- real content, just
+        # under the RECOVERED threshold.
+        self.assertEqual(
+            rc.classify_thin_outcome(
+                eligibility="ELIGIBLE",
+                recovery_outcome="STILL_NOT_OBSERVED",
+                settle_reason="STABLE",
+                below_content_floor=False,
+            ),
+            rc.THIN_CLASS_THIN_BUT_RENDERED,
+        )
+
+    def test_thin_but_rendered_when_max_timeout_but_above_floor(self) -> None:
+        # Kept growing/changing above the floor right up to the ceiling --
+        # real content, not genuinely gated.
+        self.assertEqual(
+            rc.classify_thin_outcome(
+                eligibility="ELIGIBLE",
+                recovery_outcome="STILL_NOT_OBSERVED",
+                settle_reason="MAX_TIMEOUT",
+                below_content_floor=False,
+            ),
+            rc.THIN_CLASS_THIN_BUT_RENDERED,
+        )
+
+
+class DetectGateMarkerTests(unittest.TestCase):
+    """Cheap, best-effort diagnostic hint -- not a strong classifier."""
+
+    def test_none_for_missing_raw(self) -> None:
+        self.assertIsNone(rc.detect_gate_marker(None))
+
+    def test_none_when_no_marker_present(self) -> None:
+        raw = {"document_title": "Home", "rendered_text": "Nothing interesting here."}
+        self.assertIsNone(rc.detect_gate_marker(raw))
+
+    def test_detects_sign_in_marker(self) -> None:
+        raw = {"document_title": "Sign in to continue", "rendered_text": ""}
+        self.assertEqual(rc.detect_gate_marker(raw), "sign in")
+
+    def test_detects_enable_javascript_marker_case_insensitively(self) -> None:
+        raw = {"rendered_text": "Please ENABLE JAVASCRIPT to use this app."}
+        self.assertEqual(rc.detect_gate_marker(raw), "enable javascript")
+
+    def test_checks_meta_description_too(self) -> None:
+        raw = {"meta_description": "Accept cookies to proceed"}
+        self.assertEqual(rc.detect_gate_marker(raw), "accept cookies")
 
 
 if __name__ == "__main__":
