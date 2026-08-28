@@ -11,10 +11,16 @@ BUILT" below) -- then POSTs it directly to the acquisition transport, the
 same way the extension's own background service worker + panel would.
 
 Per URL:
-  1. CDP: navigate a fresh tab to the URL, wait (bounded) for it to settle,
-     extract raw page data via a JS expression that mirrors
-     src/capture/captureScript.ts::capturePageData EXACTLY (same fields,
-     same DOM queries, same stripping rules) -- never fabricated.
+  1. CDP: navigate a fresh tab to the URL, wait (bounded) for it to ADAPTIVELY
+     settle -- readyState=='complete', THEN network-idle (no in-flight
+     requests held for ~1.5s, via the CDP Network domain) AND the extracted
+     visible word count stabilized across 2 consecutive polls (~1s apart),
+     bounded at ~18s total -- so feed-heavy SPAs (mastodon, bsky, ...) get
+     the same chance to finish fetching/rendering their content that a real
+     human capture gets, before extracting raw page data via a JS expression
+     that mirrors src/capture/captureScript.ts::capturePageData EXACTLY (same
+     fields, same DOM queries, same stripping rules) -- never fabricated;
+     the FINAL (most-settled) extraction is what becomes the BPC.
   2. Normalize that raw data into a BrowserPageCapture (BPC1) using
      normalize_capture_data(), a straight Python port of
      src/lib/browserPageCapture.ts::normalizeCaptureData (same bounds,
@@ -46,11 +52,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -73,9 +80,36 @@ from verify_self_load_e2e import (  # noqa: E402
 )
 
 CDP_PORT = 9940
-RENDER_SETTLE_S = 2.5  # extra settle time after readyState=='complete' for SPA JS to run
 NAV_TIMEOUT_S = 25.0
 POST_TIMEOUT_S = 60.0  # acquisition does a real server-side fetch of the source
+
+# Adaptive render-settle bounds (see wait_for_render_settle / is_render_settled
+# / is_material_growth below). readyState=='complete' alone is not enough for
+# feed-heavy SPAs -- their initial timeline/feed fetch happens AFTER the load
+# event.
+#
+# OWNER CORRECTION (applied over an earlier "network-idle AND word-count
+# stable" draft of this section): DOM/TEXT STABILITY is the AUTHORITATIVE
+# acceptance condition. Persistent fetches/polling/SSE/WebSockets/analytics
+# on a feed page can mean network genuinely never goes idle even though the
+# page is fully useful -- so failure to reach network-idle must NOT fail or
+# delay the render past stability. Network-idle is only ADVISORY: it may
+# permit an EARLIER stable determination (fewer consecutive stable samples
+# required), never a later one and never a failure.
+SETTLE_POLL_INTERVAL_S = 0.5
+SETTLE_REQUIRED_STABLE_SAMPLES = 3  # consecutive non-materially-grown samples
+SETTLE_NETWORK_IDLE_RELAXED_STABLE_SAMPLES = 2  # fewer needed once network-idle
+SETTLE_NETWORK_IDLE_S = 1.5  # advisory-only idle-hold duration
+SETTLE_HARD_CEILING_S = 15.0
+# "Not materially grown": within this much of the previous sample counts as
+# stable (a small absolute OR relative wobble from re-layout/lazy images
+# does not reset the stability streak; a genuinely new feed batch does).
+SETTLE_GROWTH_MIN_ABS_WORDS = 5
+SETTLE_GROWTH_MIN_RATIO = 0.05
+
+SETTLE_REASON_STABLE = "STABLE"
+SETTLE_REASON_MAX_TIMEOUT = "MAX_TIMEOUT"
+SETTLE_REASON_NAVIGATION_ERROR = "NAVIGATION_ERROR"
 
 # ---------------------------------------------------------------------------
 # THE 27-URL COHORT, with the reference (may-drift) baseline classification
@@ -271,6 +305,19 @@ class CohortRow:
     baseline_content_posture: str | None = None
     eligibility: str | None = None
     recovery_outcome: str | None = None
+    # Server-authoritative word counts from recovery_observation (the SAME
+    # numbers the backend's RECOVERED threshold decision -- browser >= 200
+    # AND browser >= 3x HTTP -- was actually made from). Never a local
+    # approximation; None when no assessment was reached (see error).
+    baseline_visible_word_count: int | None = None
+    browser_visible_word_count: int | None = None
+    # Render-settle audit trail (see wait_for_render_settle): STABLE /
+    # MAX_TIMEOUT / NAVIGATION_ERROR, plus the local word-count sample
+    # sequence that produced that determination -- e.g. [41, 106, 287, 412,
+    # 414, 414, 414] -- so stabilization (or its absence) is inspectable
+    # per URL, not just asserted.
+    settle_reason: str | None = None
+    word_count_trajectory: list[int] = field(default_factory=list)
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -285,6 +332,10 @@ class CohortRow:
             "baseline_content_posture": self.baseline_content_posture,
             "eligibility": self.eligibility,
             "recovery_outcome": self.recovery_outcome,
+            "baseline_visible_word_count": self.baseline_visible_word_count,
+            "browser_visible_word_count": self.browser_visible_word_count,
+            "settle_reason": self.settle_reason,
+            "word_count_trajectory": self.word_count_trajectory,
             "error": self.error,
         }
 
@@ -337,6 +388,122 @@ def render_yield_table(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# Auditability threshold, mirrored from counterpedia-acquisition's
+# capture_quality.py (BROWSER_SUBSTANTIAL_WORDS / BROWSER_MORE_RATIO) --
+# display-only; the actual RECOVERED decision is made server-side.
+RECOVERED_MIN_BROWSER_WORDS = 200
+RECOVERED_MIN_RATIO = 3.0
+
+# Long trajectories (MAX_TIMEOUT at 0.5s/sample over a 15s ceiling can be ~30
+# samples) are compacted for table display: keep the first few, last few, and
+# note the count in between. cohort_results.json always carries the FULL,
+# uncompacted trajectory for real auditing.
+_TRAJECTORY_DISPLAY_HEAD = 4
+_TRAJECTORY_DISPLAY_TAIL = 4
+
+
+def format_trajectory(trajectory: list[int]) -> str:
+    """Pure. Render a word-count sample trajectory as e.g. '41→106→287→414'.
+
+    Compacts long trajectories to head...tail with an elided-count marker;
+    short ones are shown in full. Unit-testable.
+    """
+    if not trajectory:
+        return "-"
+    total = len(trajectory)
+    if total <= _TRAJECTORY_DISPLAY_HEAD + _TRAJECTORY_DISPLAY_TAIL:
+        shown = trajectory
+        return "→".join(str(v) for v in shown)
+    head = trajectory[:_TRAJECTORY_DISPLAY_HEAD]
+    tail = trajectory[-_TRAJECTORY_DISPLAY_TAIL:]
+    elided = total - _TRAJECTORY_DISPLAY_HEAD - _TRAJECTORY_DISPLAY_TAIL
+    return (
+        "→".join(str(v) for v in head)
+        + f"→(+{elided})→"
+        + "→".join(str(v) for v in tail)
+    )
+
+
+def _text_table(headers: list[str], col_rows: list[list[str]]) -> str:
+    """Shared pure fixed-width text table renderer."""
+    widths = [len(h) for h in headers]
+    for r in col_rows:
+        for i, cell in enumerate(r):
+            widths[i] = max(widths[i], len(cell))
+
+    def fmt_row(cells: list[str]) -> str:
+        return "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells))
+
+    lines = [fmt_row(headers), fmt_row(["-" * w for w in widths])]
+    lines.extend(fmt_row(r) for r in col_rows)
+    return "\n".join(lines)
+
+
+def render_settle_table(rows: list[dict[str, Any]]) -> str:
+    """Pure text table: url | settle_reason | word-count trajectory, ALL rows.
+
+    Makes the adaptive-settle audit trail (STABLE / MAX_TIMEOUT /
+    NAVIGATION_ERROR, plus the sample sequence that produced it) inspectable
+    for every cohort URL, not just the eligible/RECOVERED ones. Unit-testable.
+    """
+    headers = ["url", "settle_reason", "word_count_trajectory"]
+    col_rows = [
+        [row["url"], row.get("settle_reason") or "-", format_trajectory(row.get("word_count_trajectory") or [])]
+        for row in rows
+    ]
+    if not col_rows:
+        return ""
+    return _text_table(headers, col_rows)
+
+
+def render_word_count_table(rows: list[dict[str, Any]]) -> str:
+    """Pure text table of server-authoritative word counts for ELIGIBLE rows only.
+
+    Makes the RECOVERED threshold decision (browser >= 200 words AND browser
+    >= 3x HTTP words) auditable from this script's own output -- alongside
+    each URL's settle trajectory, so a remaining STILL_NOT_OBSERVED case can
+    be judged as a genuine thin render vs a premature capture. Unit-testable.
+    Returns "" when no row has eligibility == "ELIGIBLE" with word counts.
+    """
+    headers = [
+        "url",
+        "http_words",
+        "browser_words",
+        "ratio",
+        "meets_threshold",
+        "recovery_outcome",
+        "settle_reason",
+        "trajectory",
+    ]
+    col_rows = []
+    for row in rows:
+        if row.get("eligibility") != "ELIGIBLE":
+            continue
+        http_words = row.get("baseline_visible_word_count")
+        browser_words = row.get("browser_visible_word_count")
+        if http_words is None or browser_words is None:
+            continue
+        ratio = browser_words / max(1, http_words)
+        meets = browser_words >= RECOVERED_MIN_BROWSER_WORDS and browser_words >= RECOVERED_MIN_RATIO * max(
+            1, http_words
+        )
+        col_rows.append(
+            [
+                row["url"],
+                str(http_words),
+                str(browser_words),
+                f"{ratio:.1f}x",
+                "yes" if meets else "no",
+                row.get("recovery_outcome") or "-",
+                row.get("settle_reason") or "-",
+                format_trajectory(row.get("word_count_trajectory") or []),
+            ]
+        )
+    if not col_rows:
+        return ""
+    return _text_table(headers, col_rows)
+
+
 # ---------------------------------------------------------------------------
 # HTTP helpers against the acquisition transport (direct, not through the
 # extension) -- same envelope/headers as src/lib/acquisitionClient.ts and
@@ -382,32 +549,204 @@ def post_json(url: str, origin: str, token: str, payload: dict[str, Any], timeou
 
 
 # ---------------------------------------------------------------------------
+# Adaptive render-settle: DOM/TEXT STABILITY is authoritative; network-idle
+# is advisory-only. See the OWNER CORRECTION comment above the SETTLE_*
+# constants for why (persistent fetch/poll/SSE/WebSocket/analytics traffic on
+# a feed page can mean network never goes idle even though the page is fully
+# useful -- that must never fail or delay settling past stability).
+#
+# A fixed post-load sleep undercounts RECOVERED for feed-heavy SPAs (e.g.
+# mastodon.social/explore): their initial timeline/feed fetch happens AFTER
+# the load event, so a short fixed settle extracts a BPC before the feed ever
+# renders -> a thin browser_visible_word_count -> STILL_NOT_OBSERVED even
+# when a real human capture (which waits for the page to visibly look done)
+# would see RECOVERED. This section replaces the fixed sleep with a bounded
+# adaptive wait that samples the SAME real capturePageData/normalize
+# extraction recovery actually consumes, and extracts the FINAL (most-
+# settled) DOM -- never fabricated, still the real rendered content at
+# settle time.
+# ---------------------------------------------------------------------------
+
+# Local mirror of counterpedia-acquisition's `_word_count` /
+# `_browser_word_count` (capture_quality.py): whitespace-delimited token
+# count, max across main_text/rendered_text/selected_text. Used ONLY as the
+# local settle heuristic (to decide WHEN to stop waiting) -- the authoritative
+# word counts reported in this script's output are always the server's own
+# `baseline_visible_word_count` / `browser_visible_word_count` from the
+# /v0/recovery-assessment response, never this local approximation.
+_WORD_SPLIT_RE = re.compile(r"\S+")
+
+
+def local_word_count(text: str | None) -> int:
+    if not text:
+        return 0
+    return len(_WORD_SPLIT_RE.findall(text))
+
+
+def local_browser_word_count(raw: dict[str, Any]) -> int:
+    best = 0
+    for key in ("main_text", "rendered_text", "selected_text"):
+        best = max(best, local_word_count(raw.get(key)))
+    return best
+
+
+def is_material_growth(
+    prev: int,
+    curr: int,
+    min_abs: int = SETTLE_GROWTH_MIN_ABS_WORDS,
+    min_ratio: float = SETTLE_GROWTH_MIN_RATIO,
+) -> bool:
+    """Pure. Did the word count grow by more than a small wobble?
+
+    A shrink or an unchanged count is never "material growth" (only growth
+    resets the stability streak -- see is_render_settled's caller). Growth
+    counts as material only past BOTH a small absolute floor and a relative
+    floor, so a +1/+2 word wobble from re-layout/lazy content doesn't
+    perpetually reset an otherwise-stable page.
+    """
+    if curr <= prev:
+        return False
+    delta = curr - prev
+    return delta > max(min_abs, prev * min_ratio)
+
+
+def is_render_settled(
+    *,
+    consecutive_stable_samples: int,
+    network_idle: bool,
+    required_stable_samples: int = SETTLE_REQUIRED_STABLE_SAMPLES,
+    network_idle_relaxed_stable_samples: int = SETTLE_NETWORK_IDLE_RELAXED_STABLE_SAMPLES,
+) -> bool:
+    """Pure settle predicate. Unit-testable (test_recovery_cohort.py).
+
+    AUTHORITATIVE condition: `consecutive_stable_samples` (samples in a row
+    that were not a material growth over the one before) has reached
+    `required_stable_samples`. `network_idle` is advisory-only: it may permit
+    an EARLIER determination (fewer consecutive stable samples required),
+    never a later one, and its absence never causes a failure -- a caller
+    that never observes network_idle=True still settles once the stable-
+    sample requirement is met on its own.
+    """
+    if network_idle and consecutive_stable_samples >= network_idle_relaxed_stable_samples:
+        return True
+    return consecutive_stable_samples >= required_stable_samples
+
+
+# ---------------------------------------------------------------------------
 # CDP-driven per-URL capture.
 # ---------------------------------------------------------------------------
 
 
-def render_and_extract_bpc(conn: cdp.CDPConnection, url: str) -> dict[str, Any]:
-    """Navigate a fresh tab to url, wait for it to settle, and extract a BPC.
+@dataclass
+class RenderSettleResult:
+    raw: dict[str, Any] | None
+    settle_reason: str  # STABLE / MAX_TIMEOUT / NAVIGATION_ERROR
+    trajectory: list[int]  # word-count sample sequence, in order, for audit
+    error: str | None = None
 
-    Raises VerifyFailure on a render timeout/failure -- callers turn that
-    into an ERROR row rather than aborting the cohort.
+
+def wait_for_render_settle(conn: cdp.CDPConnection, session: str, url: str) -> RenderSettleResult:
+    """Adaptively wait for `url` to settle, returning the FINAL raw capture
+    plus the audit trail (settle_reason, sample trajectory).
+
+    Samples the SAME real DOM-extraction JS used for the BPC itself (never a
+    separate/fake signal) every SETTLE_POLL_INTERVAL_S, tracking in-flight
+    network requests via the CDP Network domain purely as an ADVISORY signal
+    (requestWillBeSent / loadingFinished / loadingFailed). Bounded at
+    SETTLE_HARD_CEILING_S: if the page never reaches 3 consecutive
+    not-materially-grown samples (e.g. a persistent streaming/poll connection
+    keeps growing content right up to the ceiling), settle_reason is
+    MAX_TIMEOUT and the LAST extraction taken is used -- still the real
+    rendered DOM at that point, never fabricated.
+    """
+    conn.call("Network.enable", {}, session_id=session, timeout=5)
+
+    in_flight = 0
+    last_activity = time.monotonic()
+
+    def _drain_network_events() -> None:
+        nonlocal in_flight, last_activity
+        started = conn.drain_events("Network.requestWillBeSent")
+        finished = conn.drain_events("Network.loadingFinished")
+        failed = conn.drain_events("Network.loadingFailed")
+        if started:
+            in_flight += len(started)
+            last_activity = time.monotonic()
+        if finished or failed:
+            in_flight = max(0, in_flight - len(finished) - len(failed))
+            last_activity = time.monotonic()
+
+    deadline = time.monotonic() + SETTLE_HARD_CEILING_S
+    expr = _CAPTURE_PAGE_DATA_JS % {"requested_url": json.dumps(url)}
+    trajectory: list[int] = []
+    prev_word_count: int | None = None
+    consecutive_stable = 0
+    raw: dict[str, Any] | None = None
+    settle_reason = SETTLE_REASON_MAX_TIMEOUT
+
+    while True:
+        # A trivial eval forces a socket read, draining any queued Network
+        # events into the connection's pending-events buffer even during an
+        # otherwise idle poll interval.
+        conn.evaluate(session, "1", timeout=5)
+        _drain_network_events()
+
+        raw = conn.evaluate(session, expr, timeout=15)
+        if not isinstance(raw, dict):
+            raise VerifyFailure(f"capture script returned unexpected shape for {url}: {raw!r}")
+        curr_word_count = local_browser_word_count(raw)
+        trajectory.append(curr_word_count)
+
+        if prev_word_count is None:
+            consecutive_stable = 0
+        elif is_material_growth(prev_word_count, curr_word_count):
+            # Content materially grew (e.g. a late-loading feed batch just
+            # arrived) -- RE-ARM the wait rather than settling on a
+            # premature, thinner extraction.
+            consecutive_stable = 0
+        else:
+            consecutive_stable += 1
+
+        now = time.monotonic()
+        network_idle = in_flight <= 0 and (now - last_activity) >= SETTLE_NETWORK_IDLE_S
+
+        if is_render_settled(consecutive_stable_samples=consecutive_stable, network_idle=network_idle):
+            settle_reason = SETTLE_REASON_STABLE
+            break
+
+        if now >= deadline:
+            settle_reason = SETTLE_REASON_MAX_TIMEOUT
+            break
+
+        prev_word_count = curr_word_count
+        time.sleep(SETTLE_POLL_INTERVAL_S)
+
+    return RenderSettleResult(raw=raw, settle_reason=settle_reason, trajectory=trajectory)
+
+
+def render_and_extract_bpc(conn: cdp.CDPConnection, url: str) -> RenderSettleResult:
+    """Navigate a fresh tab to url, wait for it to ADAPTIVELY settle, extract a BPC.
+
+    Never raises for a navigation failure -- returns a RenderSettleResult
+    with settle_reason=NAVIGATION_ERROR and `error` set instead, so callers
+    can record it as its own row without losing the audit trail shape.
     """
     target_id = conn.create_target(url)
     try:
         session = conn.attach(target_id)
 
-        def _settled() -> bool:
+        def _loaded() -> bool:
             state = conn.evaluate(session, "document.readyState", timeout=3)
             return state == "complete"
 
-        wait_for(_settled, NAV_TIMEOUT_S, f"{url} to finish loading")
-        time.sleep(RENDER_SETTLE_S)  # let SPA JS run past the initial load event
+        try:
+            wait_for(_loaded, NAV_TIMEOUT_S, f"{url} to finish loading")
+        except (VerifyFailure, cdp.CDPError, cdp.CDPTimeout) as exc:
+            return RenderSettleResult(
+                raw=None, settle_reason=SETTLE_REASON_NAVIGATION_ERROR, trajectory=[], error=str(exc)
+            )
 
-        expr = _CAPTURE_PAGE_DATA_JS % {"requested_url": json.dumps(url)}
-        raw = conn.evaluate(session, expr, timeout=15)
-        if not isinstance(raw, dict):
-            raise VerifyFailure(f"capture script returned unexpected shape for {url}: {raw!r}")
-        return raw
+        return wait_for_render_settle(conn, session, url)
     finally:
         try:
             conn.call("Target.closeTarget", {"targetId": target_id}, timeout=5)
@@ -426,12 +765,26 @@ def process_one_url(
 ) -> CohortRow:
     row = CohortRow(url=url, reference_posture=reference_posture, reference_bucket=reference_bucket)
     try:
-        raw = render_and_extract_bpc(conn, url)
+        settle = render_and_extract_bpc(conn, url)
     except (VerifyFailure, cdp.CDPError, cdp.CDPTimeout) as exc:
+        # Defensive: render_and_extract_bpc itself catches navigation
+        # failures internally (settle_reason=NAVIGATION_ERROR); this only
+        # covers a truly unexpected exception from the settle loop itself.
+        row.settle_reason = SETTLE_REASON_NAVIGATION_ERROR
         row.error = f"render_failed: {exc}"
         log(f"  [{url}] ERROR (render): {exc}")
         return row
 
+    row.settle_reason = settle.settle_reason
+    row.word_count_trajectory = settle.trajectory
+    log(f"  [{url}] settle_reason={settle.settle_reason} trajectory={settle.trajectory}")
+
+    if settle.raw is None:
+        row.error = f"render_failed: {settle.error or 'no extraction produced'}"
+        log(f"  [{url}] ERROR (render): {settle.error}")
+        return row
+
+    raw = settle.raw
     captured_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     bpc = normalize_capture_data(raw, captured_at)
 
@@ -487,9 +840,12 @@ def process_one_url(
     row.baseline_content_posture = observation.get("baseline_content_posture")
     row.eligibility = observation.get("eligibility")
     row.recovery_outcome = observation.get("recovery_outcome")
+    row.baseline_visible_word_count = observation.get("baseline_visible_word_count")
+    row.browser_visible_word_count = observation.get("browser_visible_word_count")
     log(
         f"  [{url}] posture={row.baseline_content_posture} eligibility={row.eligibility} "
-        f"outcome={row.recovery_outcome}"
+        f"outcome={row.recovery_outcome} "
+        f"words(browser={row.browser_visible_word_count}, http={row.baseline_visible_word_count})"
     )
     return row
 
@@ -558,6 +914,22 @@ def main() -> int:
         print()
         print(table)
         print()
+
+        settle_table = render_settle_table(row_dicts)
+        if settle_table:
+            print("RENDER-SETTLE AUDIT TRAIL (all 27 URLs -- settle_reason + word-count")
+            print("sample trajectory; DOM/text stability is authoritative, network-idle is")
+            print("advisory-only, see module docstring 'Adaptive render-settle'):")
+            print(settle_table)
+            print()
+
+        word_table = render_word_count_table(row_dicts)
+        if word_table:
+            print("WORD COUNTS (eligible URLs only -- server-authoritative; RECOVERED needs")
+            print("browser_words >= 200 AND browser_words >= 3x http_words):")
+            print(word_table)
+            print()
+
         print("TOTALS BY recovery_outcome:")
         for outcome, count in sorted(tally["by_recovery_outcome"].items()):
             print(f"  {outcome:<20} {count}")
