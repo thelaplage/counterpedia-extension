@@ -101,7 +101,7 @@ export COUNTERPEDIA_ACQUISITION_PYTHON="$ACQ_PYTHON"
 #    a missing Chrome-for-Testing/Chromium install fails fast and clearly
 #    instead of after the supervisor is already up.
 echo "Resolving demo browser…"
-DEMO_BROWSER_OUT="$("$PYTHON" demo_browser.py resolve 2>&1)" || fail "$DEMO_BROWSER_OUT"
+DEMO_BROWSER_OUT="$("$PYTHON" "$HERE/demo_browser.py" resolve 2>&1)" || fail "$DEMO_BROWSER_OUT"
 DEMO_BROWSER="$DEMO_BROWSER_OUT"
 echo "  $DEMO_BROWSER"
 
