@@ -16,6 +16,7 @@ import {
   selectGovernedSource,
 } from "../lib/governedSourceSelection";
 import { WIKIPEDIA_REFERENCE_FRONTIER_KEY } from "../lib/wikipediaHarvestBridge";
+import { CONNECT_FIRST_MESSAGE, checkLocalCompanionConnected } from "../lib/connectionGate";
 
 const SECTION_ID = "wikipedia-frontier-capture-section";
 const MAX_CAPTURE_PER_RUN = 25;
@@ -171,6 +172,9 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
   const ui = buildSection();
   content.prepend(ui.section);
 
+  // PRE-CONNECT GATE: see render()'s use of `connected` below.
+  const connected = await checkLocalCompanionConnected();
+
   let currentFrontier = await readWikipediaReferenceFrontier(chrome.storage.local).catch(() => null);
   let captureRuns: WikipediaCaptureRunV01[] = [];
   let captureRecoveryFailed = false;
@@ -262,9 +266,15 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
       ui.context.textContent =
         `${currentFrontier.page.title} · revision ${currentFrontier.page.revision_id} · ` +
         `${currentFrontier.selected_sources.length} queued NEW source URL${currentFrontier.selected_sources.length === 1 ? "" : "s"}`;
-      ui.status.textContent =
-        "Choose which queued sources to capture. Queue state is local-durable; nothing new is captured until you click.";
+      // PRE-CONNECT GATE: "Capture selected sources" calls a paired-only
+      // Counterpedia Local route (POST /v0/capture-url). The queue itself is
+      // local-only and safe to show/browse before Connect; only the capture
+      // action is gated.
+      ui.status.textContent = connected
+        ? "Choose which queued sources to capture. Queue state is local-durable; nothing new is captured until you click."
+        : CONNECT_FIRST_MESSAGE;
       ui.capture.style.display = "";
+      ui.capture.disabled = !connected;
 
       for (const source of currentFrontier.selected_sources.slice(0, MAX_RENDERED)) {
         const label = document.createElement("label");
@@ -334,6 +344,10 @@ export async function initWikipediaFrontierCapturePanel(): Promise<void> {
   ui.capture.addEventListener("click", () => {
     void (async () => {
       if (!currentFrontier) return;
+      if (!(await checkLocalCompanionConnected())) {
+        ui.status.textContent = CONNECT_FIRST_MESSAGE;
+        return;
+      }
       const selected = Array.from(
         ui.list.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-source-url]'),
       )
