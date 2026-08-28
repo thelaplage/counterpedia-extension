@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { wireCaptureButton, type CaptureResponse } from "../src/panel/captureButton";
+import { wireCaptureButton, captureErrorMessage, type CaptureResponse } from "../src/panel/captureButton";
 import { captureDigest } from "../src/lib/captureDigest";
 import { normalizeCaptureData } from "../src/lib/browserPageCapture";
 import type { BrowserPageCapture } from "../src/lib/browserPageCapture";
@@ -175,5 +175,18 @@ describe("capture button — digest corresponds to the exact CAP1 capture", () =
     // over the exact serialized bytes, not object identity per se.
     const faithfulClone: BrowserPageCapture = JSON.parse(JSON.stringify(CAP1));
     expect(await captureDigest(faithfulClone)).toBe(cap1Digest);
+  });
+});
+
+describe("captureErrorMessage", () => {
+  it("maps no_active_tab to an actionable toolbar-icon instruction", () => {
+    const msg = captureErrorMessage("no_active_tab");
+    expect(msg).not.toBe("Error: no_active_tab");
+    expect(msg).toContain("toolbar icon");
+    expect(msg).toContain("Capture");
+  });
+
+  it("passes unknown reasons through verbatim", () => {
+    expect(captureErrorMessage("restricted")).toBe("Error: restricted");
   });
 });
