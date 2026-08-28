@@ -337,6 +337,28 @@ class LocalSupervisor:
         }
         return data
 
+    def preflight(self) -> dict[str, Any]:
+        """PRE-FLIGHT report -- reuses this same supervisor's own dependency
+        paths + the frozen ``/healthz`` capabilities contract. Lazily
+        imported to avoid a module-load cycle (``preflight.py`` imports this
+        module as ``base``)."""
+        from preflight import build_preflight_report
+
+        ext_root = Path(__file__).resolve().parent.parent.parent
+        return build_preflight_report(
+            ext_root=ext_root,
+            acquisition_dir=self.acquisition_dir,
+            authoring_dir=self.authoring_dir,
+            store_root=self.store_root,
+        )
+
+    def replay_status(self) -> dict[str, Any]:
+        """Forward-compatible REPLAY ENTRY status -- see replay_entry.py.
+        Never opens a browser, never performs network access."""
+        from replay_entry import resolve_replay_packet
+
+        return resolve_replay_packet().to_dict()
+
     @staticmethod
     def wait_ready(
         check: Any, proc: subprocess.Popen[str], name: str, timeout_s: float = 8.0
@@ -738,13 +760,25 @@ pre{white-space:pre-wrap;background:#f7f9f8;padding:12px;border-radius:8px;font-
   <button id="diag">Copy diagnostic report</button>
   <pre id="detail"></pre>
 </div>
+<div class="card">
+  <strong>Pre-flight</strong>
+  <p>Bounded pitch-readiness check. Read-only: starts and stops nothing.</p>
+  <div id="preflight-lines"></div>
+  <p id="preflight-verdict"></p>
+</div>
+<div class="card">
+  <strong>Replay <span style="font-weight:normal;color:#53615e">(labeled, no external execution)</span></strong>
+  <p id="replay-detail">Checking...</p>
+</div>
 <script>
 const el=id=>document.getElementById(id);
 function setState(node,ok,yes,no){node.textContent=ok?yes:no;node.className=ok?'ok':'bad'}
 async function refresh(){try{const s=await fetch('/v0/status').then(r=>r.json());setState(el('paired'),s.paired,'Connected','Not connected');setState(el('acq'),s.acquisition.ready,'Ready','Not ready');setState(el('recovery'),s.recovery.ready,'Ready','Not ready');setState(el('author'),s.authoring.ready,'Ready','Needs setup');setState(el('key'),s.dependencies.openai_key_configured,'Configured','Needs setup');el('detail').textContent=s.dependencies.openai_key_configured?'':'Start Counterpedia Local with OPENAI_API_KEY configured to enable authoring.';}catch(e){el('detail').textContent='Counterpedia Local status unavailable: '+e}}
+async function refreshPreflight(){try{const p=await fetch('/v0/preflight').then(r=>r.json());const rows=p.lines.map(l=>{const ok=['ready','configured','reachable'].includes(l.status);return `<div class="row"><span>${l.label}</span><strong class="${ok?'ok':'bad'}">${l.status}</strong></div>`}).join('');el('preflight-lines').innerHTML=rows;el('preflight-verdict').textContent='Pitch ready: '+(p.pitch_ready?'YES':'NO');}catch(e){el('preflight-verdict').textContent='Pre-flight unavailable: '+e}}
+async function refreshReplay(){try{const r=await fetch('/v0/replay-status').then(r=>r.json());el('replay-detail').textContent='['+r.availability+'] '+r.detail;}catch(e){el('replay-detail').textContent='Replay status unavailable: '+e}}
 el('restart').onclick=async()=>{await fetch('/v0/restart-authoring',{method:'POST'});refresh()};
 el('diag').onclick=async()=>{const d=await fetch('/v0/diagnostics').then(r=>r.json());await navigator.clipboard.writeText(JSON.stringify(d,null,2));el('detail').textContent='Safe diagnostic report copied. Secrets are not included.'};
-refresh();setInterval(refresh,2000);
+refresh();refreshPreflight();refreshReplay();setInterval(refresh,2000);setInterval(refreshPreflight,4000);
 </script>"""
 
 
@@ -812,6 +846,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/v0/diagnostics":
             self.send_json(200, self.supervisor.diagnostics())
+            return
+        if self.path == "/v0/preflight":
+            self.send_json(200, self.supervisor.preflight())
+            return
+        if self.path == "/v0/replay-status":
+            self.send_json(200, self.supervisor.replay_status())
             return
         self.send_json(404, {"error": "not_found"})
 
