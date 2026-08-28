@@ -2,6 +2,8 @@
   "manifest_version": 3,
   "name": "Counterpedia (Draft-from-source Dev)",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvo/YmhFg3mSI0cgZ7gDahv3Foh7g3zRytxD92o7OlcwYLMXqjZqEzodm/ufrW3p3vJGbg/842AmKHZ26243VaOkdB6VDbpYbsB2jaWtCoWhWdwf98tePdQ8v1A3QzxLqaEa9TT7kbslI4hC65StFCLQtikvahvO1d4qa8tA6/Cuhrq7TT4uTvCwy5QcZCc0Q/ishVjV/tROgiKPrppVSbRPKx8/cmSGLuJLCljz9CT2ERLb4OLAGVaU1kgpTCGexbWryP5895TSZMiX44YtQv8WXOiF8EQWkjORbLOhE4uMyJLZt4pWMQOMhHfyBX+8Ds4itCtkm4aZPYGlgSnNwIwIDAQAB",
+  "_key_note": "SELF-LOAD0: deterministic dev/demo extension id for the self-loading Chrome-for-Testing demo browser ONLY. Public key corresponds to the private key at tools/counterpedia-local/.self-load-key.pem (gitignored, never committed). Computed stable extension id = pplkafbhcmojbomkbieppifcfokpmhpn. Do NOT copy this key into manifest.json (production).",
   "description": "Counterpedia extension — local historical draft-from-source dev build. Connects only to the 127.0.0.1:8787 acquisition loopback and the 127.0.0.1:8788 authoring loopback. Counterpedia Local pairs the browser to these services without manual extension IDs, ports, DevTools, or token setup. Capture, acquisition, and drafting remain separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
   "minimum_chrome_version": "116",
   "permissions": [
