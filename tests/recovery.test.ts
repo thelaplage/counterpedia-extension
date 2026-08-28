@@ -112,6 +112,19 @@ describe("RECOVERY-BIND0 (ext)", () => {
       }
     },
   );
+  // initialCaptureLine reflects the baseline posture (regression guard: this
+  // line used to be a vacuous ternary that printed the same string for every
+  // posture, contradicting contentful baselines).
+  it("initialCaptureLine reflects baseline_content_posture, not a constant", () => {
+    const contentful = renderRecovery(parseRecoveryAssessmentResult(assessed("NOT_ELIGIBLE")));
+    const loader = renderRecovery(parseRecoveryAssessmentResult(assessed("RECOVERED")));
+    // CONTENTFUL baseline (NOT_ELIGIBLE) must NOT claim payload was unobserved.
+    expect(contentful.initialCaptureLine).toBe("Substantive payload present");
+    // LIKELY_LOADER baseline must say the payload was not observed.
+    expect(loader.initialCaptureLine).toContain("not observed");
+    // The two postures must render DIFFERENT lines (the bug made them identical).
+    expect(contentful.initialCaptureLine).not.toBe(loader.initialCaptureLine);
+  });
   // 8
   it("held_capture_not_found stays explicit", () => {
     const r = parseRecoveryAssessmentResult(statusOnly("held_capture_not_found"));

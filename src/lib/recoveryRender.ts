@@ -46,6 +46,25 @@ const _OUTCOME_LABEL: Record<RecoveryOutcome, string> = {
   NOT_ELIGIBLE: "Not eligible for browser recovery",
 };
 
+// Describe the INITIAL HTTP capture's substantive-content posture (the baseline),
+// independent of the recovery outcome. This line was previously a vacuous ternary
+// that printed "Substantive payload not observed" for EVERY posture — which
+// contradicts a contentful baseline (e.g. a full server-rendered page that is
+// correctly NOT_ELIGIBLE for browser recovery precisely because it already has
+// substantive payload and there is nothing to recover).
+const _POSTURE_LINE: Record<string, string> = {
+  CONTENTFUL: "Substantive payload present",
+  NO_USABLE_CONTENT_OBSERVED: "Substantive payload not observed",
+  LIKELY_LOADER: "Loader/placeholder observed — substantive payload not observed",
+  AMBIGUOUS: "Substantive payload ambiguous",
+};
+
+function initialCaptureLineFor(posture: string): string {
+  const line = _POSTURE_LINE[posture] ?? `Baseline content posture: ${posture}`;
+  assertNoAuthorityWord(line);
+  return line;
+}
+
 export function renderRecovery(result: RecoveryAssessmentResult): RecoveryRender {
   if (result.assessment_status !== "assessed" || result.recovery_observation === null) {
     const label =
@@ -66,10 +85,7 @@ export function renderRecovery(result: RecoveryAssessmentResult): RecoveryRender
   }
 
   const obs = result.recovery_observation;
-  const observed = obs.recovery_outcome === "RECOVERED";
-  const initialCaptureLine = observed
-    ? "Substantive payload not observed"
-    : "Substantive payload not observed";
+  const initialCaptureLine = initialCaptureLineFor(obs.baseline_content_posture);
   const recoveryLine = _OUTCOME_LABEL[obs.recovery_outcome];
   assertNoAuthorityWord(recoveryLine);
   return {
