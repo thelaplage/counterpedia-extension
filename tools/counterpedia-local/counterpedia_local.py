@@ -86,6 +86,38 @@ def default_acquisition_dir() -> Path:
     return Path.home() / "Developer" / "repos" / "counterpedia-acquisition"
 
 
+def default_acquisition_python(acquisition_dir: Path) -> Path:
+    """Resolve the interpreter used to launch the local acquisition transport.
+
+    LOCAL-TRANSPORT0 checkout-mode contract: an explicit
+    ``COUNTERPEDIA_ACQUISITION_PYTHON`` always wins (it lets an installer point
+    Counterpedia Local at any already-reviewed acquisition checkout + venv
+    pair, e.g. a `.venv-review` interpreter, without copying environments).
+    Absent that override, the only fallback is the acquisition checkout's own
+    ``.venv/bin/python`` -- never a bare ``python``/``python3`` on PATH, and
+    never the installed console-script entrypoint (that remains a
+    package-distribution-only interface; see ``acquisition_transport_launcher``
+    below).
+    """
+    configured = os.environ.get("COUNTERPEDIA_ACQUISITION_PYTHON")
+    if configured:
+        return Path(configured).expanduser()
+    return acquisition_dir / ".venv" / "bin" / "python"
+
+
+def acquisition_transport_launcher_path(acquisition_dir: Path) -> Path:
+    """The FROZEN-CONTRACT script seam Counterpedia Local must launch.
+
+    This is ``scripts/run_counterpedia_local_transport.py`` -- a distinct,
+    supervised-only executable path from the retired
+    ``scripts/run_acquisition_http.py`` (now plan-only). Counterpedia Local
+    never invokes ``run_acquisition_http.py`` and never requires the
+    ``counterpedia-acquisition-local-transport`` console entrypoint to be
+    installed for checkout-mode use.
+    """
+    return acquisition_dir / "scripts" / "run_counterpedia_local_transport.py"
+
+
 def default_authoring_dir() -> Path:
     configured = os.environ.get("COUNTERPEDIA_AUTHORING_DIR")
     if configured:
@@ -110,6 +142,43 @@ def http_health(url: str) -> bool:
             return 200 <= response.status < 300
     except (OSError, urllib.error.URLError):
         return False
+
+
+def http_json(url: str, timeout: float = 0.5) -> dict[str, Any] | None:
+    """Bounded GET returning a parsed JSON object, or None on any failure.
+
+    Used to read the FROZEN readiness contract's ``/healthz`` body (status +
+    capabilities), never just a bare 200. Never raises.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if not (200 <= response.status < 300):
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def acquisition_capabilities(host: str, port: int) -> tuple[bool, bool, bool]:
+    """Return (health_valid, browser_observation_ready, recovery_assessment_ready).
+
+    READINESS CONTRACT (authoritative, do not reinterpret):
+      health valid  IFF  GET /healthz returns 200 AND body.status == "ok"
+      Acquisition Ready  IFF  health valid AND capabilities.browser_observation is True
+      Recovery Ready     IFF  health valid AND capabilities.recovery_assessment is True
+    These booleans are OPERATIONAL availability only -- never projected into
+    admission, authority, verification, standing, or publication.
+    """
+    payload = http_json(f"http://{host}:{port}/healthz")
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        return False, False, False
+    capabilities = payload.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return True, False, False
+    browser_observation = capabilities.get("browser_observation") is True
+    recovery_assessment = capabilities.get("recovery_assessment") is True
+    return True, browser_observation, recovery_assessment
 
 
 def safe_tail(path: Path, limit: int = 12) -> list[str]:
@@ -154,17 +223,20 @@ class ManagedProcess:
 
     def stop(self) -> None:
         proc = self.process
-        if proc is None or proc.poll() is not None:
-            self.process = None
-            return
         try:
-            proc.terminate()
-            proc.wait(timeout=4)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=2)
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
         finally:
             self.process = None
+            # Always release the log handle, even when the child had already
+            # exited on its own before stop() was called (e.g. a construction
+            # failure) -- otherwise repeated failed-start/reconnect attempts
+            # leak an open file descriptor per attempt.
             if self.log_handle is not None:
                 try:
                     self.log_handle.close()
@@ -174,7 +246,13 @@ class ManagedProcess:
 
 
 class LocalSupervisor:
-    def __init__(self, acquisition_dir: Path, authoring_dir: Path, store_root: Path) -> None:
+    def __init__(
+        self,
+        acquisition_dir: Path,
+        authoring_dir: Path,
+        store_root: Path,
+        acquisition_ready_timeout_s: float = 8.0,
+    ) -> None:
         self.acquisition_dir = acquisition_dir
         self.authoring_dir = authoring_dir
         self.store_root = store_root
@@ -182,6 +260,11 @@ class LocalSupervisor:
         self.authoring = ManagedProcess("authoring")
         self._lock = threading.RLock()
         self._paired_extension_id: str | None = None
+        self._paired_origin: str | None = None
+        # Bounded poll deadline for /healthz capability readiness (step 7-8 of
+        # the atomic pairing transaction). Overridable only for tests -- the
+        # production default (8s) is unchanged.
+        self._acquisition_ready_timeout_s = acquisition_ready_timeout_s
 
     @property
     def acquisition_log(self) -> Path:
@@ -192,8 +275,8 @@ class LocalSupervisor:
         return LOG_ROOT / "authoring.log"
 
     def dependency_status(self) -> dict[str, Any]:
-        acq_launcher = self.acquisition_dir / "scripts" / "run_acquisition_http.py"
-        acq_python = self.acquisition_dir / ".venv" / "bin" / "python"
+        acq_python = default_acquisition_python(self.acquisition_dir)
+        transport_launcher = acquisition_transport_launcher_path(self.acquisition_dir)
         acq_mcp = self.acquisition_dir / ".venv" / "bin" / "counterpedia-acquisition-mcp"
         wiki_harvester = (
             self.acquisition_dir / ".venv" / "bin" / "counterpedia-wikipedia-harvest"
@@ -202,8 +285,9 @@ class LocalSupervisor:
         author_cmd = self.authoring_dir / ".venv" / "bin" / "counterpedia-authoring-live-source"
         return {
             "acquisition_dir": str(self.acquisition_dir),
-            "acquisition_launcher_present": acq_launcher.is_file(),
+            "acquisition_python": str(acq_python),
             "acquisition_python_present": acq_python.is_file(),
+            "acquisition_transport_launcher_present": transport_launcher.is_file(),
             "acquisition_mcp_present": acq_mcp.is_file(),
             "wikipedia_harvester_present": wiki_harvester.is_file(),
             "capture_url_cli_present": capture_url_cli.is_file(),
@@ -213,6 +297,9 @@ class LocalSupervisor:
         }
 
     def status(self) -> dict[str, Any]:
+        health_valid, browser_observation_ready, recovery_assessment_ready = (
+            acquisition_capabilities(HOST, ACQUISITION_PORT)
+        )
         return {
             "service": "counterpedia-local",
             "version": "0.1",
@@ -221,10 +308,18 @@ class LocalSupervisor:
             "paired": self._paired_extension_id is not None,
             "paired_extension_id": self._paired_extension_id,
             "acquisition": {
-                "ready": http_health(f"http://{HOST}:{ACQUISITION_PORT}/healthz"),
+                # Acquisition Ready IFF health valid AND capabilities.browser_observation
+                # is true -- never merely `status == "ok"` or a bare 200 (frozen contract).
+                "ready": browser_observation_ready,
                 "port": ACQUISITION_PORT,
                 "durable_store": str(self.store_root),
                 "process_managed": self.acquisition.running(),
+            },
+            "recovery": {
+                # Recovery Ready IFF health valid AND capabilities.recovery_assessment
+                # is true -- derived from the actual bound recovery dependency, never
+                # from TCP presence or a 200 alone (frozen contract).
+                "ready": recovery_assessment_ready,
             },
             "authoring": {
                 "ready": port_open(AUTHORING_PORT),
@@ -243,8 +338,10 @@ class LocalSupervisor:
         return data
 
     @staticmethod
-    def wait_ready(check: Any, proc: subprocess.Popen[str], name: str) -> None:
-        deadline = time.monotonic() + 8.0
+    def wait_ready(
+        check: Any, proc: subprocess.Popen[str], name: str, timeout_s: float = 8.0
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 raise RuntimeError(f"{name} exited before becoming ready")
@@ -253,13 +350,55 @@ class LocalSupervisor:
             time.sleep(0.15)
         raise RuntimeError(f"{name} did not become ready")
 
-    def start_acquisition(self, extension_id: str, token: str) -> None:
-        self.acquisition.stop()
-        acq_python = self.acquisition_dir / ".venv" / "bin" / "python"
-        launcher = self.acquisition_dir / "scripts" / "run_acquisition_http.py"
-        if not acq_python.is_file() or not launcher.is_file():
+    @staticmethod
+    def _wait_port_released(port: int, timeout_s: float = 3.0) -> None:
+        """Bounded wait for a TCP port to stop accepting connections.
+
+        Called only AFTER ``ManagedProcess.stop()`` has already terminated (or
+        killed) a process THIS supervisor spawned. Does not touch any process
+        it did not start.
+        """
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if not port_open(port):
+                return
+            time.sleep(0.05)
+
+    def _refuse_if_port_foreign(self, port: int) -> None:
+        """FOREIGN-PROCESS GUARD.
+
+        Counterpedia Local may terminate ONLY the child process it spawned
+        (``ManagedProcess.stop()``, above). If the port is still occupied
+        after that, it is held by a process this supervisor did not start --
+        fail visibly and never attempt to reclaim it by force.
+        """
+        if port_open(port):
             raise RuntimeError(
-                "Counterpedia acquisition is not installed in the expected team-beta location"
+                f"port {port} is occupied by a process Counterpedia Local did not "
+                "start; refusing to terminate it. Stop the foreign process and retry."
+            )
+
+    def _launch_acquisition_transport(self, origin: str, token: str) -> subprocess.Popen[str]:
+        """Start A's supervised local transport per the FROZEN dependency contract.
+
+        Launches EXACTLY ``${COUNTERPEDIA_ACQUISITION_PYTHON}
+        ${COUNTERPEDIA_ACQUISITION_DIR}/scripts/run_counterpedia_local_transport.py``
+        -- never ``scripts/run_acquisition_http.py`` (retired, plan-only) and
+        never the installed console entrypoint. All configuration crosses via
+        environment only, never argv, never printed.
+        """
+        acq_python = default_acquisition_python(self.acquisition_dir)
+        launcher = acquisition_transport_launcher_path(self.acquisition_dir)
+        if not acq_python.is_file():
+            raise RuntimeError(
+                "Counterpedia acquisition Python interpreter is not configured: set "
+                "COUNTERPEDIA_ACQUISITION_PYTHON, or install "
+                f"{acq_python} (acquisition checkout .venv)"
+            )
+        if not launcher.is_file():
+            raise RuntimeError(
+                "Counterpedia Local acquisition transport launcher is not present at "
+                f"{launcher} -- set COUNTERPEDIA_ACQUISITION_DIR to a checkout that has it"
             )
 
         LOG_ROOT.mkdir(parents=True, exist_ok=True)
@@ -267,7 +406,7 @@ class LocalSupervisor:
         env = os.environ.copy()
         env.update(
             {
-                "CP_ACQUISITION_ALLOWED_ORIGIN": f"chrome-extension://{extension_id}",
+                "CP_ACQUISITION_ALLOWED_ORIGIN": origin,
                 "CP_ACQUISITION_TRANSPORT_TOKEN": token,
                 "CP_ACQUISITION_HTTP_STORE_ROOT": str(self.store_root),
                 "CP_ACQUISITION_HTTP_HOST": HOST,
@@ -279,7 +418,7 @@ class LocalSupervisor:
             }
         )
         handle = self.acquisition_log.open("a", encoding="utf-8")
-        handle.write("\n--- Counterpedia Local starting acquisition ---\n")
+        handle.write("\n--- Counterpedia Local starting acquisition transport ---\n")
         handle.flush()
         proc = subprocess.Popen(
             [str(acq_python), str(launcher)],
@@ -292,11 +431,36 @@ class LocalSupervisor:
         )
         self.acquisition.process = proc
         self.acquisition.log_handle = handle
+        return proc
+
+    def _wait_acquisition_capable(self, proc: subprocess.Popen[str]) -> None:
+        """Poll ``/healthz`` boundedly; require BOTH capabilities true.
+
+        This is step 7-8 of the atomic pairing transaction: readiness is
+        proven by the SAME frozen contract ``status == "ok"`` AND
+        ``capabilities.browser_observation`` AND
+        ``capabilities.recovery_assessment``, never a bare 200.
+        """
+
+        def _fully_capable() -> bool:
+            _health_valid, browser_observation_ready, recovery_assessment_ready = (
+                acquisition_capabilities(HOST, ACQUISITION_PORT)
+            )
+            return browser_observation_ready and recovery_assessment_ready
+
         self.wait_ready(
-            lambda: http_health(f"http://{HOST}:{ACQUISITION_PORT}/healthz"),
-            proc,
-            "acquisition",
+            _fully_capable, proc, "acquisition", timeout_s=self._acquisition_ready_timeout_s
         )
+
+    def start_acquisition(self, origin: str, token: str) -> None:
+        """Launch A's transport and block until BOTH capabilities are ready.
+
+        Callers that need the ATOMIC PAIRING TRANSACTION's stop/foreign-guard
+        semantics around this (steps 4-5, 9) go through ``pair()``, not this
+        method directly.
+        """
+        proc = self._launch_acquisition_transport(origin, token)
+        self._wait_acquisition_capable(proc)
 
     def start_authoring(self) -> bool:
         key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -341,18 +505,62 @@ class LocalSupervisor:
         return True
 
     def pair(self, extension_id: str) -> dict[str, Any]:
+        """ATOMIC PAIRING TRANSACTION.
+
+        Implements, in order: (1)-(2) origin/extension-id validation happen in
+        the HTTP handler before this is called -- ``extension_id`` here is
+        already the exact validated Origin id; (3) generate a candidate token
+        without returning it; (4)-(5) stop the supervisor-owned OLD child (if
+        any) and wait for clean exit + port release, refusing to touch a
+        foreign process; (6) start the new A transport via env-only config;
+        (7)-(8) poll ``/healthz`` boundedly and require BOTH capabilities
+        true; (9) commit new child/session state; (10) only now return the
+        endpoint + token. Any failure anywhere in (4)-(8) leaves NO paired
+        state committed and returns NO token -- Browser Connected / Acquisition
+        Ready / Recovery Ready are all "no", and no browser is left partially
+        configured.
+        """
         if not EXTENSION_ID_RE.fullmatch(extension_id):
             raise ValueError("invalid Chrome extension id")
+        origin = f"chrome-extension://{extension_id}"
         with self._lock:
-            token = secrets.token_urlsafe(32)
-            self.start_acquisition(extension_id, token)
+            # (3) candidate token generated now; NOT committed, NOT returned yet.
+            candidate_token = secrets.token_urlsafe(32)
+
+            # (4) stop the supervisor-owned OLD acquisition child, if any.
+            self.acquisition.stop()
+            # (5) wait for clean exit + port release.
+            self._wait_port_released(ACQUISITION_PORT)
+            # FOREIGN-PROCESS GUARD: never reclaim a port we do not own.
+            self._refuse_if_port_foreign(ACQUISITION_PORT)
+
+            # (6) start new A transport; (7)-(8) poll /healthz for BOTH
+            # capabilities. On any failure, tear down what we just started and
+            # fail closed -- no partially configured browser, no token.
+            try:
+                self.start_acquisition(origin, candidate_token)
+            except RuntimeError:
+                self.acquisition.stop()
+                # Never leave a partially configured browser: a failed
+                # (re)connect clears any previously committed pairing too, so
+                # Browser Connected / Acquisition Ready / Recovery Ready all
+                # read "no" -- not a stale "yes" from a now-stopped child.
+                self._paired_extension_id = None
+                self._paired_origin = None
+                raise
+
             authoring_ready = self.start_authoring()
+
+            # (9) commit new child/session state.
             self._paired_extension_id = extension_id
+            self._paired_origin = origin
+
+            # (10) only now return the acquisition endpoint + token.
             return {
                 "pairing_schema": "counterpedia.local_pairing.v0.1",
                 "acquisition_base_url": f"http://{HOST}:{ACQUISITION_PORT}",
                 "authoring_base_url": f"http://{HOST}:{AUTHORING_PORT}",
-                "acquisition_transport_token": token,
+                "acquisition_transport_token": candidate_token,
                 "authoring_transport_token": "local-authoring-dev",
                 "authoring_ready": authoring_ready,
                 "authority_posture": "transport_configuration_only",
@@ -517,9 +725,10 @@ pre{white-space:pre-wrap;background:#f7f9f8;padding:12px;border-radius:8px;font-
 <h1>Counterpedia Local</h1>
 <p class="sub">Local capture + authoring supervisor. No admission or publication.</p>
 <div class="card">
-  <div class="row"><span>Browser pairing</span><strong id="paired">Checking...</strong></div>
-  <div class="row"><span>Source capture</span><strong id="acq">Checking...</strong></div>
-  <div class="row"><span>Historical authoring</span><strong id="author">Checking...</strong></div>
+  <div class="row"><span>Browser</span><strong id="paired">Checking...</strong></div>
+  <div class="row"><span>Acquisition</span><strong id="acq">Checking...</strong></div>
+  <div class="row"><span>Recovery</span><strong id="recovery">Checking...</strong></div>
+  <div class="row"><span>Authoring</span><strong id="author">Checking...</strong></div>
   <div class="row"><span>OpenAI key</span><strong id="key">Checking...</strong></div>
 </div>
 <div class="card">
@@ -532,7 +741,7 @@ pre{white-space:pre-wrap;background:#f7f9f8;padding:12px;border-radius:8px;font-
 <script>
 const el=id=>document.getElementById(id);
 function setState(node,ok,yes,no){node.textContent=ok?yes:no;node.className=ok?'ok':'bad'}
-async function refresh(){try{const s=await fetch('/v0/status').then(r=>r.json());setState(el('paired'),s.paired,'Browser connected','Not connected');setState(el('acq'),s.acquisition.ready,'Capture ready','Not ready');setState(el('author'),s.authoring.ready,'Authoring ready','Not ready');setState(el('key'),s.dependencies.openai_key_configured,'Configured','Needs setup');el('detail').textContent=s.dependencies.openai_key_configured?'':'Start Counterpedia Local with OPENAI_API_KEY configured to enable authoring.';}catch(e){el('detail').textContent='Counterpedia Local status unavailable: '+e}}
+async function refresh(){try{const s=await fetch('/v0/status').then(r=>r.json());setState(el('paired'),s.paired,'Connected','Not connected');setState(el('acq'),s.acquisition.ready,'Ready','Not ready');setState(el('recovery'),s.recovery.ready,'Ready','Not ready');setState(el('author'),s.authoring.ready,'Ready','Needs setup');setState(el('key'),s.dependencies.openai_key_configured,'Configured','Needs setup');el('detail').textContent=s.dependencies.openai_key_configured?'':'Start Counterpedia Local with OPENAI_API_KEY configured to enable authoring.';}catch(e){el('detail').textContent='Counterpedia Local status unavailable: '+e}}
 el('restart').onclick=async()=>{await fetch('/v0/restart-authoring',{method:'POST'});refresh()};
 el('diag').onclick=async()=>{const d=await fetch('/v0/diagnostics').then(r=>r.json());await navigator.clipboard.writeText(JSON.stringify(d,null,2));el('detail').textContent='Safe diagnostic report copied. Secrets are not included.'};
 refresh();setInterval(refresh,2000);
