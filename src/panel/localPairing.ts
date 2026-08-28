@@ -150,9 +150,9 @@ async function initLocalPairing(): Promise<void> {
     ui.setup.style.display = "";
     if (local.acquisition.ready && hasCredential) {
       ui.connect.textContent = "Reconnect browser";
-      ui.status.textContent = local.authoring.ready
-        ? "Connected · Capture ready · Authoring ready"
-        : "Connected · Capture ready · Authoring needs setup";
+      const recoveryPart = local.recovery?.ready ? "Recovery ready" : "Recovery needs setup";
+      const authoringPart = local.authoring.ready ? "Authoring ready" : "Authoring needs setup";
+      ui.status.textContent = `Connected · Capture ready · ${recoveryPart} · ${authoringPart}`;
     } else {
       ui.connect.textContent = "Connect Counterpedia Local";
       ui.status.textContent = "Local companion found. Connect this browser to start capture.";

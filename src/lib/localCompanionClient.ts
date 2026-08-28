@@ -10,10 +10,24 @@ export interface LocalCompanionStatus {
   readonly paired: boolean;
   readonly paired_extension_id: string | null;
   readonly acquisition: {
+    /**
+     * Acquisition Ready IFF the local transport's /healthz reports
+     * status:"ok" AND capabilities.browser_observation === true. This is
+     * OPERATIONAL availability only -- never an admission, authority,
+     * verification, standing, or publication signal.
+     */
     readonly ready: boolean;
     readonly port: 8787;
     readonly durable_store: string;
     readonly process_managed: boolean;
+  };
+  readonly recovery: {
+    /**
+     * Recovery Ready IFF the local transport's /healthz reports
+     * status:"ok" AND capabilities.recovery_assessment === true. Additive
+     * field; older local companions may omit it (treat as absent = not ready).
+     */
+    readonly ready: boolean;
   };
   readonly authoring: {
     readonly ready: boolean;
@@ -22,8 +36,9 @@ export interface LocalCompanionStatus {
   };
   readonly dependencies: {
     readonly acquisition_dir: string;
-    readonly acquisition_launcher_present: boolean;
     readonly acquisition_python_present: boolean;
+    /** Additive status signal; older local companions may omit it. */
+    readonly acquisition_transport_launcher_present?: boolean;
     readonly acquisition_mcp_present: boolean;
     /** Additive status signal; older local companions may omit it. */
     readonly wikipedia_harvester_present?: boolean;
