@@ -56,13 +56,30 @@ cd "$EXT_ROOT"
 DIST_DIR="$EXT_ROOT/dist"
 DIST_MANIFEST="$DIST_DIR/manifest.json"
 
-# 4. build authoring-dev unpacked extension, only if missing or forced
-if [[ ! -f "$DIST_MANIFEST" || "${FORCE_REBUILD:-0}" == "1" ]]; then
+# 4. build authoring-dev unpacked extension, only if missing/forced/keyless.
+# A plain `vite build` (via the closeBundle static-asset copy) overwrites
+# dist/manifest.json with the KEYLESS production manifest, which would give the
+# self-loaded extension a NON-stable id. So we rebuild not just when the manifest
+# is absent, but whenever it lacks the pinned `key` — otherwise the stable-id
+# guarantee (and thus deterministic pairing) silently breaks.
+dist_manifest_has_key() {
+  [[ -f "$DIST_MANIFEST" ]] || return 1
+  "$PYTHON" - "$DIST_MANIFEST" <<'PY' 2>/dev/null
+import json, sys
+try:
+    m = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if m.get("key") else 1)
+PY
+}
+if [[ "${FORCE_REBUILD:-0}" == "1" ]] || ! dist_manifest_has_key; then
   echo "Building unpacked extension (authoring-dev)…"
   command -v npm >/dev/null 2>&1 || fail "Counterpedia Local demo bootstrap needs npm installed on this Mac."
   npm run build:authoring-dev
+  dist_manifest_has_key || fail "Built dist/manifest.json is missing the pinned extension key — stable id cannot be guaranteed."
 else
-  echo "Unpacked extension already built at $DIST_DIR (set FORCE_REBUILD=1 to rebuild)."
+  echo "Unpacked extension already built at $DIST_DIR with pinned key (set FORCE_REBUILD=1 to rebuild)."
 fi
 
 # Finder-launched processes do not inherit a developer shell's API-key
@@ -145,6 +162,11 @@ echo "  Counterpedia Local pid: $LOCAL_PID  (log: $LOCAL_LOG_DIR/companion.log)"
 echo "  Demo browser pid:       $DEMO_BROWSER_PID  (log: $LOCAL_LOG_DIR/demo-browser.log)"
 echo "  Demo profile:           $DEMO_PROFILE_DIR"
 echo
-echo "In the demo browser window, open the Counterpedia side panel and click"
-echo "\"Connect Counterpedia Local\". No extension ID, token, or DevTools setup"
-echo "is required."
+echo "In the demo browser window:"
+echo "  1. Open a source page (any http/https site you want to capture)."
+echo "  2. Click the Counterpedia toolbar icon on that page — this opens the"
+echo "     side panel AND grants access to the current tab (activeTab). Opening"
+echo "     the panel this way is required for \"Capture this source\" to work."
+echo "  3. Click \"Connect Counterpedia Local\" (once)."
+echo "  4. Click \"Capture this source\", then \"Check browser recovery\"."
+echo "No extension ID, token, or DevTools setup is required."

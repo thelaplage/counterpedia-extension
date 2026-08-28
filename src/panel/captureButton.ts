@@ -39,6 +39,23 @@ export interface CaptureButtonDeps {
 }
 
 /**
+ * Map a `PAGE_CAPTURE_ERROR` reason onto a human-actionable status line.
+ *
+ * `no_active_tab` is the one users actually hit: the background service worker
+ * captures the active tab via the `activeTab` grant, which Chrome only confers
+ * through an extension-action gesture (clicking the Counterpedia toolbar icon,
+ * which also opens this side panel). Opening the panel any other way — or
+ * switching tabs after opening it — leaves no `activeTab` grant, so the reason
+ * is surfaced with the fix instead of the raw token. Exported pure for tests.
+ */
+export function captureErrorMessage(reason: string): string {
+  if (reason === "no_active_tab") {
+    return "No source tab available. Open this panel from your source page by clicking the Counterpedia toolbar icon, then Capture.";
+  }
+  return `Error: ${reason}`;
+}
+
+/**
  * Perform one capture: exactly one CAPTURE_PAGE request per invocation.
  * Exported for direct unit testing of the request-count invariant.
  */
@@ -60,7 +77,7 @@ export async function runCapture(deps: CaptureButtonDeps): Promise<void> {
       // Reuse the exact capture object — no second CAPTURE_PAGE request.
       if (deps.onCapture) await deps.onCapture(c);
     } else {
-      deps.setStatus(`Error: ${response.reason}`, true);
+      deps.setStatus(captureErrorMessage(response.reason), true);
     }
   } catch (err) {
     deps.setStatus(`Error: ${String(err)}`, true);
