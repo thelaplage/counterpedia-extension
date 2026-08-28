@@ -1,0 +1,6 @@
+# SELF-LOAD0: private key for the deterministic demo/dev extension id.
+# NEVER commit key material. Public half only exists as the manifest "key" field.
+.self-load-key.pem
+demo-profile/
+__pycache__/
+*.pyc
