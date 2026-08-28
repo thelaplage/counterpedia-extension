@@ -1,4 +1,5 @@
 import { ingestOperatorSnapshot, type OperatorSnapshotIngestResult } from "../lib/operatorSnapshotClient";
+import { CONNECT_FIRST_MESSAGE, checkLocalCompanionConnected } from "../lib/connectionGate";
 
 const SECTION_ID = "counterpedia-operator-snapshot-section";
 const MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
@@ -156,8 +157,23 @@ export function initOperatorSnapshotCapture(): void {
 
   const ui = buildSection();
   content.prepend(ui.section);
+
+  // PRE-CONNECT GATE: this widget's action calls a paired-only Counterpedia
+  // Local route (POST /v0/operator-snapshot). Before a successful Connect,
+  // show a neutral "Connect Counterpedia Local first." state instead of
+  // letting the click fire a request the companion will refuse with 403.
+  void (async () => {
+    const connected = await checkLocalCompanionConnected();
+    ui.button.disabled = !connected;
+    if (!connected) ui.status.textContent = CONNECT_FIRST_MESSAGE;
+  })();
+
   ui.button.addEventListener("click", () => {
     void (async () => {
+      if (!(await checkLocalCompanionConnected())) {
+        ui.status.textContent = CONNECT_FIRST_MESSAGE;
+        return;
+      }
       ui.button.disabled = true;
       ui.status.textContent = "Capturing current tab through Chrome…";
       try {

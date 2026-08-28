@@ -142,8 +142,21 @@ done
 #    double-clicks are resilient (extension present + same stable id every
 #    launch, thanks to the manifest "key"). No --enable-automation / no
 #    automation infobar.
+#
+#    The browser opens onto a NEUTRAL, self-contained instructions tab (a
+#    data: URL -- no new host_permissions or web_accessible_resources
+#    needed) rather than Counterpedia Local's own loopback status page.
+#    Opening directly onto the status page made it the panel's default
+#    "Source", so the very first "Capture this source" click looked broken
+#    (the real acquisition backend correctly SSRF-refuses a loopback
+#    source). The panel's "Open local status" button still reaches the
+#    status page whenever it's actually wanted.
 DEMO_PROFILE_DIR="$HOME/Library/Application Support/CounterpediaLocal/demo-profile"
 mkdir -p "$DEMO_PROFILE_DIR"
+
+INSTRUCTIONS_URL_OUT="$("$PYTHON" "$HERE/demo_browser.py" instructions-url "http://127.0.0.1:8790/" 2>&1)" \
+  || fail "$INSTRUCTIONS_URL_OUT"
+INSTRUCTIONS_URL="$INSTRUCTIONS_URL_OUT"
 
 echo "Launching demo browser with the self-loaded extension…"
 nohup "$DEMO_BROWSER" \
@@ -151,7 +164,7 @@ nohup "$DEMO_BROWSER" \
   --load-extension="$DIST_DIR" \
   --no-first-run \
   --no-default-browser-check \
-  "http://127.0.0.1:8790/" \
+  "$INSTRUCTIONS_URL" \
   >>"$LOCAL_LOG_DIR/demo-browser.log" 2>&1 &
 DEMO_BROWSER_PID=$!
 disown "$DEMO_BROWSER_PID" 2>/dev/null || true

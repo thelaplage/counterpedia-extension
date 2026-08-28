@@ -139,5 +139,52 @@ class ChromeComponentExtensionIdsTests(unittest.TestCase):
             self.assertRegex(ext_id, r"^[a-p]{32}$")
 
 
+class BuildInstructionsDataUrlTests(unittest.TestCase):
+    """SELF-LOAD0 polish (FIX 1): the demo browser opens onto a neutral
+    instructions tab instead of the loopback status page, so the first
+    "Capture this source" click doesn't look broken against a page the real
+    acquisition backend will always SSRF-refuse."""
+
+    def _decoded_body(self, status_url: str = "http://127.0.0.1:8790/") -> str:
+        import urllib.parse
+
+        url = db.build_instructions_data_url(status_url)
+        self.assertTrue(url.startswith("data:text/html,"))
+        return urllib.parse.unquote(url[len("data:text/html,") :])
+
+    def test_is_a_data_url_not_the_loopback_status_page(self) -> None:
+        url = db.build_instructions_data_url("http://127.0.0.1:8790/")
+        self.assertTrue(url.startswith("data:"))
+        self.assertNotEqual(url, "http://127.0.0.1:8790/")
+
+    def test_explicitly_states_this_tab_is_not_a_capture_source(self) -> None:
+        body = self._decoded_body()
+        self.assertIn("NOT a source to capture", body)
+
+    def test_instructs_navigating_to_a_real_source_then_the_toolbar_icon(self) -> None:
+        body = self._decoded_body()
+        self.assertIn("Navigate", body)
+        self.assertIn("toolbar icon", body)
+        self.assertIn("Connect Counterpedia Local", body)
+        self.assertIn("Capture this source", body)
+
+    def test_links_to_the_status_page_without_making_it_the_opening_tab(self) -> None:
+        body = self._decoded_body("http://127.0.0.1:8790/")
+        self.assertIn("http://127.0.0.1:8790/", body)
+        self.assertIn("Open local status", body)
+
+    def test_status_url_is_html_escaped_not_injected_raw(self) -> None:
+        # Defensive: even though the caller always passes a fixed loopback
+        # URL today, the builder must not let special characters break out
+        # of the href/text context it's placed in.
+        body = self._decoded_body('http://127.0.0.1:8790/?x="><script>alert(1)</script>')
+        self.assertNotIn("<script>alert(1)</script>", body)
+
+    def test_deterministic_for_the_same_input(self) -> None:
+        a = db.build_instructions_data_url("http://127.0.0.1:8790/")
+        b = db.build_instructions_data_url("http://127.0.0.1:8790/")
+        self.assertEqual(a, b)
+
+
 if __name__ == "__main__":
     unittest.main()

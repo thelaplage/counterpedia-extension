@@ -174,6 +174,56 @@ def compute_stable_extension_id_from_pem(pem_bytes: bytes) -> str:
     return compute_stable_extension_id(der)
 
 
+def build_instructions_data_url(status_page_url: str) -> str:
+    """Build a self-contained ``data:`` URL for the demo browser's opening tab.
+
+    SELF-LOAD0 polish (FIX 1): the demo browser must NOT open onto
+    ``status_page_url`` (Counterpedia Local's own loopback status page).
+    Doing so made that loopback URL the panel's default "Source", so the
+    very first "Capture this source" click looked broken (the real
+    acquisition backend's SSRF guard correctly refuses to register a
+    loopback-sourced capture -- see verify_ui_click_through_e2e.py's SSRF
+    FINDING). This builds a small, self-contained instructions page instead
+    -- explicitly NOT a page the user is meant to capture -- telling them to
+    navigate the tab to their actual source page first.
+
+    A ``data:`` URL needs no new ``host_permissions`` or
+    ``web_accessible_resources`` entry (the extension never talks to this
+    tab at all -- it isn't declared reachable and nothing here calls into
+    the extension), which is the simplest option that avoids broadening the
+    manifest for a one-shot instructional tab.
+
+    Pure string-building; no filesystem/network access, so it is directly
+    unit-testable.
+    """
+    import html
+    import urllib.parse
+
+    safe_status_url = html.escape(status_page_url, quote=True)
+    body = f"""<!doctype html>
+<meta charset="utf-8">
+<title>Counterpedia demo</title>
+<style>
+body{{font:15px system-ui,-apple-system,sans-serif;max-width:640px;margin:64px auto;padding:0 20px;color:#17211f}}
+h1{{margin-bottom:8px}}
+.note{{color:#a13c32;font-weight:600;margin:0 0 20px}}
+ol{{padding-left:20px}}
+li{{margin:10px 0}}
+a{{color:#177245}}
+</style>
+<h1>Counterpedia demo is ready</h1>
+<p class="note">This tab is instructions only &mdash; it is NOT a source to capture.</p>
+<ol>
+<li>Navigate <strong>this tab</strong> to the source page you want to capture (any real http/https site).</li>
+<li>Click the <strong>Counterpedia</strong> toolbar icon on that page &mdash; this opens the side panel and grants it access to the current tab.</li>
+<li>In the panel, click <strong>Connect Counterpedia Local</strong> (once).</li>
+<li>Click <strong>Capture this source</strong>, then <strong>Check browser recovery</strong>.</li>
+</ol>
+<p>Counterpedia Local's own status page (dependency/health, not a capture source) stays reachable any time from the panel's <strong>Open local status</strong> button, or directly at <a href="{safe_status_url}">{safe_status_url}</a>.</p>
+"""
+    return "data:text/html," + urllib.parse.quote(body)
+
+
 def _pem_to_der(pem_bytes: bytes) -> bytes:
     import base64
 
@@ -195,6 +245,12 @@ def _main(argv: list[str] | None = None) -> int:
     sub.add_parser("resolve", help="print the resolved demo browser binary path")
     id_parser = sub.add_parser("id", help="print the deterministic extension id for a PEM key")
     id_parser.add_argument("pem_path", type=Path)
+    instructions_parser = sub.add_parser(
+        "instructions-url", help="print the neutral data: URL the demo browser should open onto"
+    )
+    instructions_parser.add_argument(
+        "status_page_url", help="Counterpedia Local's own status page URL, linked from the instructions"
+    )
 
     args = parser.parse_args(argv)
     if args.command == "resolve":
@@ -207,6 +263,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "id":
         pem_bytes = args.pem_path.read_bytes()
         print(compute_stable_extension_id_from_pem(pem_bytes))
+        return 0
+    if args.command == "instructions-url":
+        print(build_instructions_data_url(args.status_page_url))
         return 0
     return 2
 

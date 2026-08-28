@@ -9,6 +9,7 @@ import {
   type WikipediaReferenceManifest,
 } from "../lib/wikipediaHarvestBridge";
 import { validateMessage } from "../lib/messaging";
+import { CONNECT_FIRST_MESSAGE, checkLocalCompanionConnected } from "../lib/connectionGate";
 
 const SECTION_ID = "wikipedia-harvest-section";
 const MAX_RENDERED_SOURCES = 250;
@@ -24,6 +25,13 @@ const state: HarvestPanelState = {
   manifest: null,
   classified: [],
 };
+
+// PRE-CONNECT GATE: "Harvest references" calls a paired-only Counterpedia
+// Local route (POST /v0/wikipedia-harvest). Refreshed once at init (a
+// successful Connect always reloads the panel, so this reflects the current
+// session by the time any of this module's code runs) and re-checked
+// defensively before every harvest click.
+let connected = false;
 
 function teamBetaEnabled(): boolean {
   const manifest = chrome.runtime.getManifest() as unknown as Record<string, unknown>;
@@ -252,8 +260,10 @@ async function refreshForUrl(
   ui.summary.style.display = "none";
   ui.queue.style.display = "none";
   ui.queueNote.style.display = "none";
-  ui.harvest.disabled = false;
-  ui.status.textContent = "Ready to harvest this Wikipedia page.";
+  ui.harvest.disabled = !connected;
+  ui.status.textContent = connected
+    ? "Ready to harvest this Wikipedia page."
+    : CONNECT_FIRST_MESSAGE;
   ui.section.style.display = pageUrl ? "" : "none";
 }
 
@@ -270,6 +280,10 @@ export async function initWikipediaHarvestPanel(): Promise<void> {
     void (async () => {
       const requestedPageUrl = state.pageUrl;
       if (!requestedPageUrl) return;
+      if (!(await checkLocalCompanionConnected())) {
+        ui.status.textContent = CONNECT_FIRST_MESSAGE;
+        return;
+      }
       ui.harvest.disabled = true;
       ui.status.textContent = "Harvesting exact MediaWiki revision through Counterpedia Local…";
       try {
@@ -326,6 +340,8 @@ export async function initWikipediaHarvestPanel(): Promise<void> {
       void refreshForUrl(ui, null);
     }
   });
+
+  connected = await checkLocalCompanionConnected();
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
