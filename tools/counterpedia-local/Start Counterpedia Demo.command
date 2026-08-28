@@ -169,6 +169,18 @@ nohup "$DEMO_BROWSER" \
 DEMO_BROWSER_PID=$!
 disown "$DEMO_BROWSER_PID" 2>/dev/null || true
 
+# 9. record supervisor-owned pids + a live-command signature for each, so a
+#    later "Reset Counterpedia Demo.command" can stop exactly these two
+#    processes (never a foreign one that happens to reuse a pid number) and
+#    clear only this run's own ephemeral demo profile. Best-effort: a failure
+#    here must not fail the demo start, it only means reset won't find a
+#    tracked session and will report nothing to stop.
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+"$PYTHON" "$HERE/reset_demo.py" record-session \
+  "$LOCAL_PID" "counterpedia_local_operator.py" \
+  "$DEMO_BROWSER_PID" "user-data-dir=$DEMO_PROFILE_DIR" \
+  "$DEMO_PROFILE_DIR" "$STARTED_AT" >/dev/null 2>&1 || true
+
 echo
 echo "Counterpedia Local demo is running:"
 echo "  Counterpedia Local pid: $LOCAL_PID  (log: $LOCAL_LOG_DIR/companion.log)"
@@ -183,3 +195,7 @@ echo "     the panel this way is required for \"Capture this source\" to work."
 echo "  3. Click \"Connect Counterpedia Local\" (once)."
 echo "  4. Click \"Capture this source\", then \"Check browser recovery\"."
 echo "No extension ID, token, or DevTools setup is required."
+echo
+echo "Run \"python3 $HERE/preflight.py\" any time for a bounded pitch-readiness"
+echo "check, or double-click \"Reset Counterpedia Demo.command\" to stop this"
+echo "session's own processes and clear its own demo profile before a re-run."
