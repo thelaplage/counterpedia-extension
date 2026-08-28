@@ -504,6 +504,9 @@ import {
   createPageContextGeneration,
   runGuardedAcquisition,
 } from "../lib/acquisitionNavGuard";
+import { wireRecoveryButton } from "./recoveryButton";
+import { createHttpRecoveryClient, notConfiguredRecoveryClient } from "../lib/recoveryClient";
+import type { RecoveryRender } from "../lib/recoveryRender";
 import {
   selectAuthoringClient,
   readAuthoringConfig,
@@ -652,6 +655,12 @@ function setAuthoringStatus(render: AuthoringRender | null): void {
 /** Reflect draft availability onto the button + initial status line. */
 function setDraftGovernedSource(result: AcquisitionCaptureResult | null): void {
   draftGovernedSource.result = result;
+  // RECOVERY-BIND0: recovery is available only when a governed held capture_ref
+  // exists. A new/changed governed source clears any prior recovery render — a
+  // recovery result belongs to the held capture that produced it.
+  const recoveryBtn = document.getElementById("recovery-btn") as HTMLButtonElement | null;
+  if (recoveryBtn) recoveryBtn.disabled = result?.capture_id == null;
+  setRecoveryStatus(null);
   const btn = document.getElementById(
     "authoring-draft-btn",
   ) as HTMLButtonElement | null;
@@ -670,6 +679,66 @@ function setDraftGovernedSource(result: AcquisitionCaptureResult | null): void {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// RECOVERY-BIND0 panel action — explicit "Check browser recovery".
+//
+// Composes the already-green recovery modules over a currently-held governed
+// capture. Reuses the CAPTURE_PAGE producer path for a FRESH BrowserPageCapture
+// and the SINGLE panel-owned pageContext generation (#50). Never launches a
+// browser, never uses MHTML/operator snapshot, never re-fetches, never mutates
+// the held capture, and never makes Draft-from-source ready.
+// ---------------------------------------------------------------------------
+
+function setRecoveryStatus(render: RecoveryRender | null): void {
+  const container = document.getElementById("recovery-status");
+  if (!container) return;
+  if (!render) {
+    container.style.display = "none";
+    container.dataset["outcome"] = "";
+    return;
+  }
+  container.style.display = "";
+  container.dataset["outcome"] = render.outcome ?? render.status;
+  const set = (id: string, text: string): void => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  set("recovery-initial", render.initialCaptureLine);
+  set("recovery-outcome", render.recoveryLine);
+  // The two digest namespaces are rendered into distinct, separately-labelled
+  // rows so the browser observation digest is never confused with the HTTP
+  // exact-bytes digest.
+  set("recovery-http-digest", render.httpArtifactDigest ?? "—");
+  set("recovery-browser-digest", render.browserObservationDigest ?? "—");
+}
+
+function initRecoveryButton(): void {
+  const btn = document.getElementById("recovery-btn") as HTMLButtonElement | null;
+  const statusText = document.getElementById("recovery-status-text");
+  if (!btn) return;
+  btn.disabled = draftGovernedSource.result?.capture_id == null;
+  wireRecoveryButton({
+    button: btn,
+    getCaptureRef: () => draftGovernedSource.result?.capture_id ?? null,
+    requestBrowserCapture: (msg) =>
+      chrome.runtime.sendMessage(msg) as Promise<CaptureResponse | undefined>,
+    assessRecovery: async (captureRef, capture) => {
+      const cfg = await readAcquisitionConfig();
+      const client = cfg
+        ? createHttpRecoveryClient({ baseUrl: cfg.baseUrl, token: cfg.token })
+        : notConfiguredRecoveryClient;
+      return client.assessRecovery(captureRef, capture);
+    },
+    generation: pageContext,
+    setRecoveryStatus,
+    setStatusText: (t) => {
+      if (statusText) statusText.textContent = t;
+    },
+  });
+}
+
+initRecoveryButton();
 
 /** Parse operator-typed evidence handles, keeping only well-formed ones. */
 function parseEvidenceHandles(raw: string): string[] {
