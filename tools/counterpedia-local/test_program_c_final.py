@@ -65,37 +65,49 @@ def _load_subject():
     return subject, fake
 
 
+def _restore_module(name: str, previous):
+    if previous is None:
+        sys.modules.pop(name, None)
+    else:
+        sys.modules[name] = previous
+
+
 class ProgramCFinalTests(unittest.TestCase):
+    def setUp(self):
+        self._previous_recovery = sys.modules.get("recovery_cohort")
+        self._previous_subject = sys.modules.get("program_c_final")
+        self.subject, self.fake = _load_subject()
+
+    def tearDown(self):
+        _restore_module("recovery_cohort", self._previous_recovery)
+        _restore_module("program_c_final", self._previous_subject)
+
     def test_timed_wrapper_returns_original_result_and_records_elapsed(self):
-        subject, _fake = _load_subject()
         sentinel = object()
-        subject._ORIGINAL_WAIT_FOR_RENDER_SETTLE = lambda conn, session, url: sentinel
-        with mock.patch.object(subject.time, "monotonic", side_effect=[10.0, 12.3456]):
-            result = subject._timed_wait_for_render_settle(None, "session", "https://example.test/")
+        self.subject._ORIGINAL_WAIT_FOR_RENDER_SETTLE = lambda conn, session, url: sentinel
+        with mock.patch.object(self.subject.time, "monotonic", side_effect=[10.0, 12.3456]):
+            result = self.subject._timed_wait_for_render_settle(None, "session", "https://example.test/")
         self.assertIs(result, sentinel)
-        self.assertAlmostEqual(subject._SETTLE_DURATIONS_BY_URL["https://example.test/"], 2.3456)
+        self.assertAlmostEqual(self.subject._SETTLE_DURATIONS_BY_URL["https://example.test/"], 2.3456)
 
     def test_row_serialization_appends_duration_and_final_local_word_count(self):
-        subject, fake = _load_subject()
-        row = fake.CohortRow("u", "p", "b", recovery_outcome="RECOVERED", settle_reason="STABLE")
+        row = self.fake.CohortRow("u", "p", "b", recovery_outcome="RECOVERED", settle_reason="STABLE")
         row.word_count_trajectory = [0, 41, 300, 302, 302, 302]
         row.settle_duration_s = 3.45678
-        data = subject._cohort_row_to_dict(row)
+        data = self.subject._cohort_row_to_dict(row)
         self.assertEqual(data["final_settle_word_count"], 302)
         self.assertEqual(data["settle_duration_s"], 3.457)
         self.assertEqual(data["recovery_outcome"], "RECOVERED")
 
     def test_navigation_error_serializes_null_duration_and_no_final_words(self):
-        subject, fake = _load_subject()
-        row = fake.CohortRow("u", "p", "b", settle_reason="NAVIGATION_ERROR")
+        row = self.fake.CohortRow("u", "p", "b", settle_reason="NAVIGATION_ERROR")
         row.settle_duration_s = None
-        data = subject._cohort_row_to_dict(row)
+        data = self.subject._cohort_row_to_dict(row)
         self.assertIsNone(data["settle_duration_s"])
         self.assertIsNone(data["final_settle_word_count"])
 
     def test_final_table_contains_required_columns(self):
-        subject, _fake = _load_subject()
-        table = subject.render_final_settle_table(
+        table = self.subject.render_final_settle_table(
             [
                 {
                     "url": "https://bsky.app/",
@@ -114,32 +126,30 @@ class ProgramCFinalTests(unittest.TestCase):
         self.assertIn("3.125", table)
 
     def test_results_path_override_is_explicit_and_creates_parent_only(self):
-        subject, fake = _load_subject()
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "program-c" / "final" / "cohort_results.json"
-            with mock.patch.dict(os.environ, {subject.RESULTS_PATH_ENV: str(target)}, clear=False):
-                resolved = subject._configure_results_path()
+            with mock.patch.dict(os.environ, {self.subject.RESULTS_PATH_ENV: str(target)}, clear=False):
+                resolved = self.subject._configure_results_path()
             self.assertEqual(resolved, target.resolve())
-            self.assertEqual(fake.RESULTS_JSON_PATH, target.resolve())
+            self.assertEqual(self.fake.RESULTS_JSON_PATH, target.resolve())
             self.assertTrue(target.parent.is_dir())
             self.assertFalse(target.exists())
 
     def test_installation_does_not_change_settle_or_recovery_constants(self):
-        subject, fake = _load_subject()
         before = (
-            fake.SETTLE_POLL_INTERVAL_S,
-            fake.SETTLE_REQUIRED_STABLE_SAMPLES,
-            fake.SETTLE_MIN_CONTENT_WORDS,
-            fake.RECOVERED_MIN_BROWSER_WORDS,
-            fake.RECOVERED_MIN_RATIO,
+            self.fake.SETTLE_POLL_INTERVAL_S,
+            self.fake.SETTLE_REQUIRED_STABLE_SAMPLES,
+            self.fake.SETTLE_MIN_CONTENT_WORDS,
+            self.fake.RECOVERED_MIN_BROWSER_WORDS,
+            self.fake.RECOVERED_MIN_RATIO,
         )
-        subject.install_instrumentation()
+        self.subject.install_instrumentation()
         after = (
-            fake.SETTLE_POLL_INTERVAL_S,
-            fake.SETTLE_REQUIRED_STABLE_SAMPLES,
-            fake.SETTLE_MIN_CONTENT_WORDS,
-            fake.RECOVERED_MIN_BROWSER_WORDS,
-            fake.RECOVERED_MIN_RATIO,
+            self.fake.SETTLE_POLL_INTERVAL_S,
+            self.fake.SETTLE_REQUIRED_STABLE_SAMPLES,
+            self.fake.SETTLE_MIN_CONTENT_WORDS,
+            self.fake.RECOVERED_MIN_BROWSER_WORDS,
+            self.fake.RECOVERED_MIN_RATIO,
         )
         self.assertEqual(after, before)
 
