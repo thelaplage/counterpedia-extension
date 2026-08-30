@@ -621,12 +621,172 @@ const draftGovernedSource: { result: AcquisitionCaptureResult | null } = {
   result: null,
 };
 
+function ensureAuthoringProposalPreviewContainer(): HTMLElement | null {
+  const status = document.getElementById("authoring-status");
+  if (!status) return null;
+  const existing = document.getElementById("authoring-proposal-preview");
+  if (existing) return existing;
+  const container = document.createElement("div");
+  container.id = "authoring-proposal-preview";
+  container.className = "authoring-proposal-preview";
+  container.setAttribute("aria-label", "Proposal preview");
+  container.style.display = "none";
+  status.appendChild(container);
+  return container;
+}
+
+function appendPreviewText(
+  parent: HTMLElement,
+  className: string,
+  text: string,
+): HTMLElement {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function appendPreviewBlock(
+  parent: HTMLElement,
+  block: NonNullable<AuthoringRender["proposalPreview"]>["leadBlocks"][number],
+): void {
+  const blockEl = document.createElement("div");
+  blockEl.className = "authoring-preview-block";
+  if (block.text) appendPreviewText(blockEl, "authoring-preview-text", block.text);
+  if (block.items.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "authoring-preview-list";
+    for (const item of block.items) {
+      const li = document.createElement("li");
+      li.textContent = item;
+      list.appendChild(li);
+    }
+    blockEl.appendChild(list);
+  }
+  if (block.evidenceRefs.length > 0) {
+    appendPreviewText(
+      blockEl,
+      "authoring-preview-evidence",
+      `Evidence: ${block.evidenceRefs.join(", ")}`,
+    );
+  }
+  parent.appendChild(blockEl);
+}
+
+function renderAuthoringProposalPreview(render: AuthoringRender | null): void {
+  const container = ensureAuthoringProposalPreviewContainer();
+  if (!container) return;
+  container.replaceChildren();
+  const preview = render?.proposalPreview ?? null;
+  if (!preview) {
+    container.style.display = "none";
+    return;
+  }
+  container.style.display = "";
+
+  appendPreviewText(container, "authoring-preview-heading", "Proposal preview");
+  appendPreviewText(
+    container,
+    "authoring-preview-boundary",
+    "Proposal only — not admitted, published, verified, or standing.",
+  );
+  if (preview.title) {
+    appendPreviewText(container, "authoring-preview-title", preview.title);
+  }
+  const identityBits = [preview.proposalId, preview.outputProfile, preview.schemaVersion]
+    .filter((value): value is string => value !== null);
+  if (identityBits.length > 0) {
+    appendPreviewText(
+      container,
+      "authoring-preview-meta",
+      identityBits.join(" · "),
+    );
+  }
+
+  if (preview.leadBlocks.length > 0) {
+    appendPreviewText(container, "authoring-preview-subheading", "Lead");
+    for (const block of preview.leadBlocks) appendPreviewBlock(container, block);
+  }
+
+  for (const section of preview.sections) {
+    const sectionEl = document.createElement("section");
+    sectionEl.className = "authoring-preview-section";
+    appendPreviewText(sectionEl, "authoring-preview-subheading", section.label);
+    if (section.supported === false && section.unsupportedReason) {
+      appendPreviewText(
+        sectionEl,
+        "authoring-preview-gap",
+        `Unsupported: ${section.unsupportedReason}`,
+      );
+    }
+    for (const block of section.blocks) appendPreviewBlock(sectionEl, block);
+    container.appendChild(sectionEl);
+  }
+
+  if (preview.propositions.length > 0) {
+    appendPreviewText(container, "authoring-preview-subheading", "Propositions");
+    const list = document.createElement("ul");
+    list.className = "authoring-preview-propositions";
+    for (const proposition of preview.propositions) {
+      const li = document.createElement("li");
+      li.textContent = proposition.claimText;
+      if (proposition.evidenceRefs.length > 0) {
+        const basis = document.createElement("div");
+        basis.className = "authoring-preview-evidence";
+        basis.textContent = `Evidence: ${proposition.evidenceRefs.join(", ")}`;
+        li.appendChild(basis);
+      }
+      if (proposition.requiresHumanReview === true) {
+        const review = document.createElement("div");
+        review.className = "authoring-preview-review";
+        review.textContent = "Human review required";
+        li.appendChild(review);
+      }
+      list.appendChild(li);
+    }
+    container.appendChild(list);
+  }
+
+  if (preview.evidenceBasisRefs.length > 0) {
+    appendPreviewText(
+      container,
+      "authoring-preview-basis",
+      `Evidence basis: ${preview.evidenceBasisRefs.join(", ")}`,
+    );
+  }
+
+  if (preview.unsupportedSlots.length > 0) {
+    appendPreviewText(container, "authoring-preview-subheading", "Documentary gaps");
+    for (const gap of preview.unsupportedSlots) {
+      appendPreviewText(
+        container,
+        "authoring-preview-gap",
+        `${gap.label}: ${gap.reason}`,
+      );
+    }
+  }
+
+  if (preview.openQuestions.length > 0) {
+    appendPreviewText(container, "authoring-preview-subheading", "Open questions");
+    const list = document.createElement("ul");
+    list.className = "authoring-preview-questions";
+    for (const question of preview.openQuestions) {
+      const li = document.createElement("li");
+      li.textContent = question;
+      list.appendChild(li);
+    }
+    container.appendChild(list);
+  }
+}
+
 function setAuthoringStatus(render: AuthoringRender | null): void {
   const el = document.getElementById("authoring-status");
   if (!el) return;
   if (!render) {
     el.style.display = "none";
     el.dataset["state"] = "";
+    renderAuthoringProposalPreview(null);
     return;
   }
   el.style.display = "";
@@ -650,6 +810,7 @@ function setAuthoringStatus(render: AuthoringRender | null): void {
       ? `Handoff: ${render.handoffDigest}`
       : "";
   }
+  renderAuthoringProposalPreview(render);
 }
 
 /** Reflect draft availability onto the button + initial status line. */
