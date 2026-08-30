@@ -821,6 +821,30 @@ describeE2E("DRAFT-FROM-SOURCE — real three-process held-capture loop", () => 
     const render = renderProposalAssembled(good.handoff);
     expect(render.state).toBe("PROPOSAL_ASSEMBLED");
     expect(render.admissionLine).toBe("Admission: not performed");
+
+    // DRAFT-FROM-SOURCE-PREVIEW0 forcing: the REAL producer handoff must project a
+    // non-empty, evidence-carrying preview into the panel read-model (not just the
+    // lifecycle line the panel showed before #60).
+    const preview = render.proposalPreview;
+    expect(preview).not.toBeNull();
+    if (preview) {
+      // Title projected from the real producer draft is non-empty.
+      expect(typeof preview.title === "string" && preview.title.trim().length > 0).toBe(true);
+      // Body projection is non-empty: at least one lead block carrying text.
+      expect(preview.leadBlocks.length).toBeGreaterThan(0);
+      expect(
+        preview.leadBlocks.some((b) => typeof b.text === "string" && b.text.trim().length > 0),
+      ).toBe(true);
+      // The producer's real evidence handle survives into the preview. The
+      // held-capture bundle allocates evidence:E001 to the capture item itself.
+      const allEvidence = new Set<string>([
+        ...preview.evidenceBasisRefs,
+        ...preview.leadBlocks.flatMap((b) => b.evidenceRefs),
+        ...preview.sections.flatMap((s) => s.blocks.flatMap((b) => b.evidenceRefs)),
+        ...preview.propositions.flatMap((p) => p.evidenceRefs),
+      ]);
+      expect(allEvidence.has("evidence:E001")).toBe(true);
+    }
   }, 30_000);
 
   // -------------------------------------------------------------------------
