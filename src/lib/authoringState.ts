@@ -22,6 +22,10 @@
 
 import type { AuthoringHandoff } from "./authoringResponseGuard";
 import type { AuthoringClientResult } from "./authoringClient";
+import {
+  buildAuthoringProposalPreview,
+  type ProposalPreview,
+} from "./authoringProposalPreview";
 
 /** The ordered draft lifecycle. PROPOSAL_ASSEMBLED is the terminal success. */
 export type AuthoringState =
@@ -66,6 +70,12 @@ export interface AuthoringRender {
   /** The producer's handoff digest when assembled; else null. Opaque label. */
   handoffDigest: string | null;
   /**
+   * Bounded read-only preview of the already-guarded producer draft. This is a
+   * presentation projection only; it is never an extension-owned authoring
+   * contract or authority source. Present only for PROPOSAL_ASSEMBLED.
+   */
+  proposalPreview: ProposalPreview | null;
+  /**
    * The bounded server refusal code (e.g. "source_basis_unresolved") when the
    * terminal state was reached via a non-2xx authoring response that carried
    * one; else null. C0-REFUSAL-DETAIL-RECON0: this is surfaced so an operator
@@ -93,6 +103,7 @@ function make(
   lifecycle: string | null,
   handoffDigest: string | null,
   refusalCode: string | null = null,
+  proposalPreview: ProposalPreview | null = null,
 ): AuthoringRender {
   assertNotSuccessWord(label);
   return {
@@ -102,6 +113,7 @@ function make(
     admissionLine: ADMISSION_LINE,
     lifecycle,
     handoffDigest,
+    proposalPreview,
     refusalCode,
   };
 }
@@ -148,6 +160,8 @@ export function renderProposalAssembled(
     `Proposal assembled (${lifecycle}) — proposal only`,
     lifecycle,
     handoff.handoff_digest,
+    null,
+    buildAuthoringProposalPreview(handoff),
   );
 }
 
