@@ -104,6 +104,15 @@ describe("READER-CONSUMER-EXT1 layout projection", () => {
     expect(preview.openQuestions).toEqual(["Which date should a reviewer verify?"]);
   });
 
+  it("uses the canonical Counterpedia authoring provenance family, not an extension-local alias", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/authoringProposalPreview.ts"),
+      "utf8",
+    );
+    expect(source).toContain('candidate.family === "authoring_proposal_handoff"');
+    expect(source).not.toContain('candidate.family === "authoring_proposal"');
+  });
+
   it("does not inspect raw Authoring draft fields in the layout projector", () => {
     const source = readFileSync(
       join(process.cwd(), "src/lib/authoringProposalPreview.ts"),
