@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Chrome-host canary helper for the Counterpedia proposal reader service.
 
-This is operational demo scaffolding only. It does not own reader semantics.
+Operational demo scaffolding only. It does not own reader semantics.
 It starts the accepted Counterpedia checkout's existing Next.js reader route
 on 127.0.0.1:3000 when needed, reuses an already-compatible service when one
 is present, refuses to kill/replace a foreign or incompatible process, and
@@ -11,6 +11,13 @@ Readiness is intentionally specific: POSTing an empty JSON object to
 /api/counterpedia/reader/proposal must fail closed with HTTP 422 and the
 canonical `proposal_projection_refused` code. A generic web server on :3000
 is not sufficient.
+
+Finder-launched .command files do not inherit a developer shell's environment.
+When COUNTERPEDIA_DIR / COUNTERPEDIA_REPO_DIR is absent, this helper first
+checks the normal sibling checkout. If that checkout does not contain the
+reader route, it inspects its linked git worktrees and will auto-select ONLY
+when exactly one reader-capable worktree exists. Multiple matches fail closed
+rather than guessing which DRAFT stack is accepted.
 """
 from __future__ import annotations
 
@@ -31,18 +38,74 @@ HOST = "127.0.0.1"
 PORT = 3000
 ROUTE = "/api/counterpedia/reader/proposal"
 READER_URL = f"http://{HOST}:{PORT}{ROUTE}"
+ROUTE_RELATIVE_PATH = Path("app/api/counterpedia/reader/proposal/route.ts")
 STATE_PATH = reset_demo.STATE_DIR / "counterpedia-reader-session.json"
 STATE_SCHEMA = "counterpedia_local.reader_session.v0.1"
 LOG_DIR = Path.home() / ".counterpedia" / "local" / "logs"
 LOG_PATH = LOG_DIR / "counterpedia-reader.log"
 
 
-def default_counterpedia_dir() -> Path:
+def _has_reader_route(repo_dir: Path) -> bool:
+    return (repo_dir / ROUTE_RELATIVE_PATH).is_file()
+
+
+def _linked_worktrees(primary_repo: Path) -> list[Path]:
+    """Return linked git worktree paths without interpreting their branch names."""
+    if not primary_repo.is_dir():
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(primary_repo), "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+
+    paths: list[Path] = []
+    for line in result.stdout.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        raw = line[len("worktree ") :].strip()
+        if raw:
+            paths.append(Path(raw).expanduser())
+    return paths
+
+
+def default_counterpedia_dir(ext_root: Path | None = None) -> Path:
     override = os.environ.get("COUNTERPEDIA_DIR") or os.environ.get("COUNTERPEDIA_REPO_DIR")
     if override:
         return Path(override).expanduser()
-    ext_root = Path(__file__).resolve().parent.parent.parent
-    return ext_root.parent / "counterpedia"
+
+    ext_root = (ext_root or Path(__file__).resolve().parent.parent.parent).resolve()
+    primary = ext_root.parent / "counterpedia"
+    if _has_reader_route(primary):
+        return primary
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for worktree in _linked_worktrees(primary):
+        resolved = worktree.resolve()
+        if resolved in seen or resolved == primary.resolve():
+            continue
+        seen.add(resolved)
+        if _has_reader_route(resolved):
+            candidates.append(resolved)
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        rendered = ", ".join(str(path) for path in sorted(candidates))
+        raise RuntimeError(
+            "multiple Counterpedia worktrees contain the proposal reader route; "
+            "refusing to guess which DRAFT stack is accepted. Set COUNTERPEDIA_DIR "
+            f"explicitly. Candidates: {rendered}"
+        )
+    return primary
 
 
 def port_open(host: str = HOST, port: int = PORT) -> bool:
@@ -63,7 +126,6 @@ def probe_reader(url: str = READER_URL, timeout: float = 2.0) -> bool:
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            # Empty input must not succeed. A 2xx here is not the expected route.
             response.read()
             return False
     except urllib.error.HTTPError as exc:
@@ -109,7 +171,7 @@ def _write_state(pid: int, cmd_signature: str, repo_dir: Path, path: Path = STAT
 
 
 def _assert_checkout(repo_dir: Path) -> Path:
-    route = repo_dir / "app" / "api" / "counterpedia" / "reader" / "proposal" / "route.ts"
+    route = repo_dir / ROUTE_RELATIVE_PATH
     package = repo_dir / "package.json"
     next_bin = repo_dir / "node_modules" / ".bin" / "next"
     if not route.is_file():
@@ -174,8 +236,6 @@ def start_reader(repo_dir: Path | None = None, timeout: float = 35.0) -> dict[st
                 f"Counterpedia reader did not become ready within {timeout:.0f}s; see {LOG_PATH}"
             )
 
-        # Record the exact live command of the process we just spawned. Reset
-        # later requires this same signature before it will touch the pid.
         signature = ""
         for _ in range(20):
             signature = reset_demo.get_live_commands().get(process.pid, "")
@@ -231,8 +291,6 @@ def reset_reader(path: Path = STATE_PATH) -> dict[str, Any]:
         reset_demo.stop_owned_process(disposition.pid)
         stopped = True
     elif disposition.classification == "foreign_signature_mismatch":
-        # Preserve the state file so the refusal remains inspectable. Never
-        # convert a signature mismatch into permission to kill.
         return {
             "status": disposition.classification,
             "stopped": False,
