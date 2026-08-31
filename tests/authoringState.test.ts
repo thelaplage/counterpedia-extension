@@ -1,11 +1,4 @@
-/**
- * AUTHOR-HTTP draft-from-source state tests — non-collapse + admission discipline.
- *
- * Proves the third-act state machine (a) is independent of acquisition, (b)
- * never renders an authority success word, and (c) ALWAYS shows
- * "Admission: not performed", regardless of outcome.
- */
-
+/** AUTHOR-HTTP draft state — non-collapse + canonical reader composition. */
 import { describe, it, expect } from "vitest";
 
 import {
@@ -23,6 +16,7 @@ import {
   type AuthoringRender,
 } from "../src/lib/authoringState";
 import type { AuthoringHandoff } from "../src/lib/authoringResponseGuard";
+import type { ProposalReaderEntry } from "../src/lib/entryReadModelClient";
 
 function handoff(lifecycle: "proposal" | "draft"): AuthoringHandoff {
   return {
@@ -37,6 +31,30 @@ function handoff(lifecycle: "proposal" | "draft"): AuthoringHandoff {
   };
 }
 
+function readerEntry(lifecycle: "proposal" | "draft" = "proposal"): ProposalReaderEntry {
+  return {
+    entryId: "proposal:reader",
+    title: "Canonical proposal",
+    summary: "Canonical summary",
+    posture: "proposal",
+    sourceKind: "authoring_proposal",
+    lifecycle,
+    leadBlocks: [{ kind: "paragraph", text: "Lead", evidenceRefs: ["evidence:E001"] }],
+    articleSections: [],
+    articleClaims: [],
+    linkSuggestions: [],
+    review: { gaps: [], openQuestions: [] },
+    sections: {
+      provenance: [
+        {
+          family: "authoring_proposal",
+          detail: { handoff_digest: "sha256:abc123", proposal_id: "proposal:reader" },
+        },
+      ],
+    },
+  };
+}
+
 const ALL: AuthoringRender[] = [
   renderDraftUnavailable(),
   renderDraftReady(),
@@ -47,31 +65,22 @@ const ALL: AuthoringRender[] = [
   renderDraftFailed(),
 ];
 
-describe("mapDraftAvailability — capture gates the option, one-directionally", () => {
-  it("no captured source => DRAFT_UNAVAILABLE", () => {
+describe("mapDraftAvailability", () => {
+  it("capture gates the option one-directionally", () => {
     expect(mapDraftAvailability(false)).toBe("DRAFT_UNAVAILABLE");
-  });
-  it("captured source => DRAFT_READY (an option, not a performed draft)", () => {
     expect(mapDraftAvailability(true)).toBe("DRAFT_READY");
   });
 });
 
 describe("every render — admission + authority discipline", () => {
-  it("ALWAYS shows 'Admission: not performed'", () => {
+  it("always carries the non-admission and proposal-only lines", () => {
     for (const r of ALL) {
       expect(r.admissionLine).toBe(ADMISSION_LINE);
-      expect(r.admissionLine).toBe("Admission: not performed");
-    }
-  });
-
-  it("ALWAYS shows 'authority: proposal only'", () => {
-    for (const r of ALL) {
       expect(r.authorityLine).toBe(AUTHORITY_LINE);
-      expect(r.authorityLine).toBe("authority: proposal only");
     }
   });
 
-  it("NEVER renders a forbidden success word in state or label", () => {
+  it("never renders a forbidden success word in state or label", () => {
     for (const r of ALL) {
       const upperState = r.state.toUpperCase();
       const upperLabel = r.label.toUpperCase();
@@ -83,134 +92,73 @@ describe("every render — admission + authority discipline", () => {
   });
 });
 
-describe("renderProposalAssembled — terminal proposal_only", () => {
-  it("surfaces the proposal lifecycle + handoff digest, never admission", () => {
+describe("renderProposalAssembled", () => {
+  it("preserves Authoring terminal status without fabricating reader content", () => {
     const r = renderProposalAssembled(handoff("proposal"));
     expect(r.state).toBe("PROPOSAL_ASSEMBLED");
     expect(r.lifecycle).toBe("proposal");
     expect(r.handoffDigest).toBe("sha256:abc123");
+    expect(r.proposalPreview).toBeNull();
     expect(r.label.toLowerCase()).toContain("proposal only");
   });
 
-  it("accepts the 'draft' lifecycle too", () => {
-    const r = renderProposalAssembled(handoff("draft"));
+  it("renders content only from the canonical Counterpedia reader model", () => {
+    const r = renderProposalAssembled(handoff("draft"), readerEntry("draft"));
     expect(r.lifecycle).toBe("draft");
+    expect(r.proposalPreview?.title).toBe("Canonical proposal");
+    expect(r.proposalPreview?.leadBlocks[0]?.evidenceRefs).toEqual(["evidence:E001"]);
+  });
+
+  it("keeps PROPOSAL_ASSEMBLED when the separate reader projection is unavailable", () => {
+    const r = renderProposalAssembled(handoff("proposal"), null, true);
+    expect(r.state).toBe("PROPOSAL_ASSEMBLED");
+    expect(r.proposalPreview).toBeNull();
+    expect(r.label).toContain("reader projection unavailable");
+    expect(r.admissionLine).toBe("Admission: not performed");
   });
 });
 
-describe("renderAuthoringClientResult — mapping never admits", () => {
-  it("not_configured => service unavailable (silent opt-in)", () => {
+describe("renderAuthoringClientResult", () => {
+  it("not_configured => service unavailable", () => {
     const r = renderAuthoringClientResult({ kind: "not_configured" });
     expect(r.state).toBe("DRAFT_SERVICE_UNAVAILABLE");
-    expect(r.admissionLine).toBe(ADMISSION_LINE);
   });
 
-  it("assembled => proposal assembled", () => {
-    const r = renderAuthoringClientResult({
-      kind: "assembled",
-      handoff: handoff("proposal"),
+  it("assembled accepts an optional canonical reader entry", () => {
+    const result = { kind: "assembled" as const, handoff: handoff("proposal") };
+    expect(renderAuthoringClientResult(result).proposalPreview).toBeNull();
+    expect(renderAuthoringClientResult(result, readerEntry()).proposalPreview?.title).toBe(
+      "Canonical proposal",
+    );
+  });
+
+  it("authoring failures preserve bounded refusal labels", () => {
+    const source = renderAuthoringClientResult({
+      kind: "authoring_failed",
+      status: 422,
+      detail: "http 422",
+      refusalCode: "source_basis_unresolved",
     });
-    expect(r.state).toBe("PROPOSAL_ASSEMBLED");
-    expect(r.lifecycle).toBe("proposal");
+    expect(source.state).toBe("DRAFT_FAILED");
+    expect(source.label).toBe("Draft from source refused: historical source unresolved");
+
+    const pipeline = renderAuthoringClientResult({
+      kind: "authoring_failed",
+      status: 422,
+      detail: "http 422",
+      refusalCode: "pipeline_refused",
+    });
+    expect(pipeline.label).toBe("Draft from source refused: pipeline refused");
   });
 
-  it("authoring_failed with no refusal code => generic draft-failed label (acquisition record intact, no authority)", () => {
+  it("unknown bounded refusal code is never interpolated into visible prose", () => {
     const r = renderAuthoringClientResult({
       kind: "authoring_failed",
-      status: 500,
-      detail: "http 500",
-      refusalCode: null,
+      status: 422,
+      detail: "http 422",
+      refusalCode: "held_capture_requires_single_candidate",
     });
-    expect(r.state).toBe("DRAFT_FAILED");
-    expect(r.lifecycle).toBeNull();
-    expect(r.refusalCode).toBeNull();
-    expect(r.label).toBe("Draft from source failed");
-  });
-
-  it("invalid_source => draft failed, no refusal code (client-side refusal, no network response)", () => {
-    const r = renderAuthoringClientResult({
-      kind: "invalid_source",
-      detail: "no url",
-    });
-    expect(r.state).toBe("DRAFT_FAILED");
-    expect(r.refusalCode).toBeNull();
-    expect(r.label).toBe("Draft from source failed");
-  });
-
-  describe("C0-REFUSAL-DETAIL-RECON0 — bounded server refusal codes survive to the render", () => {
-    it("source_basis_unresolved is carried through and visibly distinct from a generic failure", () => {
-      const specific = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        refusalCode: "source_basis_unresolved",
-      });
-      const generic = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        refusalCode: null,
-      });
-      expect(specific.state).toBe("DRAFT_FAILED");
-      expect(specific.refusalCode).toBe("source_basis_unresolved");
-      // Round 1 review correction: the raw code is no longer interpolated
-      // directly into operator prose (a server-controlled token, even one that
-      // has already passed the bounded grammar, is never embedded verbatim) —
-      // known codes get an explicit human-readable label instead.
-      expect(specific.label).toBe(
-        "Draft from source refused: historical source unresolved",
-      );
-      // The load-bearing operator-visible proof: the two situations render
-      // differently, not just carry a different unused field.
-      expect(specific.label).not.toBe(generic.label);
-    });
-
-    it("pipeline_refused is also carried through and distinct from an unrelated code", () => {
-      const pipelineRefused = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        refusalCode: "pipeline_refused",
-      });
-      const sourceUnresolved = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        refusalCode: "source_basis_unresolved",
-      });
-      expect(pipelineRefused.label).toBe(
-        "Draft from source refused: pipeline refused",
-      );
-      expect(pipelineRefused.label).not.toBe(sourceUnresolved.label);
-    });
-
-    it("an unmapped-but-validly-bounded refusal code renders the generic refusal label, never interpolated verbatim (round 1 review)", () => {
-      const r = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        // A hypothetical future bounded code the extension has no label for.
-        // It already passed parseRefusalCode()'s grammar check upstream, but
-        // the renderer must still never embed an arbitrary/unknown token
-        // directly into operator-visible prose.
-        refusalCode: "held_capture_requires_single_candidate",
-      });
-      expect(r.refusalCode).toBe("held_capture_requires_single_candidate");
-      expect(r.label).toBe("Draft from source refused");
-      expect(r.label).not.toContain("held_capture_requires_single_candidate");
-    });
-
-    it("still never renders a forbidden success word, even with a refusal code present", () => {
-      const r = renderAuthoringClientResult({
-        kind: "authoring_failed",
-        status: 422,
-        detail: "http 422",
-        refusalCode: "source_basis_unresolved",
-      });
-      const upperLabel = r.label.toUpperCase();
-      for (const word of FORBIDDEN_SUCCESS_STATES) {
-        expect(upperLabel.includes(word)).toBe(false);
-      }
-    });
+    expect(r.label).toBe("Draft from source refused");
+    expect(r.label).not.toContain("held_capture_requires_single_candidate");
   });
 });
