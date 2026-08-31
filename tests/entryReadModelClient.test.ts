@@ -35,7 +35,17 @@ function entry(): ProposalReaderEntry {
     ],
     linkSuggestions: [],
     review: { gaps: [], openQuestions: [] },
-    sections: {},
+    sections: {
+      provenance: [
+        {
+          family: "authoring_proposal_handoff",
+          detail: {
+            handoff_digest: "sha256:handoff",
+            evidence_basis_refs: ["evidence:E001"],
+          },
+        },
+      ],
+    },
   };
 }
 
@@ -94,6 +104,7 @@ describe("projectAuthoringHandoffToReaderEntry", () => {
     const result = await projectAuthoringHandoffToReaderEntry(input, fetchImpl);
     expect(result.posture).toBe("proposal");
     expect(result.leadBlocks?.[0]?.evidenceRefs).toEqual(["evidence:E001"]);
+    expect(result.sections.provenance?.[0]?.family).toBe("authoring_proposal_handoff");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(url).toBe(COUNTERPEDIA_PROPOSAL_READER_URL);
