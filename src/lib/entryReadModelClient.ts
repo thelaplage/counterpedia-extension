@@ -172,8 +172,9 @@ export function parseProposalReaderEntry(raw: unknown): ProposalReaderEntry {
 export async function projectAuthoringHandoffToReaderEntry(
   handoff: AuthoringHandoff,
   fetchImpl: typeof fetch = globalThis.fetch,
+  endpoint: string = COUNTERPEDIA_PROPOSAL_READER_URL,
 ): Promise<ProposalReaderEntry> {
-  const response = await fetchImpl(COUNTERPEDIA_PROPOSAL_READER_URL, {
+  const response = await fetchImpl(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(handoff),
