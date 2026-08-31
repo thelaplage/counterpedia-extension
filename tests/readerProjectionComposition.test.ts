@@ -76,7 +76,17 @@ function readerEntry(): ProposalReaderEntry {
     articleClaims: [],
     linkSuggestions: [],
     review: { gaps: [], openQuestions: [] },
-    sections: {},
+    sections: {
+      provenance: [
+        {
+          family: "authoring_proposal_handoff",
+          detail: {
+            handoff_digest: "sha256:handoff",
+            evidence_basis_refs: ["evidence:E001"],
+          },
+        },
+      ],
+    },
   };
 }
 
@@ -113,6 +123,8 @@ describe("post-authoring canonical reader projection", () => {
     expect(terminal.state).toBe("PROPOSAL_ASSEMBLED");
     expect(terminal.proposalPreview?.title).toBe("Canonical reader proposal");
     expect(terminal.proposalPreview?.leadBlocks[0]?.evidenceRefs).toEqual(["evidence:E001"]);
+    expect(terminal.proposalPreview?.handoffDigest).toBe("sha256:handoff");
+    expect(terminal.proposalPreview?.evidenceBasisRefs).toEqual(["evidence:E001"]);
     expect(terminal.admissionLine).toBe("Admission: not performed");
   });
 
