@@ -373,8 +373,11 @@ describeFourService("DRAFT-FROM-SOURCE — literal same-run four-service loop", 
     if (drafted.kind !== "assembled") return;
     expect(drafted.handoff.authority_posture).toBe("proposal_only");
 
-    // This is the load-bearing coupling: the EXACT handoff object emitted above
-    // is serialized by the extension's real reader client to the REAL
+    const exactHandoffDigest = drafted.handoff.handoff_digest;
+    expect(exactHandoffDigest).toBeTruthy();
+
+    // Load-bearing coupling: the EXACT handoff object emitted above is
+    // serialized by the extension's real reader client to the REAL
     // Counterpedia projection route in this same executable run.
     const entry = await projectAuthoringHandoffToReaderEntry(
       drafted.handoff,
@@ -385,13 +388,19 @@ describeFourService("DRAFT-FROM-SOURCE — literal same-run four-service loop", 
     expect(entry.sourceKind).toBe("authoring_proposal");
     expect(entry.leadBlocks?.[0]?.evidenceRefs).toContain("evidence:E001");
 
-    // And the returned canonical model is consumed by the extension's actual
-    // compact-layout projector — no raw draft_proposal interpretation here.
+    const provenance = entry.sections.provenance?.find(
+      (record) => record.family === "authoring_proposal_handoff",
+    );
+    expect(provenance?.detail["handoff_digest"]).toBe(exactHandoffDigest);
+    expect(provenance?.detail["evidence_basis_refs"]).toContain("evidence:E001");
+
+    // The canonical model is then consumed by the extension's ACTUAL compact
+    // layout projector — no raw draft_proposal interpretation here.
     const preview = buildAuthoringProposalPreview(entry);
     expect(preview.title).toBeTruthy();
     expect(preview.leadBlocks[0]?.evidenceRefs).toContain("evidence:E001");
     expect(preview.evidenceBasisRefs).toContain("evidence:E001");
-    expect(preview.handoffDigest).toBe(drafted.handoff.handoff_digest);
+    expect(preview.handoffDigest).toBe(exactHandoffDigest);
     expect(preview.handoffDigest).not.toBe("projection:unavailable");
 
     expect(entry).not.toHaveProperty("admitted");
