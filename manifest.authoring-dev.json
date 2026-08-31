@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvo/YmhFg3mSI0cgZ7gDahv3Foh7g3zRytxD92o7OlcwYLMXqjZqEzodm/ufrW3p3vJGbg/842AmKHZ26243VaOkdB6VDbpYbsB2jaWtCoWhWdwf98tePdQ8v1A3QzxLqaEa9TT7kbslI4hC65StFCLQtikvahvO1d4qa8tA6/Cuhrq7TT4uTvCwy5QcZCc0Q/ishVjV/tROgiKPrppVSbRPKx8/cmSGLuJLCljz9CT2ERLb4OLAGVaU1kgpTCGexbWryP5895TSZMiX44YtQv8WXOiF8EQWkjORbLOhE4uMyJLZt4pWMQOMhHfyBX+8Ds4itCtkm4aZPYGlgSnNwIwIDAQAB",
   "_key_note": "SELF-LOAD0: deterministic dev/demo extension id for the self-loading Chrome-for-Testing demo browser ONLY. Public key corresponds to the private key at tools/counterpedia-local/.self-load-key.pem (gitignored, never committed). Computed stable extension id = pplkafbhcmojbomkbieppifcfokpmhpn. Do NOT copy this key into manifest.json (production).",
-  "description": "Counterpedia extension — local historical draft-from-source dev build. Connects only to the 127.0.0.1:8787 acquisition loopback and the 127.0.0.1:8788 authoring loopback. Counterpedia Local pairs the browser to these services without manual extension IDs, ports, DevTools, or token setup. Capture, acquisition, and drafting remain separate explicit acts; drafting reuses the retained historical capture and never admits or publishes.",
+  "description": "Counterpedia extension — local historical draft-from-source dev build. Connects only to loopback services. Capture, acquisition, drafting, and Counterpedia reader projection remain separate acts; drafting reuses the retained historical capture and never admits or publishes.",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
@@ -17,7 +17,8 @@
   "host_permissions": [
     "http://127.0.0.1:8787/*",
     "http://127.0.0.1:8788/*",
-    "http://127.0.0.1:8790/*"
+    "http://127.0.0.1:8790/*",
+    "http://127.0.0.1:3000/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -40,11 +41,14 @@
   "_authoring_endpoint": "http://127.0.0.1:8788",
   "_local_companion_dev": true,
   "_local_companion_endpoint": "http://127.0.0.1:8790",
+  "_counterpedia_reader_dev": true,
+  "_counterpedia_reader_endpoint": "http://127.0.0.1:3000/api/counterpedia/reader/proposal",
   "_three_acts": [
     "1. capture (browser observation, explicit click)",
     "2. acquisition (producer re-fetch -> retained exact bytes + UNADMITTED receipt, 8787)",
     "3. draft-from-source (reprocess retained historical capture -> proposal_only handoff, 8788) — separate explicit act, zero live source fetch, never admission"
   ],
+  "_reader_projection": "post-authoring product projection only; no acquisition, no authoring, no admission",
   "_privacy_audit": {
     "passive_capture": false,
     "cookies": false,
@@ -56,12 +60,14 @@
     "acquisition_host_permission": "http://127.0.0.1:8787/* only",
     "authoring_host_permission": "http://127.0.0.1:8788/* only",
     "local_companion_host_permission": "http://127.0.0.1:8790/* only",
+    "counterpedia_reader_host_permission": "http://127.0.0.1:3000/* only",
     "capture_requires_explicit_click": true,
     "operator_snapshot_requires_explicit_click": true,
     "draft_requires_separate_explicit_click": true,
     "draft_reuses_retained_capture": true,
     "draft_live_source_fetch": false,
     "draft_is_proposal_only_never_admission": true,
+    "reader_projection_is_post_authoring_only": true,
     "transport_token_is_transport_auth_only": true,
     "acquisition_token_storage": "chrome.storage.session",
     "pairing_is_transport_configuration_only": true
