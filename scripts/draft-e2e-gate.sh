@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
-# READER-CONSUMER-EXT1 / DRAFT-E2E-HARNESS1 — one-command release gate for
-# two real executable legs of the Draft-from-source product path:
-#   1. browser -> acquisition -> held-capture authoring
-#   2. committed real Authoring handoff -> Counterpedia reader projection -> extension client
+# READER-CONSUMER-EXT1 / DRAFT-E2E-HARNESS2 — one-command release gate for:
+# browser -> acquisition -> held-capture authoring -> exact fresh handoff ->
+# Counterpedia reader projection -> extension compact preview.
 #
-# This does NOT claim a literal same-handoff four-service transaction yet. The
-# two legs are intentionally named separately until one run threads the handoff
-# produced by leg 1 directly into leg 2.
+# The gate also retains the mature three-process custody/non-refetch negatives
+# and the direct Counterpedia HTTP contamination-refusal proof.
 #
 # Ordinary `npm test` may skip cross-repo execution when sibling checkouts are
 # unavailable. THIS command never turns an unavailable environment into green.
 # It requires the exact Acquisition, Authoring, and Counterpedia checkouts and
 # reports every head used.
-#
-# Usage:
-#   scripts/draft-e2e-gate.sh
-#   COUNTERPEDIA_ACQUISITION_DIR=... \
-#   COUNTERPEDIA_AUTHORING_DIR=... \
-#   COUNTERPEDIA_DIR=... scripts/draft-e2e-gate.sh
 set -euo pipefail
 
 EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,17 +24,15 @@ fail() { echo "DRAFT-E2E-GATE: FAIL — $*" >&2; exit 1; }
 [ -n "${AUTH_DIR:-}" ] && [ -f "$AUTH_DIR/src/counterpedia_authoring/http_transport.py" ] \
   || fail "counterpedia-authoring unavailable/incomplete (set COUNTERPEDIA_AUTHORING_DIR)"
 [ -n "${CP_DIR:-}" ] && [ -f "$CP_DIR/app/api/counterpedia/reader/proposal/route.ts" ] \
-  || fail "Counterpedia WEB1 checkout unavailable/incomplete (set COUNTERPEDIA_DIR to a checkout containing app/api/counterpedia/reader/proposal/route.ts)"
+  || fail "Counterpedia WEB1 checkout unavailable/incomplete (set COUNTERPEDIA_DIR)"
 [ -f "$CP_DIR/package.json" ] || fail "Counterpedia checkout has no package.json"
 [ -f "$CP_DIR/lib/counterpedia/__fixtures__/authoringHandoff.evidenceE001.json" ] \
   || fail "Counterpedia checkout lacks the committed evidence:E001 Authoring handoff fixture"
-[ -d "$CP_DIR/node_modules" ] || fail "Counterpedia dependencies unavailable at $CP_DIR/node_modules (install the checkout before running the release gate)"
+[ -d "$CP_DIR/node_modules" ] || fail "Counterpedia dependencies unavailable at $CP_DIR/node_modules"
 
-# --- authoring interpreter (the E2E spawns bare `python3` for producer services) ---
 AUTH_PY="${COUNTERPEDIA_AUTHORING_PYTHON:-$AUTH_DIR/.venv/bin/python}"
-[ -x "$AUTH_PY" ] || fail "authoring interpreter not found at $AUTH_PY (create the authoring venv, or set COUNTERPEDIA_AUTHORING_PYTHON)"
+[ -x "$AUTH_PY" ] || fail "authoring interpreter not found at $AUTH_PY"
 
-# --- consume the AUTHORITATIVE mcp pin from authoring pyproject ---
 MCP_REQ="$("$AUTH_PY" - "$AUTH_DIR/pyproject.toml" <<'PY'
 import sys, tomllib
 data = tomllib.load(open(sys.argv[1], "rb"))
@@ -50,7 +40,7 @@ extra = data.get("project", {}).get("optional-dependencies", {}).get("mcp") or [
 print(extra[0] if extra else "")
 PY
 )"
-[ -n "$MCP_REQ" ] || fail "authoring pyproject declares no [mcp] optional extra to consume"
+[ -n "$MCP_REQ" ] || fail "authoring pyproject declares no [mcp] optional extra"
 echo "DRAFT-E2E-GATE: authoritative authoring mcp extra = $MCP_REQ"
 
 if ! "$AUTH_PY" - "$MCP_REQ" <<'PY'
@@ -63,7 +53,7 @@ except Exception:
 sys.exit(0 if (not want or have == want.strip()) else 1)
 PY
 then
-  echo "DRAFT-E2E-GATE: installing $MCP_REQ into $AUTH_PY (authoring's declared extra)"
+  echo "DRAFT-E2E-GATE: installing $MCP_REQ into $AUTH_PY"
   if command -v uv >/dev/null 2>&1; then
     uv pip install --python "$AUTH_PY" "$MCP_REQ" >&2
   else
@@ -86,8 +76,11 @@ export CP_READER_E2E_REQUIRE=1
 export PATH="$(dirname "$AUTH_PY"):$PATH"
 
 cd "$EXT_DIR"
-echo "DRAFT-E2E-GATE leg 1/2: real acquisition -> held-capture authoring"
+echo "DRAFT-E2E-GATE 1/3: mature acquisition -> held-capture authoring custody/non-refetch suite"
 npx vitest run tests/draftFromSource.e2e.test.ts "$@"
 
-echo "DRAFT-E2E-GATE leg 2/2: real Counterpedia HTTP projection -> extension reader client"
-exec npx vitest run tests/entryReadModelHttp.e2e.test.ts "$@"
+echo "DRAFT-E2E-GATE 2/3: real Counterpedia HTTP projection/refusal suite"
+npx vitest run tests/entryReadModelHttp.e2e.test.ts "$@"
+
+echo "DRAFT-E2E-GATE 3/3: literal same-run four-service handoff threading"
+exec npx vitest run tests/draftFromSourceFourService.e2e.test.ts "$@"
