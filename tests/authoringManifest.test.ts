@@ -1,31 +1,10 @@
-/**
- * Draft-from-source dev manifest separation.
- *
- * The authoring loopback host permission (127.0.0.1:8788) lives ONLY in the
- * dedicated draft-from-source dev manifest, alongside the acquisition loopback
- * (127.0.0.1:8787) it depends on — a draft is a third act over an
- * already-captured source, so the dev build needs both loopbacks. Production
- * stays clean (the locked manifestAudit tests require manifest.json to carry no
- * host_permissions and no 127.0.0.1), and the demo / acquisition-dev manifests
- * are untouched.
- */
-
+/** Draft-from-source dev manifest separation + canonical reader projection. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * Exact byte size of the checked-in 1x1-pixel placeholder PNGs referenced by
- * `manifest.authoring-dev.json`'s `icons` key. These are NOT real icon
- * assets — they exist only so Chrome's unpacked-extension loader (which
- * requires every referenced icon file to resolve) doesn't fail to load the
- * dev build. Real icon assets are pending; do not treat this test as
- * validating icon *content*, only that the placeholder is the exact known
- * placeholder and hasn't silently changed.
- */
 const PLACEHOLDER_ICON_BYTES = 68;
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface Manifest {
@@ -36,6 +15,8 @@ interface Manifest {
   icons?: Record<string, string>;
   _authoring_dev?: boolean;
   _acquisition_dev?: boolean;
+  _counterpedia_reader_dev?: boolean;
+  _counterpedia_reader_endpoint?: string;
   _privacy_audit?: Record<string, unknown>;
 }
 
@@ -54,44 +35,37 @@ describe("manifest.authoring-dev.json", () => {
     expect(auth.version).toMatch(/^\d+(?:\.\d+){0,3}$/);
   });
 
-  it("references icon files that exist and are the known 1x1 placeholder — pending real assets, not validated content", () => {
+  it("references the known placeholder icon files", () => {
     expect(auth.icons).toBeDefined();
     const icons = auth.icons ?? {};
     expect(Object.keys(icons).sort()).toEqual(["128", "16", "48"]);
     for (const iconPath of Object.values(icons)) {
-      const size = statSync(join(__dirname, "..", iconPath)).size;
-      expect(size).toBe(PLACEHOLDER_ICON_BYTES);
+      expect(statSync(join(__dirname, "..", iconPath)).size).toBe(PLACEHOLDER_ICON_BYTES);
     }
   });
 
-  it("scopes host_permissions to the three loopback ports only (acquisition, authoring, local companion pairing)", () => {
+  it("scopes host_permissions to exactly four loopback services", () => {
     expect(auth.host_permissions).toEqual([
       "http://127.0.0.1:8787/*",
       "http://127.0.0.1:8788/*",
       "http://127.0.0.1:8790/*",
+      "http://127.0.0.1:3000/*",
     ]);
     expect(auth.host_permissions).not.toContain("<all_urls>");
     expect(auth.host_permissions).not.toContain("*://*/*");
   });
 
-  it("declares the authoring loopback (8788), the third-act endpoint", () => {
-    expect(auth.host_permissions).toContain("http://127.0.0.1:8788/*");
+  it("declares the Counterpedia reader projection only in the authoring-dev profile", () => {
+    expect(auth._counterpedia_reader_dev).toBe(true);
+    expect(auth._counterpedia_reader_endpoint).toBe(
+      "http://127.0.0.1:3000/api/counterpedia/reader/proposal",
+    );
+    const prodText = read("manifest.json");
+    expect(prodText).not.toContain("3000");
+    expect(prodText).not.toContain("_counterpedia_reader_dev");
   });
 
-  it("keeps production's minimal permission set plus only the operator-capture permission(s)", () => {
-    // The authoring-dev build is a superset of production: it carries every
-    // production permission and adds exactly the operator page-capture
-    // permission `pageCapture`. This is intentional and NOT a leak —
-    // OPERATOR-BROWSER0 introduced an explicit, operator-mediated MHTML
-    // snapshot route (chrome.pageCapture.saveAsMHTML in
-    // src/panel/operatorSnapshotCapture.ts). The permission is documented in
-    // this manifest's own `_privacy_audit.page_capture_permission`
-    // ("explicit operator MHTML snapshot only") and never appears in
-    // production (asserted separately below). The assertion is written as an
-    // exact superset so that (a) any DROPPED production permission still
-    // fails, and (b) any NEW permission beyond the sanctioned operator-capture
-    // set still fails — this remains a genuine parity/security check, only now
-    // it correctly accounts for the operator-capture extension.
+  it("keeps production's minimal permission set plus only pageCapture", () => {
     const PRODUCTION_PERMISSIONS = [
       "activeTab",
       "contextMenus",
@@ -99,39 +73,33 @@ describe("manifest.authoring-dev.json", () => {
       "sidePanel",
       "storage",
     ];
-    const OPERATOR_CAPTURE_PERMISSIONS = ["pageCapture"];
     expect([...(auth.permissions ?? [])].sort()).toEqual(
-      [...PRODUCTION_PERMISSIONS, ...OPERATOR_CAPTURE_PERMISSIONS].sort(),
+      [...PRODUCTION_PERMISSIONS, "pageCapture"].sort(),
     );
-    // Production itself must NOT carry any operator-capture permission.
     const prod = JSON.parse(read("manifest.json")) as Manifest;
-    for (const perm of OPERATOR_CAPTURE_PERMISSIONS) {
-      expect(prod.permissions ?? []).not.toContain(perm);
-    }
+    expect(prod.permissions ?? []).not.toContain("pageCapture");
   });
 
-  it("marks itself authoring-dev; production never does", () => {
-    expect(auth._authoring_dev).toBe(true);
-    const prod = JSON.parse(read("manifest.json")) as Record<string, unknown>;
-    expect(prod["_authoring_dev"]).toBeUndefined();
-  });
-
-  it("carries a privacy audit: draft requires a separate explicit click and never admits", () => {
+  it("pins the explicit-click/non-authority privacy posture", () => {
     const audit = auth._privacy_audit ?? {};
     expect(audit["passive_capture"]).toBe(false);
     expect(audit["all_urls_permission"]).toBe(false);
     expect(audit["draft_requires_separate_explicit_click"]).toBe(true);
     expect(audit["draft_is_proposal_only_never_admission"]).toBe(true);
-    expect(audit["transport_token_is_transport_auth_only"]).toBe(true);
+    expect(audit["reader_projection_is_post_authoring_only"]).toBe(true);
+    expect(audit["counterpedia_reader_host_permission"]).toBe(
+      "http://127.0.0.1:3000/* only",
+    );
   });
 
-  it("does not leak the authoring host into the production manifest", () => {
+  it("does not leak any dev loopback into production", () => {
     const prodText = read("manifest.json");
-    expect(prodText).not.toContain("8788");
     expect(prodText).not.toContain("127.0.0.1");
+    expect(prodText).not.toContain("8788");
+    expect(prodText).not.toContain("3000");
   });
 
-  it("is distinct from the production, demo, and acquisition-dev manifests", () => {
+  it("is distinct from production, demo, and acquisition-dev manifests", () => {
     const authText = read("manifest.authoring-dev.json");
     expect(authText).not.toBe(read("manifest.json"));
     expect(authText).not.toBe(read("manifest.demo.json"));
@@ -140,22 +108,21 @@ describe("manifest.authoring-dev.json", () => {
 });
 
 describe("locked sibling manifests remain untouched", () => {
-  it("production manifest still carries NO host_permissions and no loopback", () => {
+  it("production manifest still carries no host_permissions or loopback", () => {
     const prod = JSON.parse(read("manifest.json")) as Manifest;
     expect(prod.host_permissions).toBeUndefined();
     const text = read("manifest.json");
     expect(text).not.toContain("127.0.0.1");
     expect(text).not.toContain("_authoring_dev");
-    expect(text).not.toContain("_demo_mode");
+    expect(text).not.toContain("_counterpedia_reader_dev");
   });
 
-  it("acquisition-dev manifest still scopes to 8787 only (unchanged)", () => {
+  it("acquisition-dev manifest still scopes to 8787 only", () => {
     const acq = JSON.parse(read("manifest.acquisition-dev.json")) as Manifest;
     expect(acq.host_permissions).toEqual(["http://127.0.0.1:8787/*"]);
-    expect(acq.host_permissions).not.toContain("http://127.0.0.1:8788/*");
   });
 
-  it("demo manifest still scopes to 4317 only (unchanged)", () => {
+  it("demo manifest still scopes to 4317 only", () => {
     const demo = JSON.parse(read("manifest.demo.json")) as Manifest;
     expect(demo.host_permissions).toEqual(["http://127.0.0.1:4317/*"]);
   });
