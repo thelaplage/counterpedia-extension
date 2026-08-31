@@ -3,8 +3,8 @@
 # browser -> acquisition -> held-capture authoring -> exact fresh handoff ->
 # Counterpedia reader projection -> extension compact preview.
 #
-# The gate also retains the mature three-process custody/non-refetch negatives
-# and the direct Counterpedia HTTP contamination-refusal proof.
+# It also retains the mature three-process custody/non-refetch negatives and
+# the direct Counterpedia HTTP contamination-refusal proof.
 #
 # Ordinary `npm test` may skip cross-repo execution when sibling checkouts are
 # unavailable. THIS command never turns an unavailable environment into green.
@@ -82,5 +82,5 @@ npx vitest run tests/draftFromSource.e2e.test.ts "$@"
 echo "DRAFT-E2E-GATE 2/3: real Counterpedia HTTP projection/refusal suite"
 npx vitest run tests/entryReadModelHttp.e2e.test.ts "$@"
 
-echo "DRAFT-E2E-GATE 3/3: literal same-run four-service handoff threading"
+echo "DRAFT-E2E-GATE 3/3: literal same-run exact-handoff four-service loop"
 exec npx vitest run tests/draftFromSourceFourService.e2e.test.ts "$@"
