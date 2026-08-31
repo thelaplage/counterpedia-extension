@@ -24,11 +24,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 EXT_ROOT="$(cd "$HERE/../.." && pwd)"
 PYTHON="${COUNTERPEDIA_LOCAL_PYTHON:-python3}"
 
-# 2. locate configured sibling checkouts. Every value remains overridable so
-#    the launcher can be pinned to the accepted worktree under review.
+# 2. locate configured sibling checkouts. Acquisition keeps its established
+#    default. Counterpedia is different because the proposal reader may still
+#    live in a DRAFT linked worktree: an explicit override wins; otherwise
+#    reader_demo.py performs fail-closed sibling/worktree discovery.
 ACQ_DIR="${COUNTERPEDIA_ACQUISITION_DIR:-$HOME/Developer/repos/counterpedia-acquisition}"
 ACQ_PYTHON="${COUNTERPEDIA_ACQUISITION_PYTHON:-$ACQ_DIR/.venv/bin/python}"
-COUNTERPEDIA_DIR="${COUNTERPEDIA_DIR:-${COUNTERPEDIA_REPO_DIR:-$(cd "$EXT_ROOT/.." && pwd)/counterpedia}}"
+COUNTERPEDIA_DIR_OVERRIDE="${COUNTERPEDIA_DIR:-${COUNTERPEDIA_REPO_DIR:-}}"
 
 # If this bootstrap itself starts the reader and a later bootstrap stage fails,
 # clean up only that reader. A successful launch hands reader lifecycle to the
@@ -56,7 +58,11 @@ echo "Counterpedia Local demo bootstrap"
 echo "  extension checkout:    $EXT_ROOT"
 echo "  acquisition checkout:  $ACQ_DIR"
 echo "  acquisition python:    $ACQ_PYTHON"
-echo "  Counterpedia checkout: $COUNTERPEDIA_DIR"
+if [[ -n "$COUNTERPEDIA_DIR_OVERRIDE" ]]; then
+  echo "  Counterpedia checkout: $COUNTERPEDIA_DIR_OVERRIDE (explicit)"
+else
+  echo "  Counterpedia checkout: auto-discover sibling / linked reader worktree"
+fi
 
 command -v "$PYTHON" >/dev/null 2>&1 || fail "Counterpedia Local needs Python 3 installed on this Mac."
 
@@ -108,8 +114,10 @@ fi
 
 export COUNTERPEDIA_ACQUISITION_DIR="$ACQ_DIR"
 export COUNTERPEDIA_ACQUISITION_PYTHON="$ACQ_PYTHON"
-export COUNTERPEDIA_DIR="$COUNTERPEDIA_DIR"
-export COUNTERPEDIA_REPO_DIR="$COUNTERPEDIA_DIR"
+if [[ -n "$COUNTERPEDIA_DIR_OVERRIDE" ]]; then
+  export COUNTERPEDIA_DIR="$COUNTERPEDIA_DIR_OVERRIDE"
+  export COUNTERPEDIA_REPO_DIR="$COUNTERPEDIA_DIR_OVERRIDE"
+fi
 
 # 5. resolve the self-loading demo browser BEFORE starting anything else, so
 #    a missing Chrome-for-Testing/Chromium install fails fast.
@@ -122,7 +130,11 @@ echo "  $DEMO_BROWSER"
 #    The helper accepts only the exact fail-closed proposal route contract;
 #    a generic/foreign service on :3000 is refused, never killed or replaced.
 echo "Preparing canonical Counterpedia proposal reader…"
-READER_START_OUT="$("$PYTHON" "$HERE/reader_demo.py" start --counterpedia-dir "$COUNTERPEDIA_DIR" 2>&1)" || fail "$READER_START_OUT"
+READER_START_ARGS=(start)
+if [[ -n "$COUNTERPEDIA_DIR_OVERRIDE" ]]; then
+  READER_START_ARGS+=(--counterpedia-dir "$COUNTERPEDIA_DIR_OVERRIDE")
+fi
+READER_START_OUT="$("$PYTHON" "$HERE/reader_demo.py" "${READER_START_ARGS[@]}" 2>&1)" || fail "$READER_START_OUT"
 echo "$READER_START_OUT"
 READER_STARTED_BY_THIS_RUN="$(printf '%s' "$READER_START_OUT" | "$PYTHON" -c 'import json,sys; p=json.load(sys.stdin); print("1" if p.get("status") == "started" else "0")' 2>/dev/null)" \
   || fail "Counterpedia reader started but its ownership result could not be parsed."
