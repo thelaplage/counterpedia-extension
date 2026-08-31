@@ -42,8 +42,6 @@ async function waitForProjectionRoute(endpoint: string, timeoutMs: number): Prom
   let lastError = "";
   while (Date.now() < deadline) {
     try {
-      // A malformed body is expected to be refused, but any HTTP response proves
-      // the real Next route is bound and ready for the golden request below.
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,7 +68,7 @@ if (!counterpediaDir && requireReaderE2E) {
 
 const describeReaderE2E = counterpediaDir ? describe : describe.skip;
 
-describeReaderE2E("Counterpedia canonical proposal projection — real HTTP", () => {
+describeReaderE2E("Counterpedia canonical proposal projection — real HTTP / committed-fixture leg", () => {
   let counterpediaProcess: ChildProcess;
   let endpoint = "";
   let stderr = "";
