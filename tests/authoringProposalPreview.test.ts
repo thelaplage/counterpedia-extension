@@ -65,7 +65,7 @@ function richEntry(): ProposalReaderEntry {
     sections: {
       provenance: [
         {
-          family: "authoring_proposal",
+          family: "authoring_proposal_handoff",
           detail: {
             draft_schema_version: "draft_entry_proposal.v0.2",
             proposal_id: "proposal-1",
@@ -86,6 +86,8 @@ describe("READER-CONSUMER-EXT1 layout projection", () => {
     expect(preview.lifecycle).toBe("proposal");
     expect(preview.schemaVersion).toBe("draft_entry_proposal.v0.2");
     expect(preview.proposalId).toBe("proposal-1");
+    expect(preview.outputProfile).toBe("counterpedia.standard.v1");
+    expect(preview.handoffDigest).toBe("sha256:handoff");
     expect(preview.leadBlocks[0]?.text).toBe("Lead text from the producer.");
     expect(preview.sections[0]?.label).toBe("Background");
     expect(preview.sections[0]?.blocks[0]?.items).toEqual(["First item", "Second item"]);
