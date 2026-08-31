@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# READER-CONSUMER-EXT1 / DRAFT-E2E-HARNESS1 — one-command release gate for:
-# browser -> acquisition -> held-capture authoring -> Counterpedia reader projection.
+# READER-CONSUMER-EXT1 / DRAFT-E2E-HARNESS1 — one-command release gate for
+# two real executable legs of the Draft-from-source product path:
+#   1. browser -> acquisition -> held-capture authoring
+#   2. committed real Authoring handoff -> Counterpedia reader projection -> extension client
+#
+# This does NOT claim a literal same-handoff four-service transaction yet. The
+# two legs are intentionally named separately until one run threads the handoff
+# produced by leg 1 directly into leg 2.
 #
 # Ordinary `npm test` may skip cross-repo execution when sibling checkouts are
 # unavailable. THIS command never turns an unavailable environment into green.
@@ -28,6 +34,8 @@ fail() { echo "DRAFT-E2E-GATE: FAIL — $*" >&2; exit 1; }
 [ -n "${CP_DIR:-}" ] && [ -f "$CP_DIR/app/api/counterpedia/reader/proposal/route.ts" ] \
   || fail "Counterpedia WEB1 checkout unavailable/incomplete (set COUNTERPEDIA_DIR to a checkout containing app/api/counterpedia/reader/proposal/route.ts)"
 [ -f "$CP_DIR/package.json" ] || fail "Counterpedia checkout has no package.json"
+[ -f "$CP_DIR/lib/counterpedia/__fixtures__/authoringHandoff.evidenceE001.json" ] \
+  || fail "Counterpedia checkout lacks the committed evidence:E001 Authoring handoff fixture"
 [ -d "$CP_DIR/node_modules" ] || fail "Counterpedia dependencies unavailable at $CP_DIR/node_modules (install the checkout before running the release gate)"
 
 # --- authoring interpreter (the E2E spawns bare `python3` for producer services) ---
@@ -78,5 +86,8 @@ export CP_READER_E2E_REQUIRE=1
 export PATH="$(dirname "$AUTH_PY"):$PATH"
 
 cd "$EXT_DIR"
-echo "DRAFT-E2E-GATE: running real acquisition -> authoring -> Counterpedia reader projection gate"
-exec npx vitest run tests/draftFromSource.e2e.test.ts "$@"
+echo "DRAFT-E2E-GATE leg 1/2: real acquisition -> held-capture authoring"
+npx vitest run tests/draftFromSource.e2e.test.ts "$@"
+
+echo "DRAFT-E2E-GATE leg 2/2: real Counterpedia HTTP projection -> extension reader client"
+exec npx vitest run tests/entryReadModelHttp.e2e.test.ts "$@"
