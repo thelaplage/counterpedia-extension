@@ -85,7 +85,7 @@ class ReaderCheckoutDiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ext_root = root / "counterpedia-extension"
-            primary = root / "counterpedia"
+            primary = (root / "counterpedia").resolve()
             _make_reader_route(primary)
             with (
                 mock.patch.dict(
