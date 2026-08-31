@@ -64,7 +64,7 @@ function panelBlock(block: ProposalReaderContentBlock): ProposalPreviewBlock {
 
 function authoringProvenance(entry: ProposalReaderEntry): Readonly<Record<string, unknown>> {
   const record = entry.sections.provenance?.find(
-    (candidate) => candidate.family === "authoring_proposal",
+    (candidate) => candidate.family === "authoring_proposal_handoff",
   );
   return record?.detail ?? {};
 }
