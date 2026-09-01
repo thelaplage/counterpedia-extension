@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# READER-CONSUMER-EXT1 / DRAFT-E2E-HARNESS2 — one-command release gate for:
+# READER-CONSUMER-EXT1 / EXT-DRAFT-SOURCE-V05-ACTIVATE0 — one-command release gate for:
 # browser -> acquisition -> held-capture authoring -> exact fresh handoff ->
 # Counterpedia reader projection -> extension compact preview.
 #
-# It also retains the mature three-process custody/non-refetch negatives and
-# the direct Counterpedia HTTP contamination-refusal proof.
+# It retains the mature three-process custody/non-refetch negatives and the
+# direct Counterpedia HTTP contamination-refusal proof, and now also refuses
+# to run the v0.5 literal transaction against sibling checkouts that do not
+# contain the required Authoring finalizer / Counterpedia role-carry seams.
 #
 # Ordinary `npm test` may skip cross-repo execution when sibling checkouts are
-# unavailable. THIS command never turns an unavailable environment into green.
-# It requires the exact Acquisition, Authoring, and Counterpedia checkouts and
-# reports every head used.
+# unavailable. THIS command never turns an unavailable or wrong-stack
+# environment into green.
 set -euo pipefail
 
 EXT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,11 +25,28 @@ fail() { echo "DRAFT-E2E-GATE: FAIL — $*" >&2; exit 1; }
 [ -n "${AUTH_DIR:-}" ] && [ -f "$AUTH_DIR/src/counterpedia_authoring/http_transport.py" ] \
   || fail "counterpedia-authoring unavailable/incomplete (set COUNTERPEDIA_AUTHORING_DIR)"
 [ -n "${CP_DIR:-}" ] && [ -f "$CP_DIR/app/api/counterpedia/reader/proposal/route.ts" ] \
-  || fail "Counterpedia WEB1 checkout unavailable/incomplete (set COUNTERPEDIA_DIR)"
+  || fail "Counterpedia reader checkout unavailable/incomplete (set COUNTERPEDIA_DIR)"
 [ -f "$CP_DIR/package.json" ] || fail "Counterpedia checkout has no package.json"
 [ -f "$CP_DIR/lib/counterpedia/__fixtures__/authoringHandoff.evidenceE001.json" ] \
   || fail "Counterpedia checkout lacks the committed evidence:E001 Authoring handoff fixture"
 [ -d "$CP_DIR/node_modules" ] || fail "Counterpedia dependencies unavailable at $CP_DIR/node_modules"
+
+# v0.5 capability preflight. These are structural capability checks, not
+# version-string guesses. A checkout that can only execute the legacy loop must
+# never make the new v0.5 same-run transaction look green.
+[ -f "$AUTH_DIR/src/counterpedia_authoring/draft_source_v05.py" ] \
+  || fail "Authoring checkout lacks DRAFT-SOURCE-V05-FINALIZE0 (draft_source_v05.py)"
+[ -f "$AUTH_DIR/src/counterpedia_authoring/completeness_binder.py" ] \
+  || fail "Authoring checkout lacks COMPLETENESS-BINDER0"
+[ -f "$AUTH_DIR/src/counterpedia_authoring/composer/initial_content_unit_identity.py" ] \
+  || fail "Authoring checkout lacks COMPOSER-CONTENT-UNIT-ID0"
+[ -f "$CP_DIR/lib/counterpedia/authoringSectionRoleCarry.test.ts" ] \
+  || fail "Counterpedia checkout lacks canonical READER-SECTION-ROLE-CARRY0 seam"
+
+grep -q 'section\.role' "$CP_DIR/lib/counterpedia/authoringProposalToEntryReadModel.ts" \
+  || fail "Counterpedia adapter does not visibly carry producer section.role"
+grep -q 'draft_completeness_binding' "$AUTH_DIR/src/counterpedia_authoring/draft_source_v05.py" \
+  || fail "Authoring v0.5 finalizer does not visibly bind draft_completeness_binding"
 
 AUTH_PY="${COUNTERPEDIA_AUTHORING_PYTHON:-$AUTH_DIR/.venv/bin/python}"
 [ -x "$AUTH_PY" ] || fail "authoring interpreter not found at $AUTH_PY"
@@ -62,11 +80,29 @@ then
 fi
 
 head_of() { git -C "$1" rev-parse HEAD 2>/dev/null || echo "??"; }
+EXT_HEAD="$(head_of "$EXT_DIR")"
+ACQ_HEAD="$(head_of "$ACQ_DIR")"
+AUTH_HEAD="$(head_of "$AUTH_DIR")"
+CP_HEAD="$(head_of "$CP_DIR")"
 echo "DRAFT-E2E-GATE heads:"
-echo "  extension=$(head_of "$EXT_DIR")"
-echo "  acquisition=$(head_of "$ACQ_DIR")"
-echo "  authoring=$(head_of "$AUTH_DIR")"
-echo "  counterpedia=$(head_of "$CP_DIR")"
+echo "  extension=$EXT_HEAD"
+echo "  acquisition=$ACQ_HEAD"
+echo "  authoring=$AUTH_HEAD"
+echo "  counterpedia=$CP_HEAD"
+
+# Optional exact-pin mode. Set one or more EXPECTED_*_HEAD values when the gate
+# is being used as landing evidence. This intentionally allows later reconciled
+# heads to run by default while making a recorded exact-head proof impossible to
+# perform accidentally against the wrong worktree.
+assert_head() {
+  local label="$1" actual="$2" expected="$3"
+  [ -z "$expected" ] || [ "$actual" = "$expected" ] \
+    || fail "$label head mismatch: expected $expected, observed $actual"
+}
+assert_head "extension" "$EXT_HEAD" "${COUNTERPEDIA_EXTENSION_EXPECTED_HEAD:-}"
+assert_head "acquisition" "$ACQ_HEAD" "${COUNTERPEDIA_ACQUISITION_EXPECTED_HEAD:-}"
+assert_head "authoring" "$AUTH_HEAD" "${COUNTERPEDIA_AUTHORING_EXPECTED_HEAD:-}"
+assert_head "counterpedia" "$CP_HEAD" "${COUNTERPEDIA_EXPECTED_HEAD:-}"
 
 export COUNTERPEDIA_ACQUISITION_DIR="$ACQ_DIR"
 export COUNTERPEDIA_AUTHORING_DIR="$AUTH_DIR"
@@ -82,5 +118,5 @@ npx vitest run tests/draftFromSource.e2e.test.ts "$@"
 echo "DRAFT-E2E-GATE 2/3: real Counterpedia HTTP projection/refusal suite"
 npx vitest run tests/entryReadModelHttp.e2e.test.ts "$@"
 
-echo "DRAFT-E2E-GATE 3/3: literal same-run exact-handoff four-service loop"
+echo "DRAFT-E2E-GATE 3/3: literal same-run legacy + v0.5 exact-handoff four-service loop"
 exec npx vitest run tests/draftFromSourceFourService.e2e.test.ts "$@"

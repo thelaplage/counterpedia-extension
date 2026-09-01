@@ -13,6 +13,14 @@
  * into the client, or that presents a draft as anything other than a proposal.
  * No Chrome APIs; pure and fully unit-testable.
  *
+ * EXT-DRAFT-SOURCE-V05-ACTIVATE0 keeps the allow-list versioned rather than
+ * widening it generically: `draft_completeness_binding` is accepted and
+ * preserved ONLY for `authoring_admission_handoff.v0.5`, where the producer
+ * contract requires that materialized artifact. Older handoff versions carrying
+ * that key still fail closed as unknown. The extension treats the object as
+ * opaque producer data and never interprets structural completeness as support,
+ * truth, admission, standing, or verification.
+ *
  * Modeled on `acquisitionResponseGuard.ts` (same recursive-forbidden-key
  * pattern). The forbidden set uses EXACT key matching (not substring) so it
  * never false-positives on legitimate producer metadata that merely echoes a
@@ -24,13 +32,10 @@ export type DraftLifecycle = "proposal" | "draft";
 
 /**
  * The authorized response projection. This mirrors the producer-owned
- * `AuthoringAdmissionHandoff` contract (`counterpedia-authoring` →
- * `contracts/admission_handoff.py`); the extension consumes it, it does not
- * become a second schema authority. The four component payloads
- * (`proposal_package` / `evidence_bundle` / `claim_map` / `draft_proposal`) are
- * kept as opaque guarded objects: the client never re-types or re-canonicalizes
- * the producer's digest-sealed components. `draft_proposal.lifecycle` is the one
- * field pinned, because it is the proposal-only boundary.
+ * `AuthoringAdmissionHandoff` contract (`counterpedia-authoring`). Component
+ * payloads are opaque guarded objects: the extension consumes them, it does not
+ * become a second schema authority. `draft_proposal.lifecycle` is the one field
+ * pinned because it is the proposal-only boundary.
  */
 export interface AuthoringHandoff {
   schema_version: string;
@@ -40,6 +45,8 @@ export interface AuthoringHandoff {
   evidence_bundle: Record<string, unknown>;
   claim_map: Record<string, unknown>;
   draft_proposal: { lifecycle: DraftLifecycle } & Record<string, unknown>;
+  /** Required and opaque on producer handoff v0.5; absent on earlier versions. */
+  draft_completeness_binding?: Record<string, unknown>;
   handoff_digest: string;
 }
 
@@ -51,8 +58,8 @@ export class AuthoringResponseError extends Error {
   }
 }
 
-/** Exactly the allowed top-level keys. Any other key fails the response closed. */
-const ALLOWED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
+/** Top-level keys shared by every supported handoff generation. */
+const BASE_ALLOWED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   "schema_version",
   "producer",
   "authority_posture",
@@ -62,6 +69,9 @@ const ALLOWED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   "draft_proposal",
   "handoff_digest",
 ]);
+
+const V05_SCHEMA_VERSION = "authoring_admission_handoff.v0.5";
+const V05_ONLY_TOP_LEVEL_KEY = "draft_completeness_binding";
 
 /**
  * Governance/authority keys that must never appear ANYWHERE in a handoff
@@ -174,15 +184,30 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
     throw new AuthoringResponseError("response is not a JSON object");
   }
 
-  // (1) Exact allow-list: no unknown top-level keys.
+  // Read the producer schema version before applying its exact key surface.
+  // This is not semantic dispatch: it only prevents v0.5's required materialized
+  // completeness artifact from widening the top-level allow-list of older wires.
+  const schemaVersion = requireString(raw, "schema_version");
+  const isV05 = schemaVersion === V05_SCHEMA_VERSION;
+
+  // (1) Exact versioned allow-list: no unknown top-level keys.
   for (const key of Object.keys(raw)) {
-    if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
+    const allowed =
+      BASE_ALLOWED_TOP_LEVEL_KEYS.has(key) ||
+      (isV05 && key === V05_ONLY_TOP_LEVEL_KEY);
+    if (!allowed) {
       throw new AuthoringResponseError(`unknown top-level field '${key}'`);
     }
   }
 
+  // v0.5 requires the materialized completeness artifact. Earlier versions
+  // cannot carry it because the allow-list above rejects the key outright.
+  const draftCompletenessBinding = isV05
+    ? requireObject(raw, V05_ONLY_TOP_LEVEL_KEY)
+    : undefined;
+
   // (2) No authority-bearing key anywhere, and every lifecycle value is
-  //     proposal-only (incl. inside the component payloads).
+  //     proposal-only (including inside the opaque v0.5 completeness object).
   assertNoForbiddenKeys(raw, "$");
 
   // (3) Pin the two frozen literals: proposal_only posture, authoring producer.
@@ -198,7 +223,6 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
   }
 
   // (4) Structural top-level fields.
-  const schemaVersion = requireString(raw, "schema_version");
   const handoffDigest = requireString(raw, "handoff_digest");
   const proposalPackage = requireObject(raw, "proposal_package");
   const evidenceBundle = requireObject(raw, "evidence_bundle");
@@ -215,7 +239,7 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
     );
   }
 
-  return {
+  const handoff: AuthoringHandoff = {
     schema_version: schemaVersion,
     producer: "counterpedia-authoring",
     authority_posture: "proposal_only",
@@ -225,6 +249,10 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
     draft_proposal: { ...draftProposal, lifecycle: lifecycle as DraftLifecycle },
     handoff_digest: handoffDigest,
   };
+  if (draftCompletenessBinding !== undefined) {
+    handoff.draft_completeness_binding = draftCompletenessBinding;
+  }
+  return handoff;
 }
 
 /** Non-throwing variant: returns null instead of raising. */
