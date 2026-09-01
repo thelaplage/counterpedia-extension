@@ -33,6 +33,18 @@
  *   - Both methods pass operator claim material VERBATIM — neither invents,
  *     infers, or completes a claim.
  *
+ * EXT-DRAFT-SOURCE-V05-ACTIVATE0:
+ *   - historical Draft-from-source may carry an explicit Counterpedia semantic
+ *     section placement (`desired_sections`) to activate the producer's v0.5
+ *     crossing;
+ *   - role is NEVER inferred from an editorial title. The current application
+ *     profile has one explicit versioned migration by exact recipe identity:
+ *     `operator-standard@0.1.0` + exact legacy section vocabulary ["Background"]
+ *     becomes `operator-standard@0.2.0` with the authored placement
+ *     `{section_label:"Background", role:"background"}`;
+ *   - the URL action remains the legacy label-only wire action. No historical
+ *     source action falls back to it.
+ *
  * Client selection is honest: with a configured base URL + token you get the
  * HTTP client; otherwise you get the `notConfigured` client, which NEVER
  * fabricates a proposal.
@@ -59,13 +71,41 @@ export interface AuthoringConfig {
   token: string;
 }
 
+/**
+ * Consumer-side closed vocabulary for the producer-owned Counterpedia Content /
+ * Page Anatomy v0.2 section role. This mirrors the producer wire vocabulary so
+ * the extension can send an explicit placement; it is not a second semantic
+ * model and is never used to derive role from editorial text.
+ */
+export type CounterpediaSectionRole =
+  | "lead"
+  | "key_facts"
+  | "background"
+  | "account"
+  | "timeline"
+  | "participants"
+  | "issues"
+  | "perspectives"
+  | "impact"
+  | "current_status"
+  | "open_questions"
+  | "related";
+
+export interface OperatorDesiredSection {
+  section_label: string;
+  role: CounterpediaSectionRole;
+}
+
 /** Minimal recipe scaffolding the composer needs. Proposal-only; no authority. */
 export interface OperatorRecipeSpec {
   recipe_id: string;
   output_profile: string;
   lead_policy_reference: string;
   recipe_version: string;
+  /** Legacy label-only placement used by the URL action and older callers. */
   desired_section_vocabulary?: string[];
+  /** Explicit semantic placement used by the historical-source v0.5 action. */
+  desired_sections?: OperatorDesiredSection[];
 }
 
 /**
@@ -113,6 +153,22 @@ export interface OperatorCandidate {
   url: string;
 }
 
+export interface LegacyRecipeWire {
+  recipe_id: string;
+  output_profile: string;
+  lead_policy_reference: string;
+  recipe_version: string;
+  desired_section_vocabulary: string[];
+}
+
+export interface RoleBearingRecipeWire {
+  recipe_id: string;
+  output_profile: string;
+  lead_policy_reference: string;
+  recipe_version: string;
+  desired_sections: OperatorDesiredSection[];
+}
+
 /**
  * The URL-action wire request. A typed COMPOSITION of existing authoring
  * contract inputs; it mirrors the producer's `DraftFromUrlRequest` so the
@@ -129,25 +185,18 @@ export interface DraftFromUrlRequest {
   coverage_assessments: Array<Record<string, unknown>>;
   conflicts: Array<Record<string, unknown>>;
   bound_claim_ids?: string[];
-  recipe: {
-    recipe_id: string;
-    output_profile: string;
-    lead_policy_reference: string;
-    recipe_version: string;
-    desired_section_vocabulary: string[];
-  };
+  recipe: LegacyRecipeWire;
   depth: string;
 }
 
 /**
  * The historical-source-action wire request. Mirrors the producer's
- * `DraftFromSourceRequest` (AUTHOR0-B1 / AUTHOR-B1-RECON1). `candidates[].url`
- * here is NOT a fetch instruction — it is the governed continuity constraint
- * (`expected_source_locator`) the backend binds against. `capture_ref` is the
- * SEPARATE historical acquisition identity that identifies which already-held
- * bytes to reprocess; this route never performs a live fetch under any
- * outcome. AUTHOR-B1-RECON1 enforces exactly one selected candidate in this
- * mode — this client only ever builds one.
+ * `DraftFromSourceRequest` (AUTHOR0-B1 / AUTHOR-B1-RECON1) plus the additive
+ * explicit-role recipe accepted by DRAFT-SOURCE-V05-FINALIZE0.
+ * `candidates[].url` here is NOT a fetch instruction — it is the governed
+ * continuity constraint (`expected_source_locator`) the backend binds against.
+ * `capture_ref` is the SEPARATE historical acquisition identity that identifies
+ * which already-held bytes to reprocess; this route never performs a live fetch.
  */
 export interface DraftFromSourceRequest {
   subject_seed: string;
@@ -161,24 +210,67 @@ export interface DraftFromSourceRequest {
   coverage_assessments: Array<Record<string, unknown>>;
   conflicts: Array<Record<string, unknown>>;
   bound_claim_ids?: string[];
-  recipe: {
-    recipe_id: string;
-    output_profile: string;
-    lead_policy_reference: string;
-    recipe_version: string;
-    desired_section_vocabulary: string[];
-  };
+  recipe: LegacyRecipeWire | RoleBearingRecipeWire;
   depth: string;
 }
 
-function buildRecipe(material: OperatorDraftMaterial): DraftFromUrlRequest["recipe"] {
+function buildLegacyRecipe(material: OperatorDraftMaterial): LegacyRecipeWire {
   return {
     recipe_id: material.recipe.recipe_id,
     output_profile: material.recipe.output_profile,
     lead_policy_reference: material.recipe.lead_policy_reference,
     recipe_version: material.recipe.recipe_version,
-    desired_section_vocabulary: material.recipe.desired_section_vocabulary ?? [],
+    // If a future caller is role-native but explicitly chooses the URL action,
+    // project only the authored labels. This does NOT infer role from title; it
+    // discards role because the legacy URL backend contract has no role field.
+    desired_section_vocabulary:
+      material.recipe.desired_section_vocabulary ??
+      material.recipe.desired_sections?.map((section) => section.section_label) ??
+      [],
   };
+}
+
+/**
+ * Exact application-profile migration for the currently-shipped source action.
+ * This is deliberately NOT a label->role lookup. It fires only for the exact
+ * known application profile identity and exact frozen legacy bytes. Any other
+ * recipe remains legacy unless it explicitly carries `desired_sections` itself.
+ */
+function buildSourceRecipe(
+  material: OperatorDraftMaterial,
+): LegacyRecipeWire | RoleBearingRecipeWire {
+  if (material.recipe.desired_sections !== undefined) {
+    return {
+      recipe_id: material.recipe.recipe_id,
+      output_profile: material.recipe.output_profile,
+      lead_policy_reference: material.recipe.lead_policy_reference,
+      recipe_version: material.recipe.recipe_version,
+      desired_sections: material.recipe.desired_sections.map((section) => ({ ...section })),
+    };
+  }
+
+  const legacy = material.recipe.desired_section_vocabulary;
+  const isExactOperatorStandardV01 =
+    material.recipe.recipe_id === "operator-standard" &&
+    material.recipe.recipe_version === "0.1.0" &&
+    material.recipe.output_profile === "counterpedia.standard.v1" &&
+    material.recipe.lead_policy_reference === "doctrine:authoring.proposal.v0.1" &&
+    legacy?.length === 1 &&
+    legacy[0] === "Background";
+
+  if (isExactOperatorStandardV01) {
+    return {
+      recipe_id: "operator-standard",
+      output_profile: "counterpedia.standard.v1",
+      lead_policy_reference: "doctrine:authoring.proposal.v0.1",
+      recipe_version: "0.2.0",
+      desired_sections: [
+        { section_label: "Background", role: "background" },
+      ],
+    };
+  }
+
+  return buildLegacyRecipe(material);
 }
 
 /**
@@ -207,7 +299,7 @@ export function buildDraftFromUrlRequest(
     coverage_requirements: material.coverageRequirements ?? [],
     coverage_assessments: material.coverageAssessments ?? [],
     conflicts: material.conflicts ?? [],
-    recipe: buildRecipe(material),
+    recipe: buildLegacyRecipe(material),
     depth: material.depth ?? "brief",
   };
   if (material.boundClaimIds !== undefined) {
@@ -244,7 +336,7 @@ export function buildDraftFromSourceRequest(
     coverage_requirements: material.coverageRequirements ?? [],
     coverage_assessments: material.coverageAssessments ?? [],
     conflicts: material.conflicts ?? [],
-    recipe: buildRecipe(material),
+    recipe: buildSourceRecipe(material),
     depth: material.depth ?? "brief",
   };
   if (material.boundClaimIds !== undefined) {
