@@ -1,0 +1,36 @@
+name: Draft source v0.5 extension exact proof
+
+on:
+  push:
+    branches:
+      - proof/draft-source-v05-extension-exact0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extension-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact extension head
+        uses: actions/checkout@v4
+        with:
+          ref: ccb67c3d1e3eeea1ff1aac587d86f4d4ed6590c4
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "ccb67c3d1e3eeea1ff1aac587d86f4d4ed6590c4"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused v0.5 activation guard/request proof
+        run: npx vitest run tests/draftSourceV05Activation.test.ts
