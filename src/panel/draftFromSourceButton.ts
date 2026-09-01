@@ -1,26 +1,12 @@
 /**
  * Draft-from-source button wiring — pure, DOM/chrome-free dispatch logic.
  *
- * Extracted from panel.ts so the "one button, one action, zero fallback"
- * invariant can be pinned by a permanent test, mirroring how captureButton.ts
- * extracts the capture-button's request-count invariant.
- *
- * C0 CORRECTION: the panel's single "Draft from source" button calls ONLY the
- * historical action (`draftFromHeldCapture()` -> `/v0/draft-from-source`).
- * `draftFromUrl()` (`/v0/draft-from-url`) remains a separate, legitimate,
- * explicit new-observation action defined in authoringClient.ts, but this
- * button never invokes it — not as a primary path, not as a fallback when
- * `capture_id` is absent, and not as a fallback when `draftFromHeldCapture()`
- * itself fails. An unresolved or absent historical capture reference is a
- * refused terminal state, never a reason to re-acquire from the URL.
- *
- * WIKI-CAPTURE-AUTHOR0 adds exactly one source-selection seam: when the active
- * page lane has no governed capture, the button may consume an explicitly
- * selected successful capture from `governedSourceSelection`. Selection is
- * inert; it never invokes authoring. The SAME button and SAME held-capture
- * dispatch below remain the only drafting act. A selection restored from
- * LOCAL_ONLY persistence is treated exactly like the same explicit selection
- * before lifecycle loss; restore never drafts by itself.
+ * The single button still calls ONLY draftFromHeldCapture(). READER-CONSUMER-
+ * EXT1 adds one POST-success composition seam: once an Authoring handoff has
+ * already been guarded and assembled, an injected Counterpedia reader
+ * projector may turn that handoff into the canonical EntryReadModel. Projection
+ * failure never retries Authoring, never fetches the source, and never rewrites
+ * the proposal-only Authoring success into admission/publication.
  */
 
 import type { AcquisitionCaptureResult } from "../lib/acquisitionResponseGuard";
@@ -33,6 +19,8 @@ import type {
   OperatorDraftMaterial,
   AuthoringClientResult,
 } from "../lib/authoringClient";
+import type { AuthoringHandoff } from "../lib/authoringResponseGuard";
+import type { ProposalReaderEntry } from "../lib/entryReadModelClient";
 import {
   renderDraftUnavailable,
   renderDraftFailed,
@@ -42,41 +30,45 @@ import {
   type AuthoringRender,
 } from "../lib/authoringState";
 
-/** Minimal button surface — satisfied by HTMLButtonElement and by test doubles. */
 export interface DraftFromSourceButtonLike {
   disabled?: boolean;
   addEventListener(type: "click", listener: () => void): void;
 }
 
-export interface DraftFromSourceDeps {
-  readonly button: DraftFromSourceButtonLike;
-  /** The currently-captured active-page governed source, or null when none is held. */
-  readonly getGovernedSource: () => AcquisitionCaptureResult | null;
-  /** Render the draft lane status. */
-  readonly setStatus: (render: AuthoringRender) => void;
-  /** Build operator-authored material from the panel inputs; null when incomplete. */
-  readonly readMaterial: () => OperatorDraftMaterial | null;
-  /** Resolve the configured authoring client (may be `notConfigured`). */
-  readonly getClient: () => Promise<AuthoringClient>;
-}
+export type DraftReaderProjector = (
+  handoff: AuthoringHandoff,
+) => Promise<ProposalReaderEntry>;
+
+let configuredReaderProjector: DraftReaderProjector | null = null;
 
 /**
- * Active-page capture wins when present; otherwise consume the separately and
- * explicitly selected historical source. No source is inferred from URL/page
- * state, and a capture_failed result can never enter the shared selection seam.
+ * Configure the product read-model projector at the surface-composition entry
+ * point. Null resets it for tests/non-authoring builds. This is transport
+ * composition only; the extension never implements Authoring→EntryReadModel
+ * semantics itself.
  */
+export function configureDraftReaderProjection(
+  projector: DraftReaderProjector | null,
+): void {
+  configuredReaderProjector = projector;
+}
+
+export interface DraftFromSourceDeps {
+  readonly button: DraftFromSourceButtonLike;
+  readonly getGovernedSource: () => AcquisitionCaptureResult | null;
+  readonly setStatus: (render: AuthoringRender) => void;
+  readonly readMaterial: () => OperatorDraftMaterial | null;
+  readonly getClient: () => Promise<AuthoringClient>;
+  /** Test/embedding override; otherwise the configured surface projector is used. */
+  readonly projectHandoff?: DraftReaderProjector;
+}
+
 export function resolveDraftGovernedSource(
   deps: Pick<DraftFromSourceDeps, "getGovernedSource">,
 ): AcquisitionCaptureResult | null {
   return deps.getGovernedSource() ?? getSelectedGovernedSource();
 }
 
-/**
- * Run one draft-from-source attempt. Calls `draftFromHeldCapture()` and ONLY
- * `draftFromHeldCapture()` — `draftFromUrl()` is never reachable from this
- * function, under any input or failure. Exported for direct unit testing of
- * the no-fallback invariant.
- */
 export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<void> {
   const source = resolveDraftGovernedSource(deps);
   if (!source) {
@@ -101,26 +93,39 @@ export async function runDraftFromSource(deps: DraftFromSourceDeps): Promise<voi
       source,
       material,
     );
-    deps.setStatus(renderAuthoringClientResult(result));
+
+    if (result.kind !== "assembled") {
+      deps.setStatus(renderAuthoringClientResult(result));
+      return;
+    }
+
+    const projector = deps.projectHandoff ?? configuredReaderProjector;
+    if (!projector) {
+      deps.setStatus(renderAuthoringClientResult(result));
+      return;
+    }
+
+    try {
+      const readerEntry = await projector(result.handoff);
+      deps.setStatus(renderAuthoringClientResult(result, readerEntry));
+    } catch {
+      // Authoring succeeded. Preserve PROPOSAL_ASSEMBLED and disclose that the
+      // separate Counterpedia reader projection is unavailable. Never retry the
+      // draft, never call draftFromUrl(), never fetch the source.
+      deps.setStatus(renderAuthoringClientResult(result, null, true));
+    }
   } catch {
     deps.setStatus(renderDraftFailed());
   }
 }
 
-/** Register the single click handler on the draft-from-source button. */
 export function wireDraftFromSourceButton(deps: DraftFromSourceDeps): void {
   deps.button.addEventListener("click", () => {
     void runDraftFromSource(deps);
   });
 
-  // Only stateful button surfaces (the real HTML button and matching test
-  // doubles) need readiness subscriptions. Pure dispatch doubles without a
-  // disabled property stay subscription-free.
   if (!("disabled" in deps.button)) return;
 
-  // A LOCAL_ONLY selection may have been restored before this UI surface was
-  // wired. Subscriptions intentionally do not replay, so establish readiness
-  // from the already-restored state once before listening for future changes.
   if (resolveDraftGovernedSource(deps)) {
     deps.button.disabled = false;
     deps.setStatus(renderDraftReady());

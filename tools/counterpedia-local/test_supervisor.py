@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
-"""Unit tests for supervisor.py's I1 DEMO-SUPERVISOR-CONVERGE0 unified report.
+"""Unit tests for supervisor.py's additive readiness profiles.
 
-Pure logic + bounded local filesystem/port probes -- no real Chrome, no real
-acquisition/authoring/countergraph process, no real network egress assumed.
-Run:
+Pure logic + bounded local probes; no real Chrome or external service is
+required. Run:
   python3 tools/counterpedia-local/test_supervisor.py -v
 """
 from __future__ import annotations
 
-import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import preflight  # noqa: E402
-import supervisor  # noqa: E402
+import preflight
+import supervisor
 
 
 class ServerSideAuthTests(unittest.TestCase):
@@ -27,21 +24,23 @@ class ServerSideAuthTests(unittest.TestCase):
 
     def test_configured_when_env_var_set_and_value_never_echoed(self) -> None:
         secret_path = "/run/secrets/super-secret-signing-key-do-not-print.pem"
-        line = supervisor.check_server_side_auth({supervisor.SERVER_SIDE_AUTH_ENV_VAR: secret_path})
+        line = supervisor.check_server_side_auth(
+            {supervisor.SERVER_SIDE_AUTH_ENV_VAR: secret_path}
+        )
         self.assertEqual(line.status, "configured")
         self.assertTrue(line.ok)
-        # The value itself must never appear anywhere in the reported line.
-        rendered = str(line.to_dict())
-        self.assertNotIn(secret_path, rendered)
+        self.assertNotIn(secret_path, str(line.to_dict()))
 
     def test_absent_when_env_var_blank(self) -> None:
-        line = supervisor.check_server_side_auth({supervisor.SERVER_SIDE_AUTH_ENV_VAR: "   "})
+        line = supervisor.check_server_side_auth(
+            {supervisor.SERVER_SIDE_AUTH_ENV_VAR: "   "}
+        )
         self.assertEqual(line.status, "absent")
 
 
 class HttpReachabilityTests(unittest.TestCase):
     def test_counterpedia_web_not_ready_when_unreachable(self) -> None:
-        line = supervisor.check_counterpedia_web("http://127.0.0.1:1/")  # port 1: refused, deterministic
+        line = supervisor.check_counterpedia_web("http://127.0.0.1:1/")
         self.assertEqual(line.status, "not_ready")
         self.assertFalse(line.ok)
 
@@ -56,6 +55,21 @@ class HttpReachabilityTests(unittest.TestCase):
         self.assertFalse(line.ok)
 
 
+class CanonicalReaderReadinessTests(unittest.TestCase):
+    def test_reader_not_ready_when_exact_route_probe_fails(self) -> None:
+        with mock.patch.object(supervisor.reader_demo, "probe_reader", return_value=False):
+            line = supervisor.check_counterpedia_reader()
+        self.assertEqual(line.status, "not_ready")
+        self.assertFalse(line.ok)
+        self.assertEqual(line.detail, supervisor.reader_demo.READER_URL)
+
+    def test_reader_ready_only_from_exact_route_probe(self) -> None:
+        with mock.patch.object(supervisor.reader_demo, "probe_reader", return_value=True):
+            line = supervisor.check_counterpedia_reader()
+        self.assertEqual(line.status, "ready")
+        self.assertTrue(line.ok)
+
+
 class NetworkArtifactsDelegationTests(unittest.TestCase):
     def test_not_evaluated_when_counterpedia_repo_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,63 +81,48 @@ class NetworkArtifactsDelegationTests(unittest.TestCase):
 
 class ProfileDefinitionTests(unittest.TestCase):
     def test_capture_demo_equals_frozen_pitch_ready_gate_verbatim(self) -> None:
-        # This is the load-bearing assertion: capture_demo must be the exact
-        # same set as preflight.REQUIRED_FOR_PITCH_READY -- not a redefinition.
         self.assertEqual(supervisor.CAPTURE_DEMO, preflight.REQUIRED_FOR_PITCH_READY)
 
     def test_authoring_demo_is_capture_demo_plus_authoring_only(self) -> None:
-        self.assertEqual(supervisor.AUTHORING_DEMO - supervisor.CAPTURE_DEMO, {"authoring"})
+        self.assertEqual(
+            supervisor.AUTHORING_DEMO - supervisor.CAPTURE_DEMO,
+            {"authoring"},
+        )
 
-    def test_canonical_pitch_is_union_of_all_named_profiles(self) -> None:
+    def test_draft_from_source_demo_adds_only_authoring_and_canonical_reader(self) -> None:
+        self.assertEqual(
+            supervisor.DRAFT_FROM_SOURCE_DEMO - supervisor.CAPTURE_DEMO,
+            {"authoring", "counterpedia_reader"},
+        )
+
+    def test_canonical_pitch_is_union_of_all_named_product_profiles(self) -> None:
         union = (
             supervisor.CAPTURE_DEMO
             | supervisor.AUTHORING_DEMO
+            | supervisor.DRAFT_FROM_SOURCE_DEMO
             | supervisor.NETWORK_REPLAY_DEMO
             | supervisor.LIVE_GRAPH_DEMO
         )
         self.assertEqual(supervisor.CANONICAL_PITCH, union)
 
-    def test_profiles_dict_has_exactly_five_named_profiles(self) -> None:
+    def test_profiles_dict_has_exactly_six_named_profiles(self) -> None:
         self.assertEqual(
             set(supervisor.PROFILES),
-            {"capture_demo", "authoring_demo", "network_replay_demo", "live_graph_demo", "canonical_pitch"},
+            {
+                "capture_demo",
+                "authoring_demo",
+                "draft_from_source_demo",
+                "network_replay_demo",
+                "live_graph_demo",
+                "canonical_pitch",
+            },
         )
 
 
 class BuildSupervisorReportTests(unittest.TestCase):
-    def test_pitch_ready_unchanged_matches_bare_preflight_call_exactly(self) -> None:
-        """Before/after proof: the SAME env produces the SAME pitch_ready
-        verdict whether computed by preflight.py alone or read off the
-        supervisor's composed report -- the existing contract's truth
-        conditions are not altered by this additive layer."""
-        with tempfile.TemporaryDirectory() as tmp:
-            ext_root = Path(tmp)
-            acquisition_dir = Path(tmp) / "acq"
-            authoring_dir = Path(tmp) / "authoring"
-            store_root = Path(tmp) / "store"
-
-            before = preflight.build_preflight_report(
-                ext_root=ext_root,
-                acquisition_dir=acquisition_dir,
-                authoring_dir=authoring_dir,
-                store_root=store_root,
-                env={},
-            )
-            after = supervisor.build_supervisor_report(
-                ext_root=ext_root,
-                acquisition_dir=acquisition_dir,
-                authoring_dir=authoring_dir,
-                store_root=store_root,
-                env={},
-                counterpedia_repo_dir=Path(tmp) / "no-counterpedia-here",
-                skip_network_artifacts=True,
-            )
-            self.assertEqual(before["pitch_ready"], after["pitch_ready"])
-            self.assertFalse(after["pitch_ready"])  # nothing up in this sandbox tmp dir
-
-    def test_report_contains_all_new_component_keys(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            report = supervisor.build_supervisor_report(
+    def _build(self, tmp: str) -> dict:
+        with mock.patch.object(supervisor.reader_demo, "probe_reader", return_value=False):
+            return supervisor.build_supervisor_report(
                 ext_root=Path(tmp),
                 acquisition_dir=Path(tmp) / "acq",
                 authoring_dir=Path(tmp) / "authoring",
@@ -132,6 +131,23 @@ class BuildSupervisorReportTests(unittest.TestCase):
                 counterpedia_repo_dir=Path(tmp) / "no-counterpedia-here",
                 skip_network_artifacts=True,
             )
+
+    def test_pitch_ready_unchanged_matches_bare_preflight_call_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            before = preflight.build_preflight_report(
+                ext_root=Path(tmp),
+                acquisition_dir=Path(tmp) / "acq",
+                authoring_dir=Path(tmp) / "authoring",
+                store_root=Path(tmp) / "store",
+                env={},
+            )
+            after = self._build(tmp)
+            self.assertEqual(before["pitch_ready"], after["pitch_ready"])
+            self.assertFalse(after["pitch_ready"])
+
+    def test_report_contains_canonical_reader_component(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._build(tmp)
             for key in (
                 "chrome_for_testing",
                 "extension",
@@ -141,6 +157,7 @@ class BuildSupervisorReportTests(unittest.TestCase):
                 "authoring",
                 "demo_artifacts",
                 "counterpedia_web",
+                "counterpedia_reader",
                 "network_artifacts",
                 "countergraph_query",
                 "countergraph_mcp_health",
@@ -148,38 +165,45 @@ class BuildSupervisorReportTests(unittest.TestCase):
             ):
                 self.assertIn(key, report["lines"])
 
+    def test_draft_from_source_profile_names_reader_when_reader_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._build(tmp)
+            profile = report["profiles"]["draft_from_source_demo"]
+            self.assertFalse(profile["ready"])
+            self.assertIn("counterpedia_reader", profile["missing"])
+            self.assertIn("authoring", profile["missing"])
+
     def test_canonical_pitch_not_ready_when_nothing_up(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            report = supervisor.build_supervisor_report(
-                ext_root=Path(tmp),
-                acquisition_dir=Path(tmp) / "acq",
-                authoring_dir=Path(tmp) / "authoring",
-                store_root=Path(tmp) / "store",
-                env={},
-                counterpedia_repo_dir=Path(tmp) / "no-counterpedia-here",
-                skip_network_artifacts=True,
-            )
+            report = self._build(tmp)
             self.assertFalse(report["profiles"]["canonical_pitch"]["ready"])
             self.assertFalse(report["profiles"]["live_graph_demo"]["ready"])
-            self.assertIn("server_side_auth", report["profiles"]["live_graph_demo"]["missing"])
+            self.assertIn(
+                "server_side_auth", report["profiles"]["live_graph_demo"]["missing"]
+            )
 
     def test_no_secret_value_anywhere_in_report_even_when_env_var_set(self) -> None:
+        import json
+
         secret_path = "/run/secrets/never-print-this-signing-key.pem"
         with tempfile.TemporaryDirectory() as tmp:
-            report = supervisor.build_supervisor_report(
-                ext_root=Path(tmp),
-                acquisition_dir=Path(tmp) / "acq",
-                authoring_dir=Path(tmp) / "authoring",
-                store_root=Path(tmp) / "store",
-                env={supervisor.SERVER_SIDE_AUTH_ENV_VAR: secret_path},
-                counterpedia_repo_dir=Path(tmp) / "no-counterpedia-here",
-                skip_network_artifacts=True,
-            )
-            import json
-
+            with mock.patch.object(
+                supervisor.reader_demo, "probe_reader", return_value=False
+            ):
+                report = supervisor.build_supervisor_report(
+                    ext_root=Path(tmp),
+                    acquisition_dir=Path(tmp) / "acq",
+                    authoring_dir=Path(tmp) / "authoring",
+                    store_root=Path(tmp) / "store",
+                    env={supervisor.SERVER_SIDE_AUTH_ENV_VAR: secret_path},
+                    counterpedia_repo_dir=Path(tmp) / "no-counterpedia-here",
+                    skip_network_artifacts=True,
+                )
             rendered = json.dumps(report)
             self.assertNotIn(secret_path, rendered)
-            self.assertEqual(report["lines"]["server_side_auth"]["status"], "configured")
+            self.assertEqual(
+                report["lines"]["server_side_auth"]["status"], "configured"
+            )
 
 
 if __name__ == "__main__":

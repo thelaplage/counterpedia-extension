@@ -817,10 +817,16 @@ describeE2E("DRAFT-FROM-SOURCE — real three-process held-capture loop", () => 
     contaminated.proposal_package.standing = "granted";
     expect(tryParseAuthoringHandoff(contaminated)).toBeNull();
 
-    // And the clean handoff still renders as proposal_only (never admission).
+    // The clean handoff still renders the Authoring terminal state and the
+    // non-admission boundary. READER-CONSUMER-EXT1 deliberately no longer
+    // creates product reader semantics directly from raw Authoring bytes; this
+    // three-process test does not stand up Counterpedia, so the preview is
+    // absent here. The canonical projection leg is exercised separately by the
+    // reader-projection composition test and the four-service release gate.
     const render = renderProposalAssembled(good.handoff);
     expect(render.state).toBe("PROPOSAL_ASSEMBLED");
     expect(render.admissionLine).toBe("Admission: not performed");
+    expect(render.proposalPreview).toBeNull();
   }, 30_000);
 
   // -------------------------------------------------------------------------
