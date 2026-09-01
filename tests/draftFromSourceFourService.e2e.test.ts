@@ -215,6 +215,27 @@ function operatorMaterial(): OperatorDraftMaterial {
   };
 }
 
+/**
+ * Exact application-profile migration exercised by EXT-DRAFT-SOURCE-V05-
+ * ACTIVATE0. This deliberately does not put the semantic role on the generic
+ * OperatorDraftMaterial type: buildDraftFromSourceRequest owns the one exact
+ * migration from the shipped operator-standard@0.1.0 profile to the producer's
+ * explicit recipe v0.2 desired_sections contract. Draft-from-URL remains legacy.
+ */
+function operatorMaterialV05(): OperatorDraftMaterial {
+  return {
+    ...operatorMaterial(),
+    boundClaimIds: ["claim-name"],
+    recipe: {
+      recipe_id: "operator-standard",
+      output_profile: "counterpedia.standard.v1",
+      lead_policy_reference: "doctrine:authoring.proposal.v0.1",
+      recipe_version: "0.1.0",
+      desired_section_vocabulary: ["Background"],
+    },
+  };
+}
+
 describeFourService("DRAFT-FROM-SOURCE — literal same-run four-service loop", () => {
   let fixtureServer: Server;
   let acquisitionProcess: ChildProcess;
@@ -351,7 +372,7 @@ describeFourService("DRAFT-FROM-SOURCE — literal same-run four-service loop", 
     if (storeRoot) rmSync(storeRoot, { recursive: true, force: true });
   });
 
-  it("threads the exact fresh Authoring handoff through Counterpedia and the extension preview", async () => {
+  it("threads the exact fresh legacy Authoring handoff through Counterpedia and the extension preview", async () => {
     const acquisitionConfig: AcquisitionConfig = { baseUrl: acquisitionBase, token: ACQ_TOKEN };
     const acquisitionClient = createHttpAcquisitionClient({
       config: acquisitionConfig,
@@ -406,5 +427,76 @@ describeFourService("DRAFT-FROM-SOURCE — literal same-run four-service loop", 
     expect(entry).not.toHaveProperty("admitted");
     expect(entry).not.toHaveProperty("published");
     expect(entry).not.toHaveProperty("standing");
+  }, 45_000);
+
+  it("threads the exact fresh v0.5 role-bearing + completeness handoff through the canonical reader", async () => {
+    const acquisitionConfig: AcquisitionConfig = { baseUrl: acquisitionBase, token: ACQ_TOKEN };
+    const acquisitionClient = createHttpAcquisitionClient({
+      config: acquisitionConfig,
+      fetchImpl: nodeHttpFetch,
+      originHeader: ORIGIN,
+    });
+    const captured = await acquisitionClient.capture(browserCapture(fixtureUrl));
+    expect(captured.kind).toBe("captured");
+    if (captured.kind !== "captured") return;
+
+    const authoringConfig: AuthoringConfig = { baseUrl: authoringBase, token: AUTH_TOKEN };
+    const authoringClient = createHttpAuthoringClient({
+      config: authoringConfig,
+      fetchImpl: nodeHttpFetch,
+      originHeader: ORIGIN,
+    });
+    const drafted = await authoringClient.draftFromHeldCapture(captured.result, operatorMaterialV05());
+    expect(drafted.kind).toBe("assembled");
+    if (drafted.kind !== "assembled") return;
+
+    const handoff = drafted.handoff as unknown as Record<string, unknown>;
+    expect(handoff["schema_version"]).toBe("authoring_admission_handoff.v0.5");
+    expect(handoff["authority_posture"]).toBe("proposal_only");
+    expect(handoff["draft_completeness_binding"]).toBeTruthy();
+    const draft = handoff["draft_proposal"] as Record<string, unknown>;
+    expect(draft["schema_version"]).toBe("draft_entry_proposal.v0.3");
+
+    const exactHandoffDigest = drafted.handoff.handoff_digest;
+    expect(exactHandoffDigest).toBeTruthy();
+
+    // Same-run load-bearing coupling: the exact v0.5 object accepted by the
+    // extension guard is posted unchanged to the real Counterpedia reader.
+    const entry = await projectAuthoringHandoffToReaderEntry(
+      drafted.handoff,
+      globalThis.fetch,
+      readerEndpoint,
+    );
+    expect(entry.posture).toBe("proposal");
+    expect(entry.sourceKind).toBe("authoring_proposal");
+    expect(entry.lifecycle).toBe("proposal");
+    expect(entry.leadBlocks?.[0]?.evidenceRefs).toContain("evidence:E001");
+
+    const background = entry.articleSections?.find((section) => section.title === "Background") as
+      | ({ role?: string; blocks: readonly { evidenceRefs: readonly string[] }[] })
+      | undefined;
+    expect(background).toBeTruthy();
+    expect(background?.role).toBe("background");
+    expect(background?.blocks[0]?.evidenceRefs).toContain("evidence:E001");
+
+    const provenance = entry.sections.provenance?.find(
+      (record) => record.family === "authoring_proposal_handoff",
+    );
+    expect(provenance?.detail["handoff_digest"]).toBe(exactHandoffDigest);
+    expect(provenance?.detail["evidence_basis_refs"]).toContain("evidence:E001");
+
+    const preview = buildAuthoringProposalPreview(entry);
+    expect(preview.title).toBe("Draft-from-source E2E fixture");
+    expect(preview.leadBlocks[0]?.evidenceRefs).toContain("evidence:E001");
+    expect(preview.evidenceBasisRefs).toContain("evidence:E001");
+    expect(preview.handoffDigest).toBe(exactHandoffDigest);
+    expect(preview.handoffDigest).not.toBe("projection:unavailable");
+
+    // Completeness and role transport are additive structural signals only.
+    // The transaction remains proposal-only throughout.
+    expect(entry).not.toHaveProperty("admitted");
+    expect(entry).not.toHaveProperty("published");
+    expect(entry).not.toHaveProperty("standing");
+    expect(entry).not.toHaveProperty("verification");
   }, 45_000);
 });
