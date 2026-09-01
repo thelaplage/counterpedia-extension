@@ -12,7 +12,7 @@ permissions:
 jobs:
   extension-proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout exact extension head
         uses: actions/checkout@v4
@@ -34,6 +34,9 @@ jobs:
 
       - name: Run focused v0.5 activation guard/request proof
         run: npx vitest run tests/draftSourceV05Activation.test.ts
+
+      - name: Run ordinary extension regression suite
+        run: npm test
 
       - name: Typecheck exact extension head
         run: npm run lint
