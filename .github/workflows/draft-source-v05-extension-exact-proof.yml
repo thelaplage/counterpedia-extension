@@ -34,3 +34,9 @@ jobs:
 
       - name: Run focused v0.5 activation guard/request proof
         run: npx vitest run tests/draftSourceV05Activation.test.ts
+
+      - name: Typecheck exact extension head
+        run: npm run lint
+
+      - name: Build exact extension head
+        run: npm run build
