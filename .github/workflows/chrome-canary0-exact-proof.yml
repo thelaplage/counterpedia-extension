@@ -1,0 +1,35 @@
+name: CHROME-CANARY0 exact non-Chrome proof
+
+on:
+  push:
+    branches:
+      - proof/chrome-canary0-exact0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chrome-canary-unit-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact #61 head
+        uses: actions/checkout@v4
+        with:
+          ref: 2203aa087d61391566d43b473baa2aa209134363
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "2203aa087d61391566d43b473baa2aa209134363"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run CHROME-CANARY0 non-Chrome suite
+        run: >-
+          python -m unittest
+          tools/counterpedia-local/test_reader_demo.py
+          tools/counterpedia-local/test_supervisor.py
