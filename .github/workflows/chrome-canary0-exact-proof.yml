@@ -29,7 +29,5 @@ jobs:
           python-version: '3.12'
 
       - name: Run CHROME-CANARY0 non-Chrome suite
-        run: >-
-          python -m unittest
-          tools/counterpedia-local/test_reader_demo.py
-          tools/counterpedia-local/test_supervisor.py
+        working-directory: tools/counterpedia-local
+        run: python -m unittest test_reader_demo.py test_supervisor.py
