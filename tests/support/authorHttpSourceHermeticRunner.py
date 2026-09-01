@@ -21,6 +21,16 @@ deterministic fakes -- exactly as legitimate here as in every other
 AUTHOR-HTTP hermetic harness in this codebase, since they exercise the
 composer/governance seam, not the acquisition seam under test.
 
+EXT-DRAFT-SOURCE-V05-ACTIVATE0 additionally makes the same runner capable of
+exercising DRAFT-SOURCE-V05-FINALIZE0 when the selected Authoring checkout
+contains that lane. The existing legacy source service still owns acquisition,
+custody, planning, evidence, composition, and ClaimMap construction. The runner
+only installs Authoring's real ``RoleBearingDraftFromSourceService`` as the
+post-processing service and supplies a deterministic test-only completeness
+adapter that proposes explicit relations among identifiers already present in
+the fixture draft / ClaimMap. It never mints those semantic identities and it
+does not weaken the ratified completeness factory.
+
 Because ``/v0/draft-from-source`` builds its OWN
 ``RequestBoundSourcePlannerAdapter`` internally from the request's own
 ``candidates``/``capture_ref`` (see counterpedia-authoring's
@@ -33,8 +43,8 @@ unlike the URL lane's fixture, there is no ``SUBJECT_URL`` to pre-bind. The
 Usage:  python authorHttpSourceHermeticRunner.py <acquisition_src_dir> <store_root> <port>
 Resolution: COUNTERPEDIA_AUTHORING_DIR must point at a counterpedia-authoring
 checkout containing AUTH0-B1 (``DraftFromSourceService`` /
-``held_capture_client`` / ``source_deps``). Prints one line `PORT <n>` once
-bound.
+``held_capture_client`` / ``source_deps``). For the v0.5 E2E it must additionally
+contain ``draft_source_v05.py``. Prints one line `PORT <n>` once bound.
 """
 
 from __future__ import annotations
@@ -83,6 +93,7 @@ def main() -> None:
         ProducerAcquisitionToolClient,
     )
     from counterpedia_authoring.adapters.fake_adapter import FixedResponseAdapter
+    from counterpedia_authoring.adapters.model_adapter import ModelAdapter, ModelCall, ModelResponse
     from counterpedia_authoring.composer import FakeComposerAdapter
     from counterpedia_authoring.contracts.claim_map import (
         CoverageRequirement,
@@ -103,6 +114,11 @@ def main() -> None:
         AuthoringTransportDeps,
         build_http_server,
     )
+
+    try:
+        from counterpedia_authoring.draft_source_v05 import RoleBearingDraftFromSourceService
+    except ImportError:
+        RoleBearingDraftFromSourceService = None  # type: ignore[assignment]
 
     entry_script = str(_HERE / "acquisitionMcpStdioEntry.py")
     transport = McpStdioAcquisitionToolTransport(
@@ -162,6 +178,11 @@ def main() -> None:
     # DeterministicHtmlBackend proposes zero fields and no E002 is minted.
     # Reference ONLY evidence:E001 here so this composer/claims wiring never
     # depends on that grounding detail.
+    #
+    # The fixture is deliberately rich enough for the v0.5 completeness path:
+    # one contextual lead unit plus one explicit Background section containing
+    # the single fixture proposition. Legacy E2Es are still free to consume the
+    # same richer v0.1 proposal; explicit-role requests are promoted by #221.
     composer_payload = {
         "title_suggestion": "Draft-from-source E2E fixture",
         "lead_blocks": [
@@ -172,14 +193,101 @@ def main() -> None:
                 "notes": None,
             }
         ],
-        "section_blocks": [],
-        "proposition_records": [],
+        "section_blocks": [
+            {
+                "section_label": "Background",
+                "blocks": [
+                    {
+                        "kind": "paragraph",
+                        "text": "The retained capture is the governed evidence basis for this synthetic test.",
+                        "evidence_refs": ["evidence:E001"],
+                        "notes": "Hermetic E2E fixture section.",
+                    }
+                ],
+                "is_supported": True,
+                "unsupported_reason": None,
+            }
+        ],
+        "proposition_records": [
+            {
+                "proposition_id": "prop:fixture-primary",
+                "claim_text": "The subject is known as Portland Head Light.",
+                "evidence_refs": ["evidence:E001"],
+                "confidence_note": "Hermetic E2E fixture relation only.",
+                "requires_human_review": True,
+            }
+        ],
         "link_suggestions": [],
         "unsupported_slots": [],
         "open_questions": [],
         "cp_page_id_suggestion": None,
         "notes": None,
     }
+
+    class _HermeticCompletenessAdapter(ModelAdapter):
+        """Fixture-only explicit relation proposer over already-existing ids."""
+
+        @property
+        def adapter_id(self) -> str:
+            return "fake.extension-four-service-completeness.v0.1"
+
+        @property
+        def provider_id(self) -> str:
+            return "fake"
+
+        def call(self, model_call: ModelCall) -> ModelResponse:
+            marker = "BOUND MATERIAL\n--------------\n"
+            if marker not in model_call.prompt:
+                raise RuntimeError("unexpected completeness prompt shape")
+            material = json.loads(model_call.prompt.split(marker, 1)[1])
+
+            content_units = material["content_units"]
+            propositions = material["propositions"]
+            bound_claim_ids = material["bound_claim_ids"]
+            if len(propositions) != 1 or propositions[0]["proposition_id"] != "prop:fixture-primary":
+                raise RuntimeError("unexpected fixture proposition frontier")
+            if bound_claim_ids != ["claim-name"]:
+                raise RuntimeError("unexpected fixture claim frontier")
+
+            relations = []
+            assigned = False
+            for unit in content_units:
+                if unit.get("section_label") == "Background":
+                    if assigned:
+                        raise RuntimeError("fixture has multiple Background content units")
+                    relations.append(
+                        {
+                            "content_unit_id": unit["content_unit_id"],
+                            "proposition_ids": ["prop:fixture-primary"],
+                            "non_propositional_reason": None,
+                        }
+                    )
+                    assigned = True
+                else:
+                    relations.append(
+                        {
+                            "content_unit_id": unit["content_unit_id"],
+                            "proposition_ids": [],
+                            "non_propositional_reason": "Fixture contextual content carries no proposition.",
+                        }
+                    )
+            if not assigned:
+                raise RuntimeError("fixture Background content unit not found")
+
+            payload = {
+                "content_units": relations,
+                "proposition_claim_bindings": [
+                    {
+                        "proposition_id": "prop:fixture-primary",
+                        "claim_id": "claim-name",
+                    }
+                ],
+            }
+            return ModelResponse(
+                raw_text=json.dumps(payload),
+                stop_reason="end_of_sequence",
+                token_count_hint=None,
+            )
 
     # Unused by /v0/draft-from-source (that route builds its own
     # RequestBoundSourcePlannerAdapter per-request); present only because
@@ -196,6 +304,17 @@ def main() -> None:
         held_capture_client=held_client,
     )
     server = build_http_server(deps, host="127.0.0.1", port=port, source_deps=deps)
+
+    # Install the real #221 additive post-processing wrapper when the selected
+    # Authoring checkout has it. Legacy requests still delegate byte-for-byte.
+    # The new explicit-role E2E will fail loudly against an older checkout,
+    # which is the desired exact-head behavior for that gate.
+    if RoleBearingDraftFromSourceService is not None:
+        server.draft_from_source_service = RoleBearingDraftFromSourceService(  # type: ignore[attr-defined]
+            deps,
+            completeness_adapter=_HermeticCompletenessAdapter(),
+        )
+
     bound_port = server.server_address[1]
     print(f"PORT {bound_port}", flush=True)
     server.serve_forever()
