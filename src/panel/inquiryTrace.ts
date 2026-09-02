@@ -189,7 +189,7 @@ function renderTrace(): void {
   for (const event of p.events.slice(-8)) {
     const item = document.createElement("li");
     if (event.kind === "check_started") {
-      item.textContent = `${eventTimeLabel(event.at)} — Check opened with ${session.recordIds.length} matched record${session.recordIds.length === 1 ? "" : "s"}.`;
+      item.textContent = `${eventTimeLabel(event.at)} — Inquiry opened with ${session.recordIds.length} Counterpedia match${session.recordIds.length === 1 ? "" : "es"}.`;
     } else if (event.kind === "path_selected") {
       item.textContent = `${eventTimeLabel(event.at)} — Selected path: ${event.pathLabel}.`;
     } else {

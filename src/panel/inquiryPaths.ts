@@ -198,7 +198,7 @@ function renderSection(): void {
   heading.style.fontSize = "12px";
   heading.style.margin = "0 0 3px";
   const intro = document.createElement("p");
-  intro.textContent = "Choose how you want to explore this Check.";
+  intro.textContent = "Choose how you want to explore these matches.";
   intro.style.fontSize = "11px";
   intro.style.margin = "0 0 3px";
   const boundary = document.createElement("p");

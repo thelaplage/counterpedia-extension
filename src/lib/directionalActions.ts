@@ -55,7 +55,7 @@ export function projectDirectionalActions(
       id: "keep",
       ...DEFINITIONS.keep,
       state: context.hasKeepableMaterial ? "available" : "held",
-      holdReason: context.hasKeepableMaterial ? null : "Nothing checked yet.",
+      holdReason: context.hasKeepableMaterial ? null : "Nothing to keep yet.",
     },
     {
       id: "use",

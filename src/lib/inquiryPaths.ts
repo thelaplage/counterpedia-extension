@@ -147,7 +147,7 @@ function addStructuralPaths(
     {
       key: "sources",
       label: "Sources",
-      explanation: "Matched records expose source material for this Check.",
+      explanation: "Matched records expose source material for this inquiry.",
       matches: (result) => result.source_count > 0,
     },
     {

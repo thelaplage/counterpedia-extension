@@ -56,7 +56,7 @@ async function keepWholeCheck(): Promise<void> {
   if (state.kind !== "results") {
     const source = getSourceSnapshot();
     if (!source) {
-      setActionStatus("Nothing checked yet.", true);
+      setActionStatus("Nothing to keep yet.", true);
       return;
     }
     const entry = buildSourceTrailEntry({
