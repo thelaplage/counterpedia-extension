@@ -842,7 +842,7 @@ function setDraftGovernedSource(result: AcquisitionCaptureResult | null): void {
 }
 
 // ---------------------------------------------------------------------------
-// RECOVERY-BIND0 panel action — explicit "Check browser recovery".
+// RECOVERY-BIND0 panel action — explicit "Assess browser recovery".
 //
 // Composes the already-green recovery modules over a currently-held governed
 // capture. Reuses the CAPTURE_PAGE producer path for a FRESH BrowserPageCapture

@@ -58,7 +58,7 @@ const CONTEXT_MENU_ID = "counterpedia_check_selection";
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: CONTEXT_MENU_ID,
-    title: "Check selection in Counterpedia",
+    title: "Search selection in Counterpedia",
     contexts: ["selection"],
   });
 });
