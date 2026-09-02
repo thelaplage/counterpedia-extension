@@ -130,8 +130,8 @@ function applyProfile(profile: ResearcherProfile): void {
     const taught = resolved.paths.length - profile.paths.length;
     const missing = match.missingPathLabels.length;
     status.textContent = missing === 0
-      ? `Applied “${profile.name}” to this Check (${match.matchedPathIds.length} path${match.matchedPathIds.length === 1 ? "" : "s"}${taught > 0 ? `; ${taught} taught` : ""}).`
-      : `Applied ${match.matchedPathIds.length} available path${match.matchedPathIds.length === 1 ? "" : "s"} from “${profile.name}”; ${missing} effective path${missing === 1 ? " is" : "s are"} not represented in the current Check.`;
+      ? `Applied “${profile.name}” to this inquiry (${match.matchedPathIds.length} path${match.matchedPathIds.length === 1 ? "" : "s"}${taught > 0 ? `; ${taught} taught` : ""}).`
+      : `Applied ${match.matchedPathIds.length} available path${match.matchedPathIds.length === 1 ? "" : "s"} from “${profile.name}”; ${missing} effective path${missing === 1 ? " is" : "s are"} not represented in the current inquiry.`;
     status.style.color = "#374151";
   }
 }
@@ -195,7 +195,7 @@ function renderProfileCard(profile: ResearcherProfile): HTMLElement {
 
   const match = matchResearcherProfile(resolved, currentSuggestions());
   const matchLine = document.createElement("div");
-  matchLine.textContent = `${match.matchedPathIds.length}/${resolved.paths.length} effective paths available in this Check.`;
+  matchLine.textContent = `${match.matchedPathIds.length}/${resolved.paths.length} effective paths available in this inquiry.`;
   matchLine.style.marginTop = "4px";
   matchLine.style.fontSize = "10px";
   matchLine.style.color = "#6b7280";
@@ -204,7 +204,7 @@ function renderProfileCard(profile: ResearcherProfile): HTMLElement {
   const apply = document.createElement("button");
   apply.type = "button";
   apply.className = "capture-btn";
-  apply.textContent = "Use for this Check";
+  apply.textContent = "Use for this inquiry";
   apply.style.marginTop = "6px";
   apply.disabled = match.matchedPathIds.length === 0;
   apply.addEventListener("click", () => applyProfile(profile));

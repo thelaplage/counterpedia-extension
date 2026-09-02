@@ -1,6 +1,6 @@
 /**
  * Recovery-button wiring — pure, DOM/chrome-free logic (mirrors captureButton.ts
- * so the "Check browser recovery" action is unit-testable and pins its invariants).
+ * so the "Assess browser recovery" action is unit-testable and pins its invariants).
  *
  * Composes the already-green recovery modules. On an explicit click it: obtains
  * the CURRENT governed held capture_ref (never reconstructs one), requests a
@@ -49,7 +49,7 @@ export async function runRecoveryCheck(deps: RecoveryButtonDeps): Promise<void> 
   // boundary) strictly supersedes this run.
   const token = deps.generation.invalidate();
   deps.button.disabled = true;
-  deps.setStatusText("Checking browser recovery…");
+  deps.setStatusText("Assessing browser recovery…");
   try {
     const response = await deps.requestBrowserCapture({ type: "CAPTURE_PAGE" });
 
