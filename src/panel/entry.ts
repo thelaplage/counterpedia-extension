@@ -2,6 +2,7 @@ import { projectAuthoringHandoffToReaderEntry } from "../lib/entryReadModelClien
 import { configureDraftReaderProjection } from "./draftFromSourceButton";
 import { initDirectionalActions } from "./directionalActions";
 import { initCheckAnatomy } from "./checkAnatomy";
+import { initCheckHandoff } from "./checkHandoff";
 import { initInquiryPaths } from "./inquiryPaths";
 import { initInquiryTrace } from "./inquiryTrace";
 import { initResearcherProfiles } from "./researcherProfiles";
@@ -22,6 +23,7 @@ configureDraftReaderProjection(projectAuthoringHandoffToReaderEntry);
 void import("./panel").then(() => {
   initDirectionalActions();
   initCheckAnatomy();
+  void initCheckHandoff();
   initInquiryPaths();
   initInquiryTrace();
   initResearcherProfiles();
