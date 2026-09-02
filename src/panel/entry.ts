@@ -1,7 +1,6 @@
 import { projectAuthoringHandoffToReaderEntry } from "../lib/entryReadModelClient";
 import { configureDraftReaderProjection } from "./draftFromSourceButton";
 import { initDirectionalActions } from "./directionalActions";
-import { initCheckAnatomy } from "./checkAnatomy";
 import { initCheckHandoff } from "./checkHandoff";
 import { initInquiryPaths } from "./inquiryPaths";
 import { initInquiryTrace } from "./inquiryTrace";
@@ -22,7 +21,6 @@ configureDraftReaderProjection(projectAuthoringHandoffToReaderEntry);
 // projection seam above is configured. All other panel initializers follow.
 void import("./panel").then(() => {
   initDirectionalActions();
-  initCheckAnatomy();
   void initCheckHandoff();
   initInquiryPaths();
   initInquiryTrace();
