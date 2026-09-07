@@ -1,13 +1,16 @@
 {
   "name": "counterpedia-extension",
   "version": "0.1.0",
-  "description": "Counterpedia Chrome extension \u2014 source-match side panel v0.1",
+  "description": "Counterpedia Chrome extension — source-match side panel v0.1",
   "type": "module",
   "scripts": {
     "build": "vite build",
     "build:demo": "npm run build && cp manifest.demo.json dist/manifest.json",
     "build:acquisition-dev": "npm run build && cp manifest.acquisition-dev.json dist/manifest.json",
     "build:authoring-dev": "npm run build && cp manifest.authoring-dev.json dist/manifest.json",
+    "demo:chrome": "bash \"tools/counterpedia-local/Start Counterpedia Demo.command\"",
+    "demo:check": "python3 tools/counterpedia-local/preflight.py",
+    "demo:reset": "bash \"tools/counterpedia-local/Reset Counterpedia Demo.command\"",
     "test": "vitest run",
     "e2e:draft-gate": "bash scripts/draft-e2e-gate.sh",
     "lint": "tsc --noEmit",
