@@ -1,0 +1,72 @@
+{
+  "browser": {
+    "binary": "/Users/franklinvm/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+  },
+  "extension": {
+    "dist_manifest_sha256": "1ba4ba427cd06f1dc3b6a71ad3fb6469ea30d7d05d01a9b5a136817498ff957a",
+    "expected_id": "pplkafbhcmojbomkbieppifcfokpmhpn",
+    "heads": {
+      "acquisition": "c33c3881cffbb48af4976dd2d1ef0f4115bd6411",
+      "authoring": "04cd16e345fff681f35fc9059bcba5d075106d29",
+      "counterpedia": "535c5964e42baee585c657647e38cacfa76fb384",
+      "extension": "a2d7fc382480baa188fc2c6a16c747dc9eb7a504"
+    }
+  },
+  "result": "PASS",
+  "run_dir": "/tmp/demo-draft-source0-browser-run",
+  "run_finished_at": "2026-09-07T23:00:34Z",
+  "run_started_at": "2026-09-07T23:00:29Z",
+  "screenshots": [
+    {
+      "bytes": 33217,
+      "path": "/tmp/demo-draft-source0-browser-run/01_content_before.png",
+      "sha256": "301b145103c076061b63f02484d81d07e62e3b7354ea5980dc16529c928b3660"
+    },
+    {
+      "bytes": 219541,
+      "path": "/tmp/demo-draft-source0-browser-run/02_panel_before_capture.png",
+      "sha256": "b03625f3fb01e2a25624f6128c07ee4ca4c034fdb1c57d7ab529122463e964e2"
+    },
+    {
+      "bytes": 264294,
+      "path": "/tmp/demo-draft-source0-browser-run/03_panel_after_capture.png",
+      "sha256": "fb5eb47ee5d0e33753b663a048a0dda429b002cc3da17e4eeda85caec26b6fd6"
+    },
+    {
+      "bytes": 245753,
+      "path": "/tmp/demo-draft-source0-browser-run/04_panel_before_draft.png",
+      "sha256": "2c1ec11ad7dbff22e89bff5e11343a177da94e9d43191019a36616fb4baae7e5"
+    },
+    {
+      "bytes": 259296,
+      "path": "/tmp/demo-draft-source0-browser-run/05_panel_after_draft.png",
+      "sha256": "f88b6b9dfa61fd14354503f29ccdb7b2357ffa7e7dcd2f5173e6790332cc1447"
+    },
+    {
+      "bytes": 33217,
+      "path": "/tmp/demo-draft-source0-browser-run/06_content_after.png",
+      "sha256": "2ae3ebd239d14c0b7fa88d14a6fe2f0a621f54ff38ed27ad7158ac1cc52ec2a9"
+    }
+  ],
+  "steps": [
+    {
+      "step": "navigate",
+      "url": "http://127.0.0.1:8790/"
+    },
+    {
+      "capture_status": "Captured: http://127.0.0.1:8790/",
+      "step": "capture_click"
+    },
+    {
+      "acquisition_status": "Captured \u2014 UNADMITTED \u2014 sha256:33c7f57537aec2a18de8658ae2f05b7cb8620a51b9bd109a56f0cd3179c70abe",
+      "step": "acquisition"
+    },
+    {
+      "authoring_status_admission": "Admission: not performed",
+      "authoring_status_digest": "Handoff: sha256:ed61322cd157ce41b404d9d90ed5c473aa8c35c015e7319d6eb922f8ae75d958",
+      "authoring_status_label": "Proposal assembled (proposal) \u2014 proposal only",
+      "proposal_preview_title": "Draft-from-source E2E fixture",
+      "step": "draft_from_source_click"
+    }
+  ]
+}
