@@ -192,3 +192,58 @@ describe("EXT-DRAFT-SOURCE-V05-ACTIVATE0 — handoff guard", () => {
     expect(flat).not.toContain('"authenticity"');
   });
 });
+
+// DEMO-DRAFT-SOURCE0: the fresh counterpedia-authoring producer contract
+// (AuthoringAdmissionHandoffV05) also carries an optional top-level
+// `claim_support_assessment_set` (object | null | absent). Regression coverage
+// for the fix that stopped the client-side guard from rejecting this
+// already-shipped, otherwise-untouched producer field as "unknown".
+describe("DEMO-DRAFT-SOURCE0 — claim_support_assessment_set (opaque, optional, v0.5-only)", () => {
+  it("accepts v0.5 with an object claim_support_assessment_set and preserves it losslessly", () => {
+    const raw = v05Handoff();
+    raw["claim_support_assessment_set"] = {
+      schema_version: "claim_support_assessment_set.v0.1",
+      assessments: [],
+    };
+    const parsed = parseAuthoringHandoff(raw);
+    expect(parsed.claim_support_assessment_set).toEqual(
+      raw["claim_support_assessment_set"],
+    );
+  });
+
+  it("accepts v0.5 with claim_support_assessment_set explicitly null", () => {
+    const raw = v05Handoff();
+    raw["claim_support_assessment_set"] = null;
+    const parsed = parseAuthoringHandoff(raw);
+    expect(parsed.claim_support_assessment_set).toBeNull();
+  });
+
+  it("accepts v0.5 with claim_support_assessment_set entirely absent (optional, unlike completeness binding)", () => {
+    const parsed = parseAuthoringHandoff(v05Handoff());
+    expect(parsed).not.toHaveProperty("claim_support_assessment_set");
+  });
+
+  it("does not widen older handoff versions to accept claim_support_assessment_set", () => {
+    const bad = clone(v05Handoff());
+    bad["schema_version"] = "authoring_admission_handoff.v0.1";
+    delete bad["draft_completeness_binding"];
+    bad["claim_support_assessment_set"] = { schema_version: "claim_support_assessment_set.v0.1" };
+    expect(() => parseAuthoringHandoff(bad)).toThrow(
+      /unknown top-level field 'claim_support_assessment_set'/,
+    );
+  });
+
+  it("rejects a non-object, non-null claim_support_assessment_set", () => {
+    const bad = clone(v05Handoff());
+    bad["claim_support_assessment_set"] = "not-an-object";
+    expect(() => parseAuthoringHandoff(bad)).toThrow(
+      /field 'claim_support_assessment_set' must be a JSON object or null/,
+    );
+  });
+
+  it("still rejects authority contamination nested inside the opaque assessment set", () => {
+    const bad = clone(v05Handoff());
+    bad["claim_support_assessment_set"] = { standing: "granted" };
+    expect(() => parseAuthoringHandoff(bad)).toThrow(/authority-bearing field 'standing'/);
+  });
+});
