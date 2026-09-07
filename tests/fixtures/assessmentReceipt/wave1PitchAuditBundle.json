@@ -1,0 +1,93 @@
+{
+  "schema_version": "counterpedia.audit_bundle.v0.2",
+  "audit_id": "audit:08a5abbf07f80c99095a5e0cb415a647f459bcd74d7020058db254bf0a940c41",
+  "question": "Three bounded adversarial AI-answer checks against independently derived primary-source reference predicates",
+  "answer_text": "[audit-case-supersession-rfc0-v0-1]\nNo. RFC 2616 was obsoleted in June 2014 by RFCs 7230–7235; RFC 7230 became the normative specification for HTTP/1.1 message syntax and routing.\n\n[audit-case-falsepremise-edgar0-v0-1]\nNo.\n\n[audit-case-attribution-usreports0-v0-1]\n- **Justice Anthony Kennedy** — authored the **opinion of the Court**.\n- **Justice John Paul Stevens** — authored a **separate opinion concurring in part and dissenting in part**.",
+  "claims": [
+    {
+      "claim_id": "obs-wave1-assessment0-supersession-rfc0",
+      "text": "No. RFC 2616 was obsoleted in June 2014 by RFCs 7230–7235; RFC 7230 became the normative specification for HTTP/1.1 message syntax and routing.",
+      "support_state": "not_evaluated",
+      "evidence_refs": [
+        "audit-case-supersession-rfc0-v0-1:primary-evidence:1",
+        "audit-case-supersession-rfc0-v0-1:primary-evidence:2",
+        "audit-case-supersession-rfc0-v0-1:primary-evidence:3"
+      ],
+      "rationale": "not_evaluated: no reference predicate was established, so no comparison was performed (temporal_anchor_precedes_superseding_rfc_publication)",
+      "assessment_ref": "counterpedia-audit:oracle-comparison/audit-case-supersession-rfc0-v0-1/obs-wave1-assessment0-supersession-rfc0",
+      "assessor_kind": "deterministic_comparator",
+      "authority_effect": "none"
+    },
+    {
+      "claim_id": "obs-wave1-assessment0-falsepremise-edgar0",
+      "text": "No.",
+      "support_state": "supported",
+      "evidence_refs": [
+        "audit-case-falsepremise-edgar0-v0-1:primary-evidence:1"
+      ],
+      "rationale": "deterministic structural comparison against the frozen, independently evidence-derived reference predicate",
+      "assessment_ref": "counterpedia-audit:oracle-comparison/audit-case-falsepremise-edgar0-v0-1/obs-wave1-assessment0-falsepremise-edgar0",
+      "assessor_kind": "deterministic_comparator",
+      "authority_effect": "none"
+    },
+    {
+      "claim_id": "obs-wave1-assessment0-attribution-usreports0",
+      "text": "- **Justice Anthony Kennedy** — authored the **opinion of the Court**.\n- **Justice John Paul Stevens** — authored a **separate opinion concurring in part and dissenting in part**.",
+      "support_state": "supported",
+      "evidence_refs": [
+        "audit-case-attribution-usreports0-v0-1:primary-evidence:1",
+        "audit-case-attribution-usreports0-v0-1:primary-evidence:2"
+      ],
+      "rationale": "deterministic structural comparison against the frozen, independently evidence-derived reference predicate",
+      "assessment_ref": "counterpedia-audit:oracle-comparison/audit-case-attribution-usreports0-v0-1/obs-wave1-assessment0-attribution-usreports0",
+      "assessor_kind": "deterministic_comparator",
+      "authority_effect": "none"
+    }
+  ],
+  "memory_decision": null,
+  "receipts": [],
+  "artifact_refs": [
+    {
+      "ref_id": "audit-case-attribution-usreports0-v0-1:primary-evidence:1",
+      "digest": "sha256:47426f1f570eaa9c112ee0591d278484788a56353c32112ac2a2cb970875a0c8",
+      "family": "primary_source_bytes"
+    },
+    {
+      "ref_id": "audit-case-attribution-usreports0-v0-1:primary-evidence:2",
+      "digest": null,
+      "family": "primary_source_bytes"
+    },
+    {
+      "ref_id": "audit-case-falsepremise-edgar0-v0-1:primary-evidence:1",
+      "digest": "sha256:58e44b53908d843ca78fd961218b7a3d71835857ddbd40e7485dfeca4c6f6b33",
+      "family": "primary_source_bytes"
+    },
+    {
+      "ref_id": "audit-case-supersession-rfc0-v0-1:primary-evidence:1",
+      "digest": "sha256:10211d2885196b97b1c78e1672f3f68ae97c294596ef2b7fd890cbd30a3427bf",
+      "family": "primary_source_bytes"
+    },
+    {
+      "ref_id": "audit-case-supersession-rfc0-v0-1:primary-evidence:2",
+      "digest": "sha256:c7fdc8bebdf1f8195f731592c47f5ea822b489436fd905b01b55ef531fca4120",
+      "family": "primary_source_bytes"
+    },
+    {
+      "ref_id": "audit-case-supersession-rfc0-v0-1:primary-evidence:3",
+      "digest": "sha256:21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a",
+      "family": "primary_source_bytes"
+    }
+  ],
+  "supersedes": null,
+  "audit_lifecycle_status": "active",
+  "authority_movement": 0,
+  "limitations": [
+    "candidate support is not truth",
+    "receipt verification is not proof of an underlying real-world event",
+    "verifier findings remain field-level; this bundle mints no aggregate verification status",
+    "memory disposition is not knowledge",
+    "this bundle is a read model and carries no admission authority",
+    "assessor_kind records provenance, not authority; authority_effect is always none",
+    "undecided_claim_ids is product-local vocabulary, not a mapped upstream state"
+  ]
+}

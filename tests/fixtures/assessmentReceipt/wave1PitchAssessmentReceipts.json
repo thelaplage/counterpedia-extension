@@ -1,0 +1,64 @@
+[
+  {
+    "claim_id": "obs-wave1-assessment0-supersession-rfc0",
+    "payload": {
+      "assessment_check_id": "assessment-check:audit:08a5abbf07f80c99095a5e0cb415a647f459bcd74d7020058db254bf0a940c41:obs-wave1-assessment0-supersession-rfc0",
+      "assessment_subject_digest": "sha256:6b4ab06298cca2ee53c7527c7fa21ced92ee96acf7d780e7801708bfacfa1ae3",
+      "check_kind": "support_assessment_check",
+      "checked_at": "2026-09-02T00:00:00.000Z",
+      "support_state": "not_evaluated",
+      "support_reason": "not_evaluated: no reference predicate was established, so no comparison was performed (temporal_anchor_precedes_superseding_rfc_publication)",
+      "assessor_kind": "deterministic_comparator",
+      "source_audit_id": "audit:08a5abbf07f80c99095a5e0cb415a647f459bcd74d7020058db254bf0a940c41",
+      "attestation_limits": [
+        "candidate support is not truth",
+        "this receipt confers no admission, standing, or memory authority",
+        "checked_at is recorded-as-of only and is not a witnessed or un-backdatable timestamp",
+        "assessor_kind records provenance, not authority"
+      ],
+      "proposal_origin": {
+        "value": "pipeline",
+        "evidence_class": "operator_verified"
+      },
+      "automation_role": {
+        "value": "rule_derived",
+        "evidence_class": "operator_verified"
+      },
+      "evaluation_basis": "counterpedia-audit.wave1-pitch-check@0.1.0 deterministic structural comparison",
+      "visibility": "public"
+    },
+    "digest": "sha256:a0d118ce0bfb7223751455dec02f8c8b1ef1cf133e2b3c4681b8e2160f6e91f6",
+    "receipt_ref": "cp:assessment-receipt/a0d118ce0bfb7223751455dec02f8c8b1ef1cf133e2b3c4681b8e2160f6e91f6"
+  },
+  {
+    "claim_id": "obs-wave1-assessment0-falsepremise-edgar0",
+    "payload": {
+      "assessment_check_id": "assessment-check:audit:08a5abbf07f80c99095a5e0cb415a647f459bcd74d7020058db254bf0a940c41:obs-wave1-assessment0-falsepremise-edgar0",
+      "assessment_subject_digest": "sha256:bf82a5b537be82b78b7f36bfb56e8f63589c21274cea2444e8fb5965250a4618",
+      "check_kind": "support_assessment_check",
+      "checked_at": "2026-09-02T00:00:00.000Z",
+      "support_state": "supported",
+      "support_reason": null,
+      "assessor_kind": "deterministic_comparator",
+      "source_audit_id": "audit:08a5abbf07f80c99095a5e0cb415a647f459bcd74d7020058db254bf0a940c41",
+      "attestation_limits": [
+        "candidate support is not truth",
+        "this receipt confers no admission, standing, or memory authority",
+        "checked_at is recorded-as-of only and is not a witnessed or un-backdatable timestamp",
+        "assessor_kind records provenance, not authority"
+      ],
+      "proposal_origin": {
+        "value": "pipeline",
+        "evidence_class": "operator_verified"
+      },
+      "automation_role": {
+        "value": "rule_derived",
+        "evidence_class": "operator_verified"
+      },
+      "evaluation_basis": "counterpedia-audit.wave1-pitch-check@0.1.0 deterministic structural comparison",
+      "visibility": "public"
+    },
+    "digest": "sha256:47eb24af16533d0f8e3a4493abac41fb41e30916a7fa5271a570642d6790b4eb",
+    "receipt_ref": "cp:assessment-receipt/47eb24af16533d0f8e3a4493abac41fb41e30916a7fa5271a570642d6790b4eb"
+  }
+]
