@@ -21,6 +21,14 @@
  * opaque producer data and never interprets structural completeness as support,
  * truth, admission, standing, or verification.
  *
+ * DEMO-DRAFT-SOURCE0: the producer's `AuthoringAdmissionHandoffV05` contract
+ * (`counterpedia-authoring/src/counterpedia_authoring/contracts/admission_handoff_v05.py`)
+ * also carries an optional top-level `claim_support_assessment_set` field
+ * (present as an object or `null`; may be entirely absent). It is accepted and
+ * preserved ONLY for v0.5 using the exact same opaque-carry, never-interpret
+ * discipline as `draft_completeness_binding` — the extension does not read,
+ * validate, or derive support/admission meaning from it.
+ *
  * Modeled on `acquisitionResponseGuard.ts` (same recursive-forbidden-key
  * pattern). The forbidden set uses EXACT key matching (not substring) so it
  * never false-positives on legitimate producer metadata that merely echoes a
@@ -47,6 +55,11 @@ export interface AuthoringHandoff {
   draft_proposal: { lifecycle: DraftLifecycle } & Record<string, unknown>;
   /** Required and opaque on producer handoff v0.5; absent on earlier versions. */
   draft_completeness_binding?: Record<string, unknown>;
+  /**
+   * Optional and opaque on producer handoff v0.5 (may be an object, `null`, or
+   * absent); absent on earlier versions. Never interpreted by the extension.
+   */
+  claim_support_assessment_set?: Record<string, unknown> | null;
   handoff_digest: string;
 }
 
@@ -72,6 +85,7 @@ const BASE_ALLOWED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
 
 const V05_SCHEMA_VERSION = "authoring_admission_handoff.v0.5";
 const V05_ONLY_TOP_LEVEL_KEY = "draft_completeness_binding";
+const V05_ONLY_OPTIONAL_TOP_LEVEL_KEY = "claim_support_assessment_set";
 
 /**
  * Governance/authority keys that must never appear ANYWHERE in a handoff
@@ -194,7 +208,7 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
   for (const key of Object.keys(raw)) {
     const allowed =
       BASE_ALLOWED_TOP_LEVEL_KEYS.has(key) ||
-      (isV05 && key === V05_ONLY_TOP_LEVEL_KEY);
+      (isV05 && (key === V05_ONLY_TOP_LEVEL_KEY || key === V05_ONLY_OPTIONAL_TOP_LEVEL_KEY));
     if (!allowed) {
       throw new AuthoringResponseError(`unknown top-level field '${key}'`);
     }
@@ -205,6 +219,20 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
   const draftCompletenessBinding = isV05
     ? requireObject(raw, V05_ONLY_TOP_LEVEL_KEY)
     : undefined;
+
+  // v0.5's claim_support_assessment_set is optional (object, null, or absent
+  // entirely) and, unlike draft_completeness_binding, is never required.
+  // Preserve whatever opaque shape the producer sent without interpreting it.
+  let claimSupportAssessmentSet: Record<string, unknown> | null | undefined;
+  if (isV05 && V05_ONLY_OPTIONAL_TOP_LEVEL_KEY in raw) {
+    const v = raw[V05_ONLY_OPTIONAL_TOP_LEVEL_KEY];
+    if (v !== null && !isPlainObject(v)) {
+      throw new AuthoringResponseError(
+        `field '${V05_ONLY_OPTIONAL_TOP_LEVEL_KEY}' must be a JSON object or null`,
+      );
+    }
+    claimSupportAssessmentSet = v;
+  }
 
   // (2) No authority-bearing key anywhere, and every lifecycle value is
   //     proposal-only (including inside the opaque v0.5 completeness object).
@@ -251,6 +279,9 @@ export function parseAuthoringHandoff(raw: unknown): AuthoringHandoff {
   };
   if (draftCompletenessBinding !== undefined) {
     handoff.draft_completeness_binding = draftCompletenessBinding;
+  }
+  if (claimSupportAssessmentSet !== undefined) {
+    handoff.claim_support_assessment_set = claimSupportAssessmentSet;
   }
   return handoff;
 }
