@@ -1,0 +1,25 @@
+name: verify-ext-authoring-v05-guard1
+on:
+  pull_request:
+    branches:
+      - landing/ext-authoring-v05-guard1
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Focused v0.5 guard tests
+        run: npm test -- tests/draftSourceV05Activation.test.ts
+      - name: TypeScript lint
+        run: npm run lint
+      - name: Diff hygiene
+        run: git diff --check
