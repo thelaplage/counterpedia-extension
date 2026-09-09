@@ -209,6 +209,7 @@ def copy_component(name: str, repository: str, source_dir: Path, output_root: Pa
 
 
 def _wrapper(command: str, title: str) -> str:
+    del title
     return f'''#!/bin/bash
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -256,8 +257,11 @@ git metadata, model key, transport token, user capture store, or virtualenv.
    **Configure Drafting Key.command** and enter the OpenAI API key supplied by
    the demo operator. The key is stored in macOS Keychain, not in this bundle.
 3. Double-click **Start Counterpedia Demo.command**.
+4. Double-click **Check Counterpedia Demo.command** if you want a bounded
+   readiness report for Local, the canonical reader, and Terminal.
 
-Normal use after installation is only step 3.
+Normal use after installation is just Start; Check is diagnostic and starts
+nothing.
 
 ## Canonical five-minute walkthrough
 
@@ -353,6 +357,7 @@ def build_demo_kit(
 
         _write_text(output_dir / "Install Counterpedia Demo.command", _wrapper("demo_kit_install.py", "Install"), True)
         _write_text(output_dir / "Start Counterpedia Demo.command", _wrapper("demo_kit_runtime.py", "Start"), True)
+        _write_text(output_dir / "Check Counterpedia Demo.command", _wrapper("demo_kit_check.py", "Check"), True)
         _write_text(output_dir / "Reset Counterpedia Demo.command", _wrapper("demo_kit_reset.py", "Reset"), True)
         _write_text(output_dir / "Configure Drafting Key.command", _configure_key_wrapper(), True)
         _write_text(output_dir / "README.md", _readme())
