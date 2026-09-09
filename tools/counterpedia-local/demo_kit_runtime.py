@@ -115,6 +115,27 @@ def _write_terminal_state(pid: int, signature: str, terminal_dir: Path) -> None:
     TERMINAL_STATE_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _owned_live_terminal_pid(state: dict[str, Any]) -> int:
+    """Return the tracked Terminal pid only when its live command still matches.
+
+    A state file by itself is never enough: stale state plus PID reuse must not
+    let the kit adopt or later terminate a foreign process.
+    """
+    pid = state.get("pid")
+    signature = state.get("cmd_signature")
+    live_commands = reset_demo.get_live_commands()
+    live_command = live_commands.get(pid) if isinstance(pid, int) else None
+    disposition = reset_demo.classify_tracked_process(
+        "counterpedia_terminal", pid, signature, live_command
+    )
+    if disposition.classification != "owned_stop" or disposition.pid is None:
+        raise DemoKitRuntimeError(
+            "Counterpedia Terminal is reachable but the recorded launch ownership no longer "
+            f"matches the live process ({disposition.classification}); refusing to reuse it"
+        )
+    return disposition.pid
+
+
 def _start_terminal(terminal_dir: Path, timeout: float = 10.0) -> tuple[bool, int | None]:
     state = _load_terminal_state()
     if _terminal_ready():
@@ -123,7 +144,7 @@ def _start_terminal(terminal_dir: Path, timeout: float = 10.0) -> tuple[bool, in
                 f"port {TERMINAL_PORT} already serves a Terminal-like endpoint but this kit did not start it; "
                 "refusing to assume ownership"
             )
-        return False, state.get("pid") if isinstance(state.get("pid"), int) else None
+        return False, _owned_live_terminal_pid(state)
     if _port_open(TERMINAL_PORT):
         raise DemoKitRuntimeError(
             f"port {TERMINAL_PORT} is occupied by a foreign/incompatible process; refusing to replace it"
