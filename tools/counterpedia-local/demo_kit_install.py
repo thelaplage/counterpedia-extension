@@ -74,6 +74,8 @@ def _load_manifest(root: Path) -> dict[str, Any]:
         "counterpedia-extension",
         "counterpedia-acquisition",
         "counterpedia-authoring",
+        "dagr-sdk",
+        "dagr-mcp",
         "counterpedia",
         "counterpedia-console",
     }
@@ -114,6 +116,39 @@ def _ensure_venv(source: Path, extras: str) -> Path:
     return python
 
 
+def _assert_dagr_binding(acq_python: Path, dagr_mcp: Path, dagr_sdk: Path) -> None:
+    probe = r'''
+import importlib
+from pathlib import Path
+import sys
+
+mcp_root = Path(sys.argv[1]).resolve()
+sdk_root = Path(sys.argv[2]).resolve()
+demo = importlib.import_module("dagr_mcp_local_demo.counterpedia_acquisition")
+binding = importlib.import_module("dagr_mcp_sdk_binding.adapter")
+sdk = importlib.import_module("dagr_sdk")
+factory = getattr(demo, "build_adapter", None)
+if not callable(factory):
+    raise SystemExit("local-demo DAGR factory is missing or not callable")
+for label, module, root in (
+    ("local-demo factory", demo, mcp_root),
+    ("SDK lifecycle binding", binding, mcp_root),
+    ("dagr-sdk", sdk, sdk_root),
+):
+    origin = Path(module.__file__).resolve()
+    try:
+        origin.relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"{label} resolved outside bundled source: {origin}") from exc
+print("DAGR_DEMO_BINDING=READY")
+'''
+    result = _capture(
+        [str(acq_python), "-c", probe, str(dagr_mcp), str(dagr_sdk)]
+    )
+    if result != "DAGR_DEMO_BINDING=READY":
+        raise DemoKitInstallError(f"unexpected DAGR binding probe result: {result}")
+
+
 def install(bundle_root: Path, *, skip_browser_install: bool = False) -> dict[str, Any]:
     root = bundle_root.expanduser().resolve()
     manifest = _load_manifest(root)
@@ -124,6 +159,8 @@ def install(bundle_root: Path, *, skip_browser_install: bool = False) -> dict[st
     extension = _component(root, "counterpedia-extension")
     acquisition = _component(root, "counterpedia-acquisition")
     authoring = _component(root, "counterpedia-authoring")
+    dagr_sdk = _component(root, "dagr-sdk")
+    dagr_mcp = _component(root, "dagr-mcp")
     counterpedia = _component(root, "counterpedia")
     terminal = _component(root, "counterpedia-console")
 
@@ -131,6 +168,10 @@ def install(bundle_root: Path, *, skip_browser_install: bool = False) -> dict[st
         raise DemoKitInstallError("Acquisition pyproject.toml missing from source snapshot")
     if not (authoring / "pyproject.toml").is_file():
         raise DemoKitInstallError("Authoring pyproject.toml missing from source snapshot")
+    if not (dagr_sdk / "pyproject.toml").is_file():
+        raise DemoKitInstallError("dagr-sdk pyproject.toml missing from source snapshot")
+    if not (dagr_mcp / "pyproject.toml").is_file():
+        raise DemoKitInstallError("dagr-mcp pyproject.toml missing from source snapshot")
     if not (extension / "package-lock.json").is_file():
         raise DemoKitInstallError("Extension package-lock.json missing from source snapshot")
     if not (counterpedia / "package-lock.json").is_file():
@@ -145,7 +186,16 @@ def install(bundle_root: Path, *, skip_browser_install: bool = False) -> dict[st
     print(f"npm: {_capture([npm, '--version'])}")
     print()
 
+    # Acquisition owns the Python environment used to serve its governed MCP
+    # surface. Install the exact bundled DAGR sources into that same venv so the
+    # local-demo factory is available without a GitHub checkout or hidden host
+    # environment. dagr-sdk is installed first; dagr-mcp's package requirement
+    # must therefore be satisfiable locally as dagr-sdk==0.1.0.
     acq_python = _ensure_venv(acquisition, ".[mcp]")
+    _run([str(acq_python), "-m", "pip", "install", "-e", str(dagr_sdk)])
+    _run([str(acq_python), "-m", "pip", "install", "-e", f"{dagr_mcp}[official-sdk]"])
+    _assert_dagr_binding(acq_python, dagr_mcp, dagr_sdk)
+
     _ensure_venv(authoring, ".[mcp]")
 
     _run([npm, "ci"], cwd=extension)
@@ -174,12 +224,14 @@ def install(bundle_root: Path, *, skip_browser_install: bool = False) -> dict[st
         "python_version": sys.version.split()[0],
         "node_version": _capture([node, "--version"]),
         "npm_version": _capture([npm, "--version"]),
+        "dagr_binding": "ready",
         "authority_movement": 0,
     }
     state_path = root / ".demo-kit-installed.json"
     state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
     print()
+    print("DAGR local-demo binding: READY")
     print("INSTALL COMPLETE")
     print("Optional drafting setup: double-click 'Configure Drafting Key.command'.")
     print("Then double-click 'Start Counterpedia Demo.command'.")
