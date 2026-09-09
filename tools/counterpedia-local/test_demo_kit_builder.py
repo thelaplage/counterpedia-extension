@@ -7,6 +7,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import demo_kit_builder as kit
@@ -102,7 +103,17 @@ class DemoKitBuilderTests(unittest.TestCase):
             path = output / launcher
             self.assertTrue(path.is_file())
             self.assertTrue(os.access(path, os.X_OK))
-        self.assertTrue(output.with_suffix(".zip").is_file())
+        demo = output / "DEMO.md"
+        self.assertTrue(demo.is_file())
+        demo_text = demo.read_text(encoding="utf-8")
+        self.assertIn("Five-Minute Wikipedia Demo", demo_text)
+        self.assertIn("UNADMITTED", demo_text)
+        self.assertIn("Run Check", demo_text)
+
+        zip_path = output.with_suffix(".zip")
+        self.assertTrue(zip_path.is_file())
+        with zipfile.ZipFile(zip_path) as zf:
+            self.assertIn(f"{output.name}/DEMO.md", zf.namelist())
 
         disk_manifest = json.loads((output / "demo-kit-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(disk_manifest["manifest_digest"], manifest["manifest_digest"])

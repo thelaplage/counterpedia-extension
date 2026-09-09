@@ -361,6 +361,8 @@ def build_demo_kit(
         _write_text(output_dir / "Reset Counterpedia Demo.command", _wrapper("demo_kit_reset.py", "Reset"), True)
         _write_text(output_dir / "Configure Drafting Key.command", _configure_key_wrapper(), True)
         _write_text(output_dir / "README.md", _readme())
+        demo_path = Path(__file__).resolve().with_name("DEMO.md")
+        _write_text(output_dir / "DEMO.md", demo_path.read_text(encoding="utf-8"))
 
         manifest: dict[str, object] = {
             "schema_version": MANIFEST_SCHEMA,
