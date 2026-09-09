@@ -31,6 +31,8 @@ COMPONENTS = (
     ("counterpedia-extension", "thelaplage/counterpedia-extension"),
     ("counterpedia-acquisition", "thelaplage/counterpedia-acquisition"),
     ("counterpedia-authoring", "thelaplage/counterpedia-authoring"),
+    ("dagr-sdk", "thelaplage/dagr-sdk"),
+    ("dagr-mcp", "thelaplage/dagr-mcp"),
     ("counterpedia", "thelaplage/counterpedia"),
     ("counterpedia-console", "thelaplage/counterpedia-console"),
 )
@@ -247,6 +249,9 @@ This bundle is a portable **team-beta / invited-evaluator** build of the
 Counterpedia browser companion + local runtimes + Counterpedia Terminal.
 It contains source snapshots pinned in `demo-kit-manifest.json`; it contains no
 git metadata, model key, transport token, user capture store, or virtualenv.
+The governed Draft-from-source path also carries exact `dagr-sdk` and `dagr-mcp`
+source snapshots; installation binds them into Acquisition's local Python
+runtime rather than cloning DAGR from GitHub at draft time.
 
 ## First use on macOS
 
@@ -258,7 +263,7 @@ git metadata, model key, transport token, user capture store, or virtualenv.
    the demo operator. The key is stored in macOS Keychain, not in this bundle.
 3. Double-click **Start Counterpedia Demo.command**.
 4. Double-click **Check Counterpedia Demo.command** if you want a bounded
-   readiness report for Local, the canonical reader, and Terminal.
+   readiness report for Local, the canonical reader, DAGR binding, and Terminal.
 
 Normal use after installation is just Start; Check is diagnostic and starts
 nothing.
@@ -273,7 +278,8 @@ nothing.
 5. Click **Capture this source**. A successful capture remains visibly
    **UNADMITTED**.
 6. Optional: choose the retained capture as evidence and **Draft from source**.
-   The result remains proposal-only; admission is not performed.
+   DAGR governs execution of the held-capture tool; the resulting Authoring
+   object remains proposal-only and Counterpedia admission is not performed.
 7. Optional: **Open in Counterpedia CHECK**. Prefill does not run CHECK; only an
    explicit **Run Check** performs the Counterpedia-owned epistemic operation.
 8. Open the **Counterpedia Terminal** tab to inspect the local/private record
@@ -290,7 +296,7 @@ not deleted by the ordinary reset.
 ## Exact build identity
 
 See `demo-kit-manifest.json` for component repositories, exact commit SHAs,
-tracked-file counts, and per-component snapshot digests.
+tracked-file counts, and per-component snapshot digests, including DAGR.
 
 ## Current beta boundary
 
@@ -333,6 +339,8 @@ def build_demo_kit(
     extension_dir: Path,
     acquisition_dir: Path,
     authoring_dir: Path,
+    dagr_sdk_dir: Path,
+    dagr_mcp_dir: Path,
     counterpedia_dir: Path,
     terminal_dir: Path,
     output_dir: Path,
@@ -347,6 +355,8 @@ def build_demo_kit(
             "counterpedia-extension": extension_dir,
             "counterpedia-acquisition": acquisition_dir,
             "counterpedia-authoring": authoring_dir,
+            "dagr-sdk": dagr_sdk_dir,
+            "dagr-mcp": dagr_mcp_dir,
             "counterpedia": counterpedia_dir,
             "counterpedia-console": terminal_dir,
         }
@@ -393,6 +403,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extension-dir", type=Path, default=_default_extension_dir())
     parser.add_argument("--acquisition-dir", type=Path, required=True)
     parser.add_argument("--authoring-dir", type=Path, required=True)
+    parser.add_argument("--dagr-sdk-dir", type=Path, required=True)
+    parser.add_argument("--dagr-mcp-dir", type=Path, required=True)
     parser.add_argument("--counterpedia-dir", type=Path, required=True)
     parser.add_argument("--terminal-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -407,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
             extension_dir=args.extension_dir,
             acquisition_dir=args.acquisition_dir,
             authoring_dir=args.authoring_dir,
+            dagr_sdk_dir=args.dagr_sdk_dir,
+            dagr_mcp_dir=args.dagr_mcp_dir,
             counterpedia_dir=args.counterpedia_dir,
             terminal_dir=args.terminal_dir,
             output_dir=args.output_dir,
