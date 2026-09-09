@@ -31,6 +31,8 @@ TERMINAL_STATE_PATH = reset_demo.STATE_DIR / "demo-kit-terminal.json"
 TERMINAL_LOG_PATH = Path.home() / ".counterpedia" / "local" / "logs" / "terminal.log"
 DEFAULT_WIKIPEDIA_START = "https://en.wikipedia.org/wiki/OpenAI"
 DEMO_PROFILE_DIR = Path.home() / "Library" / "Application Support" / "CounterpediaLocal" / "demo-profile"
+DAGR_FACTORY = "dagr_mcp_local_demo.counterpedia_acquisition:build_adapter"
+DAGR_EVIDENCE_DIR = Path.home() / ".counterpedia" / "local" / "dagr-evidence" / "live-authoring-accept0"
 
 
 class DemoKitRuntimeError(RuntimeError):
@@ -245,12 +247,19 @@ def start(bundle_root: Path) -> dict[str, Any]:
     extension = _component(root, "counterpedia-extension")
     acquisition = _component(root, "counterpedia-acquisition")
     authoring = _component(root, "counterpedia-authoring")
+    # These two components are installed into Acquisition's venv by the kit
+    # installer. Resolve them here as a bundle-integrity check even though the
+    # nested Local launcher consumes them via that interpreter rather than path.
+    _component(root, "dagr-sdk")
+    _component(root, "dagr-mcp")
     counterpedia = _component(root, "counterpedia")
     terminal = _component(root, "counterpedia-console")
 
     acq_python = acquisition / ".venv" / "bin" / "python"
     if not acq_python.is_file():
         raise DemoKitRuntimeError("Acquisition runtime is not installed; rerun the kit installer")
+
+    DAGR_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
     terminal_started, terminal_pid = _start_terminal(terminal)
     env = os.environ.copy()
@@ -261,6 +270,12 @@ def start(bundle_root: Path) -> dict[str, Any]:
             "COUNTERPEDIA_AUTHORING_DIR": str(authoring),
             "COUNTERPEDIA_DIR": str(counterpedia),
             "COUNTERPEDIA_REPO_DIR": str(counterpedia),
+            # Packaging owns provisioning of the already-reviewed local-demo
+            # DAGR adapter. Generic Acquisition MCP remains fail-closed if no
+            # operator selects an adapter; this bundle selects the exact demo
+            # adapter only for this explicit local-demo composition.
+            "COUNTERPEDIA_ACQUISITION_DAGR_ADAPTER_FACTORY": DAGR_FACTORY,
+            "COUNTERPEDIA_LOCAL_DEMO_EVIDENCE_DIR": str(DAGR_EVIDENCE_DIR),
         }
     )
 
@@ -294,6 +309,8 @@ def start(bundle_root: Path) -> dict[str, Any]:
         "wikipedia_start": wikipedia_url or None,
         "terminal_started_by_this_run": terminal_started,
         "terminal_pid": terminal_pid,
+        "dagr_factory": DAGR_FACTORY,
+        "dagr_evidence_dir": str(DAGR_EVIDENCE_DIR),
         "authority_movement": 0,
     }
     print(json.dumps(result, indent=2))
