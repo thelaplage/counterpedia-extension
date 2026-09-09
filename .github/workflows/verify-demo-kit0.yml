@@ -1,0 +1,29 @@
+name: verify-demo-kit0
+
+on:
+  push:
+    branches:
+      - verify/demo-kit0
+
+permissions:
+  contents: read
+
+jobs:
+  demo-kit-packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check packaging scripts
+        run: |
+          python -m py_compile \
+            tools/counterpedia-local/demo_kit_builder.py \
+            tools/counterpedia-local/demo_kit_install.py \
+            tools/counterpedia-local/demo_kit_runtime.py \
+            tools/counterpedia-local/demo_kit_reset.py
+      - name: Hermetic bundle-builder gates
+        run: python tools/counterpedia-local/test_demo_kit_builder.py
+      - name: Diff whitespace gate
+        run: git diff --check 2dadb1c17d095bcfb90238e0435796608022663a...HEAD
