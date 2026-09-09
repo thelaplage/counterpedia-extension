@@ -27,5 +27,11 @@ jobs:
             tools/counterpedia-local/demo_kit_reset.py
       - name: Hermetic bundle-builder gates
         run: python tools/counterpedia-local/test_demo_kit_builder.py
+      - name: Install extension dependencies
+        run: npm ci
+      - name: TypeScript typecheck
+        run: npm run lint
+      - name: Extension regression suite
+        run: npm test
       - name: Diff whitespace gate
         run: git diff --check 2dadb1c17d095bcfb90238e0435796608022663a...HEAD
