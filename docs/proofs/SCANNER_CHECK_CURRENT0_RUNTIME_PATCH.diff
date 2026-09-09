@@ -1,0 +1,138 @@
+diff --git a/tools/counterpedia-local/verify_scanner_check_handoff_e2e.py b/tools/counterpedia-local/verify_scanner_check_handoff_e2e.py
+index f337676..ebc75c9 100644
+--- a/tools/counterpedia-local/verify_scanner_check_handoff_e2e.py
++++ b/tools/counterpedia-local/verify_scanner_check_handoff_e2e.py
+@@ -290,18 +290,19 @@ def main() -> int:
+                     sw_session,
+                     "(async () => { if (!chrome.storage) return null; "
+                     "await chrome.storage.sync.set({"
+-                    f"{json.dumps(STORAGE_CHECK_BASE_KEY)}: {json.dumps(check_base_url)} }}); "
+-                    f"const v = await chrome.storage.sync.get([{json.dumps(STORAGE_CHECK_BASE_KEY)}]); "
+-                    f"return v[{json.dumps(STORAGE_CHECK_BASE_KEY)}]; }})()",
++                    f"{json.dumps(STORAGE_CHECK_BASE_KEY)}: {json.dumps(check_base_url)}, "
++                    f"{json.dumps('counterpedia_base_url')}: {json.dumps(check_base_url)} }}); "
++                    f"const v = await chrome.storage.sync.get([{json.dumps(STORAGE_CHECK_BASE_KEY)}, {json.dumps('counterpedia_base_url')}]); "
++                    f"return [v[{json.dumps(STORAGE_CHECK_BASE_KEY)}], v[{json.dumps('counterpedia_base_url')}]]; }})()",
+                     timeout=5,
+                 )
+             except cdp.CDPError:
+                 return None
+ 
+         stored = wait_for(_set_check_base_url, LOAD_TIMEOUT_S, "chrome.storage.sync to become available in the SW session")
+-        if stored != check_base_url:
+-            raise VerifyFailure(f"failed to configure check base url in chrome.storage.sync: {stored!r}")
+-        log(f"CONFIG PROOF: counterpedia_check_base_url = {check_base_url!r} (chrome.storage.sync)")
++        if stored != [check_base_url, check_base_url]:
++            raise VerifyFailure(f"failed to configure local Counterpedia base urls in chrome.storage.sync: {stored!r}")
++        log(f"CONFIG PROOF: counterpedia_check_base_url = counterpedia_base_url = {check_base_url!r} (chrome.storage.sync)")
+ 
+         # --- STEP 2: open an ordinary HTTP(S) source ---------------------
+         content_target_id = conn.create_target(ORDINARY_SOURCE_URL)
+@@ -642,25 +643,64 @@ def main() -> int:
+         run_check_endpoint = api_post_requests_after_run[0]["params"]["request"]["url"]
+ 
+         # --- STEP 10: honest unbound/unavailable state ----------------------
+-        if "NOT CONFIGURED" not in body_text_after_run.upper() and "not_configured" not in body_text_after_run:
++        # CHECK-QUOTE-UX-COMPOSE0 now routes the explicit non-empty quote to
++        # /api/check/quote. The public UI deliberately projects the typed API
++        # status as "Capture not established" + "Receipt not issued" rather
++        # than exposing the raw `not_configured` token. Bind BOTH layers: the
++        # exact API response remains typed not_configured/receipt_issued=false,
++        # and the rendered UI remains an honest non-capture projection.
++        if not run_check_endpoint.endswith("/api/check/quote"):
+             raise VerifyFailure(
+-                "expected the honest unbound/unavailable ('not_configured'/'NOT CONFIGURED') Check "
+-                f"result -- hosted Acquisition is not configured in this environment; got body text: "
+-                f"{body_text_after_run[:800]!r}"
++                f"explicit quote should route Run Check to /api/check/quote; got {run_check_endpoint!r}"
+             )
+-        if '"receipt_issued": true' in body_text_after_run or '"receipt_issued":true' in body_text_after_run:
++
++        response_events = conn.drain_events("Network.responseReceived")
++        api_responses = [
++            e for e in response_events
++            if e.get("params", {}).get("response", {}).get("url") == run_check_endpoint
++        ]
++        if len(api_responses) != 1:
++            raise VerifyFailure(
++                f"expected exactly 1 response for {run_check_endpoint}; got {len(api_responses)}"
++            )
++        response_request_id = api_responses[0]["params"]["requestId"]
++        response_body_result = conn.call(
++            "Network.getResponseBody", {"requestId": response_request_id},
++            session_id=check_session, timeout=5,
++        )
++        try:
++            check_response = json.loads(response_body_result["body"])
++        except (KeyError, json.JSONDecodeError) as exc:
++            raise VerifyFailure(f"Run Check API response was not parseable JSON: {exc}") from exc
++
++        attempt = check_response.get("attempt") or {}
++        quote_integrity = check_response.get("quote_integrity") or {}
++        if check_response.get("status") != "not_configured":
++            raise VerifyFailure(f"expected typed not_configured API status; got {check_response!r}")
++        if check_response.get("receipt_issued") is not False:
++            raise VerifyFailure(f"unconfigured Check must retain receipt_issued=false; got {check_response!r}")
++        if attempt.get("capture_status") != "not_configured":
++            raise VerifyFailure(f"attempt capture_status must remain not_configured; got {attempt!r}")
++        if quote_integrity.get("state") != "not_evaluated":
++            raise VerifyFailure(f"quote integrity must remain not_evaluated; got {quote_integrity!r}")
++        if "Capture not established" not in body_text_after_run or "Receipt not issued" not in body_text_after_run:
+             raise VerifyFailure(
+-                "PRODUCT DEFECT CANDIDATE: a receipt was issued for an unconfigured/unbound Check "
+-                f"attempt: {body_text_after_run[:800]!r}"
++                "current Check UI must project the unbound result as 'Capture not established' + "
++                f"'Receipt not issued'; got body text: {body_text_after_run[:1200]!r}"
+             )
++
+         log(
+-            f"STEP 10 PASS: honest unbound/unavailable state confirmed (real POST to "
+-            f"{run_check_endpoint}); response confirms not_configured + receipt_issued=false — "
+-            "no fabricated local browser Check"
++            f"STEP 10 PASS: honest unbound state confirmed (real POST to {run_check_endpoint}); "
++            "API=not_configured + receipt_issued=false + quote_integrity=not_evaluated; "
++            "UI='Capture not established' + 'Receipt not issued' — no fabricated browser Check"
+         )
+         result["steps"]["10_honest_unbound_state"] = {
+             "run_check_endpoint": run_check_endpoint,
+-            "response_or_body_snippet": body_text_after_run[:1200],
++            "api_status": check_response.get("status"),
++            "receipt_issued": check_response.get("receipt_issued"),
++            "attempt_capture_status": attempt.get("capture_status"),
++            "quote_integrity_state": quote_integrity.get("state"),
++            "ui_projection": "Capture not established / Receipt not issued",
+             "via": "real_click" if hydrated else "fetch_substitute_same_request_shape",
+         }
+ 
+@@ -712,13 +752,24 @@ def main() -> int:
+         if activated_back is not True:
+             raise VerifyFailure("could not re-activate the original content tab after closing CHECK")
+ 
+-        scanner_state_after = conn.evaluate(
+-            panel_session,
+-            "(() => { const ids=['state-idle','state-loading','state-results','state-no-match',"
+-            "'state-restricted','state-unavailable','state-rate-limited'];"
+-            "for (const id of ids) { const el=document.getElementById(id);"
+-            "if (el && el.classList.contains('active')) return id; } return null; })()",
+-            timeout=3,
++        def _scanner_after_settled():
++            active_state = conn.evaluate(
++                panel_session,
++                "(() => { const ids=['state-idle','state-loading','state-results','state-no-match',"
++                "'state-restricted','state-unavailable','state-rate-limited'];"
++                "for (const id of ids) { const el=document.getElementById(id);"
++                "if (el && el.classList.contains('active')) return id; } return null; })()",
++                timeout=3,
++            )
++            if active_state in ("state-no-match", "state-results", "state-restricted", "state-unavailable"):
++                return active_state
++            return None
++
++        # Re-activating the source legitimately triggers a fresh scanner refresh.
++        # `state-loading` is therefore a transient, not a semantic state change;
++        # compare only after the same settled-state predicate used in Step 3.
++        scanner_state_after = wait_for(
++            _scanner_after_settled, UI_TIMEOUT_S, "scanner panel state to re-settle after returning from CHECK"
+         )
+         link_href_after = conn.evaluate(
+             panel_session,
