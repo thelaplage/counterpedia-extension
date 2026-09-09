@@ -2,8 +2,8 @@
 """Bounded readiness report for a built/running Counterpedia Demo Kit.
 
 Composes existing preflight and reader readiness contracts and adds only the
-Terminal presentation-process readiness line owned by the kit. It starts
-nothing, stops nothing, and creates no epistemic state.
+Terminal presentation-process and local-demo DAGR binding readiness lines owned
+by the kit. It starts nothing, stops nothing, and creates no epistemic state.
 """
 from __future__ import annotations
 
@@ -55,17 +55,52 @@ def _json_command(command: list[str], *, cwd: Path, env: dict[str, str]) -> tupl
     return completed.returncode, payload
 
 
+def _dagr_binding_status(acq_python: Path) -> tuple[bool, str]:
+    probe = r'''
+import importlib
+
+demo = importlib.import_module("dagr_mcp_local_demo.counterpedia_acquisition")
+importlib.import_module("dagr_mcp_sdk_binding.adapter")
+importlib.import_module("dagr_sdk")
+factory = getattr(demo, "build_adapter", None)
+if not callable(factory):
+    raise SystemExit("local-demo DAGR factory is missing or not callable")
+print("ready")
+'''
+    try:
+        completed = subprocess.run(
+            [str(acq_python), "-c", probe],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"probe failed: {exc}"
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
+        return False, detail
+    if completed.stdout.strip() != "ready":
+        return False, f"unexpected probe output: {completed.stdout.strip()}"
+    return True, "bundled local-demo factory + SDK lifecycle binding import successfully"
+
+
 def check(bundle_root: Path) -> dict[str, Any]:
     root = bundle_root.expanduser().resolve()
     runtime._assert_installed(root)
     extension = _component(root, "counterpedia-extension")
     acquisition = _component(root, "counterpedia-acquisition")
     authoring = _component(root, "counterpedia-authoring")
+    _component(root, "dagr-sdk")
+    _component(root, "dagr-mcp")
     counterpedia = _component(root, "counterpedia")
 
     acq_python = acquisition / ".venv" / "bin" / "python"
     if not acq_python.is_file():
         raise DemoKitCheckError("Acquisition runtime is not installed")
+
+    dagr_ready, dagr_detail = _dagr_binding_status(acq_python)
 
     env = os.environ.copy()
     env.update(
@@ -75,6 +110,8 @@ def check(bundle_root: Path) -> dict[str, Any]:
             "COUNTERPEDIA_AUTHORING_DIR": str(authoring),
             "COUNTERPEDIA_DIR": str(counterpedia),
             "COUNTERPEDIA_REPO_DIR": str(counterpedia),
+            "COUNTERPEDIA_ACQUISITION_DAGR_ADAPTER_FACTORY": runtime.DAGR_FACTORY,
+            "COUNTERPEDIA_LOCAL_DEMO_EVIDENCE_DIR": str(runtime.DAGR_EVIDENCE_DIR),
         }
     )
     local_dir = extension / "tools/counterpedia-local"
@@ -109,6 +146,7 @@ def check(bundle_root: Path) -> dict[str, Any]:
         and preflight.get("pitch_ready") is True
         and reader_rc == 0
         and reader.get("ready") is True
+        and dagr_ready
         and terminal_ready
         and terminal_owned
     )
@@ -117,6 +155,12 @@ def check(bundle_root: Path) -> dict[str, Any]:
         "ready": ready,
         "counterpedia_local_preflight": preflight,
         "reader": reader,
+        "dagr": {
+            "ready": dagr_ready,
+            "factory": runtime.DAGR_FACTORY,
+            "evidence_dir": str(runtime.DAGR_EVIDENCE_DIR),
+            "detail": dagr_detail,
+        },
         "terminal": {
             "ready": terminal_ready,
             "owned": terminal_owned,
@@ -147,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Counterpedia Demo Kit — readiness")
         print(f"  Counterpedia Local: {'READY' if report['counterpedia_local_preflight'].get('pitch_ready') else 'NOT READY'}")
         print(f"  Counterpedia reader: {'READY' if report['reader'].get('ready') else 'NOT READY'}")
+        print(f"  DAGR local-demo binding: {'READY' if report['dagr']['ready'] else 'NOT READY'}")
         terminal = report["terminal"]
         print(f"  Counterpedia Terminal: {'READY' if terminal['ready'] and terminal['owned'] else 'NOT READY'}")
         print()
