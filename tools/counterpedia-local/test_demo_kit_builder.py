@@ -62,6 +62,8 @@ class DemoKitBuilderTests(unittest.TestCase):
             extension_dir=sources["counterpedia-extension"],
             acquisition_dir=sources["counterpedia-acquisition"],
             authoring_dir=sources["counterpedia-authoring"],
+            dagr_sdk_dir=sources["dagr-sdk"],
+            dagr_mcp_dir=sources["dagr-mcp"],
             counterpedia_dir=sources["counterpedia"],
             terminal_dir=sources["counterpedia-console"],
             output_dir=output,
@@ -83,6 +85,8 @@ class DemoKitBuilderTests(unittest.TestCase):
         self.assertEqual(manifest["authority_movement"], 0)
         component_rows = {row["name"]: row for row in manifest["components"]}
         self.assertEqual(set(component_rows), {name for name, _ in kit.COMPONENTS})
+        self.assertIn("dagr-sdk", component_rows)
+        self.assertIn("dagr-mcp", component_rows)
         for name, _repository in kit.COMPONENTS:
             component = output / "components" / name
             self.assertTrue((component / "README.md").is_file())
@@ -114,6 +118,8 @@ class DemoKitBuilderTests(unittest.TestCase):
         self.assertTrue(zip_path.is_file())
         with zipfile.ZipFile(zip_path) as zf:
             self.assertIn(f"{output.name}/DEMO.md", zf.namelist())
+            self.assertIn(f"{output.name}/components/dagr-sdk/README.md", zf.namelist())
+            self.assertIn(f"{output.name}/components/dagr-mcp/README.md", zf.namelist())
 
         disk_manifest = json.loads((output / "demo-kit-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(disk_manifest["manifest_digest"], manifest["manifest_digest"])
