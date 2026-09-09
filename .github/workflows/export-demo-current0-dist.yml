@@ -1,0 +1,39 @@
+name: export-demo-current0-extension-dist
+
+on:
+  push:
+    branches:
+      - tmp/export-demo-current0-extension
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d392e6e214f712296c8fde75e05c6ee68cdb363e
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build exact authoring-dev extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d392e6e214f712296c8fde75e05c6ee68cdb363e"
+          npm ci
+          npm run build:authoring-dev
+          tar -czf extension-dist.tar.gz dist
+          sha256sum extension-dist.tar.gz > extension-dist.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-current0-extension-dist
+          path: |
+            extension-dist.tar.gz
+            extension-dist.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
