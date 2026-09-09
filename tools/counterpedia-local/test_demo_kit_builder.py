@@ -95,6 +95,7 @@ class DemoKitBuilderTests(unittest.TestCase):
         for launcher in (
             "Install Counterpedia Demo.command",
             "Start Counterpedia Demo.command",
+            "Check Counterpedia Demo.command",
             "Reset Counterpedia Demo.command",
             "Configure Drafting Key.command",
         ):
