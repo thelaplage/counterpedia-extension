@@ -30,6 +30,49 @@ npm run demo:reset   # stop this demo session's tracked processes/reset its demo
 
 The launcher is operational only. Pairing, capture, recovery, and authoring preserve their existing authority semantics; launching the extension does not imply admission, verification, publication, standing, or truth.
 
+## Portable Demo Kit (team beta / invited evaluator)
+
+`DEMO-KIT0` adds a packaging layer for giving the working browser + local runtime + Counterpedia Terminal experience to another Mac without giving the recipient our git/worktree topology.
+
+The builder accepts exact clean checkouts of:
+
+- `counterpedia-extension`;
+- `counterpedia-acquisition`;
+- `counterpedia-authoring`;
+- `counterpedia`;
+- `counterpedia-console`.
+
+It copies **git-tracked source snapshots only**, pins every source commit and snapshot digest in `demo-kit-manifest.json`, and emits one folder/zip with Finder-launchable **Install**, **Start**, **Reset**, and optional **Configure Drafting Key** commands. It does not copy `.git`, node_modules, virtualenvs, user capture custody, logs, transport tokens, or model keys.
+
+Example operator build:
+
+```bash
+npm run demo:kit:build -- \
+  --acquisition-dir ../counterpedia-acquisition \
+  --authoring-dir ../counterpedia-authoring \
+  --counterpedia-dir ../counterpedia \
+  --terminal-dir ../counterpedia-console \
+  --output-dir "$HOME/Desktop/Counterpedia Demo Kit" \
+  --zip
+```
+
+Hermetic packaging gates:
+
+```bash
+npm run demo:kit:test
+```
+
+Recipient experience after unzipping:
+
+1. Double-click **Install Counterpedia Demo.command** once.
+2. Optional for Draft from source: double-click **Configure Drafting Key.command**.
+3. Double-click **Start Counterpedia Demo.command** for normal use.
+4. Browse Wikipedia (the kit opens `OpenAI` as the default walkthrough), open the Counterpedia side panel, scan/match, capture, optionally draft, and explicitly cross into Counterpedia CHECK when wanted.
+5. Use the Counterpedia Terminal tab as the local/private record-layer inspection surface.
+6. Double-click **Reset Counterpedia Demo.command** when finished.
+
+Packaging success is not a substitute for the separately-owned current multi-repository browser proof. Scanner observation remains distinct from CHECK conclusion; successful capture remains UNADMITTED; Draft remains proposal-only. `AUTHORITY_MOVEMENT=0`.
+
 ## Features
 
 - Side panel showing Counterpedia record matches for the active tab
@@ -82,6 +125,10 @@ tools/counterpedia-local/
   preflight.py                     — bounded readiness check
   reset_demo.py                    — tracked-process/profile reset
   counterpedia_local_operator.py   — local operational supervisor
+  demo_kit_builder.py              — exact tracked-source bundle builder
+  demo_kit_install.py              — one-time bundle dependency installer
+  demo_kit_runtime.py              — kit start composition (Local + browser + Terminal)
+  demo_kit_reset.py                — kit reset composition
 ```
 
 ## Privacy
