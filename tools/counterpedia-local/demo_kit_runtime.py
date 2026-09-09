@@ -215,6 +215,54 @@ def _stop_terminal_if_started(pid: int | None) -> None:
         pass
 
 
+def _extension_dist(extension: Path) -> Path:
+    dist = (extension / "dist").resolve()
+    if not (dist / "manifest.json").is_file():
+        raise DemoKitRuntimeError(
+            f"built Counterpedia extension is missing dist/manifest.json: {dist}"
+        )
+    return dist
+
+
+def _browser_binding_flags(extension: Path) -> tuple[str, str]:
+    return (
+        f"--user-data-dir={DEMO_PROFILE_DIR}",
+        f"--load-extension={_extension_dist(extension)}",
+    )
+
+
+def _live_extension_bound_browser_command(
+    extension: Path,
+    live_commands: dict[int, str] | None = None,
+) -> str | None:
+    """Return a live demo-browser command only if profile + extension bind together.
+
+    The TEAM r3 recipient run exposed a real orchestration defect: a later
+    kit-triggered Chrome invocation reused the dedicated profile but omitted
+    ``--load-extension``, and that no-extension invocation became the surviving
+    primary browser. A profile match alone is therefore not a load proof.
+    """
+    profile_flag, load_flag = _browser_binding_flags(extension)
+    commands = reset_demo.get_live_commands() if live_commands is None else live_commands
+    for command in commands.values():
+        if profile_flag in command and load_flag in command:
+            return command
+    return None
+
+
+def _wait_for_extension_binding(extension: Path, timeout: float = 5.0) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        command = _live_extension_bound_browser_command(extension)
+        if command is not None:
+            return command
+        time.sleep(0.1)
+    raise DemoKitRuntimeError(
+        "DEMO_EXTENSION_LOAD_REFUSED: dedicated demo browser is not live with both "
+        "the expected profile and exact bundled --load-extension binding"
+    )
+
+
 def _open_demo_tab(extension: Path, url: str) -> None:
     resolver = extension / "tools/counterpedia-local/demo_browser.py"
     try:
@@ -233,12 +281,39 @@ def _open_demo_tab(extension: Path, url: str) -> None:
     browser = completed.stdout.strip()
     if not browser:
         return
+    profile_flag, load_flag = _browser_binding_flags(extension)
     subprocess.Popen(
-        [browser, f"--user-data-dir={DEMO_PROFILE_DIR}", url],
+        [
+            browser,
+            profile_flag,
+            load_flag,
+            "--no-first-run",
+            "--no-default-browser-check",
+            url,
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
+
+def _reset_nested_after_failed_binding(extension: Path, env: dict[str, str]) -> None:
+    """Best-effort ownership-scoped teardown after a post-launch binding refusal."""
+    nested_reset = extension / "tools/counterpedia-local/Reset Counterpedia Demo.command"
+    if not nested_reset.is_file():
+        return
+    try:
+        subprocess.run(
+            ["bash", str(nested_reset)],
+            cwd=str(extension),
+            env=env,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def start(bundle_root: Path) -> dict[str, Any]:
@@ -296,12 +371,28 @@ def start(bundle_root: Path) -> dict[str, Any]:
             _stop_terminal_if_started(terminal_pid)
         raise DemoKitRuntimeError(f"existing Counterpedia launcher failed with exit {completed.returncode}")
 
-    # Add two tabs to the already-running dedicated demo-browser profile. These
-    # navigations perform no capture/CHECK action by themselves.
-    wikipedia_url = os.environ.get("COUNTERPEDIA_DEMO_START_URL", DEFAULT_WIKIPEDIA_START).strip()
-    if wikipedia_url:
-        _open_demo_tab(extension, wikipedia_url)
-    _open_demo_tab(extension, TERMINAL_URL)
+    # The nested launcher is the first owner of the dedicated browser. Prove it
+    # left a live profile+extension binding before the kit adds convenience tabs.
+    try:
+        _wait_for_extension_binding(extension)
+
+        # Add two tabs to the already-running dedicated demo-browser profile.
+        # Every kit-triggered invocation repeats the exact extension binding;
+        # omitting it was the TEAM r3 recipient failure. These navigations still
+        # perform no capture/CHECK action by themselves.
+        wikipedia_url = os.environ.get("COUNTERPEDIA_DEMO_START_URL", DEFAULT_WIKIPEDIA_START).strip()
+        if wikipedia_url:
+            _open_demo_tab(extension, wikipedia_url)
+        _open_demo_tab(extension, TERMINAL_URL)
+
+        # Fail closed after the convenience-tab invocations too. A live browser
+        # on the expected profile without the bundled extension is NOT ready.
+        browser_binding = _wait_for_extension_binding(extension)
+    except DemoKitRuntimeError:
+        _reset_nested_after_failed_binding(extension, env)
+        if terminal_started:
+            _stop_terminal_if_started(terminal_pid)
+        raise
 
     result = {
         "status": "started",
@@ -309,6 +400,8 @@ def start(bundle_root: Path) -> dict[str, Any]:
         "wikipedia_start": wikipedia_url or None,
         "terminal_started_by_this_run": terminal_started,
         "terminal_pid": terminal_pid,
+        "browser_extension_binding": "ready",
+        "browser_extension_command": browser_binding,
         "dagr_factory": DAGR_FACTORY,
         "dagr_evidence_dir": str(DAGR_EVIDENCE_DIR),
         "authority_movement": 0,
@@ -316,6 +409,7 @@ def start(bundle_root: Path) -> dict[str, Any]:
     print(json.dumps(result, indent=2))
     print()
     print("Counterpedia Demo Kit is ready.")
+    print("Browser extension binding: READY")
     print("Use the Wikipedia tab for the canonical browse -> scan -> capture walkthrough.")
     print("Use the Terminal tab to inspect the local/private record-layer surface.")
     return result
