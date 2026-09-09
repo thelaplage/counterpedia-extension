@@ -1,0 +1,144 @@
+name: fold-demo-kit-demo-doc
+
+on:
+  push:
+    branches:
+      - chore/demo-kit-demo-doc-fold
+
+permissions:
+  contents: write
+
+jobs:
+  fold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/counterpedia-demo-kit0
+          fetch-depth: 0
+
+      - name: Guard exact product head
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='e90b5f3834100043cd387c8fed2904940c150d19'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "REFUSE: target head moved: $actual" >&2; exit 1; }
+
+      - name: Add human demo script and wire builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > tools/counterpedia-local/DEMO.md <<'EOF'
+          # Counterpedia — Five-Minute Wikipedia Demo
+
+          This is the human walkthrough for a Counterpedia Demo Kit. It is also the acceptance script for a clean-Mac certification run.
+
+          **First time only:** double-click **Install Counterpedia Demo.command** and let installation finish. For proposal drafting, optionally run **Configure Drafting Key.command**. Normal demos start with **Start Counterpedia Demo.command**.
+
+          ## 1. Start from the page
+
+          Double-click **Start Counterpedia Demo.command**. Use the dedicated demo browser and open a public Wikipedia article. The default walkthrough opens the OpenAI article.
+
+          Open the Counterpedia side panel and click **Connect Counterpedia Local** if this browser profile has not paired yet.
+
+          **Say:** “Wikipedia is still the place I am reading. Counterpedia is watching the research context beside it.”
+
+          ## 2. Browse and inspect
+
+          Browse normally and inspect the source context and Counterpedia matches shown beside the page.
+
+          Do not describe a scanner match as a CHECK result. Browsing and matching are observations about what the browser encountered.
+
+          **Say:** “Seeing a source is not the same thing as deciding that a claim is supported.”
+
+          ## 3. Capture the source
+
+          Click **Capture this source**.
+
+          Show the retained capture and the visible **UNADMITTED** boundary. Capture means Counterpedia retained evidence and provenance; it does not publish the source, declare it true, or admit it into a governed corpus.
+
+          **Say:** “We now have the exact evidence we encountered, but custody is not authority.”
+
+          ## 4. Optional: draft from retained evidence
+
+          If drafting is configured, choose the retained capture as evidence and use **Draft from source**.
+
+          Show that the result remains proposal-only.
+
+          **Say:** “The agent can work from retained evidence without promoting its own draft into an accepted record.”
+
+          ## 5. Cross into Counterpedia CHECK deliberately
+
+          Choose a concrete claim or question and use **Open in Counterpedia CHECK**.
+
+          Pause on the prefilled CHECK view. Opening or prefilling CHECK has not run it.
+
+          Then click **Run Check**.
+
+          Show the evidence used, what the bounded assessment supports, what is not established, and the resulting receipt / verification material exposed by the current CHECK surface.
+
+          **Say:** “CHECK is a separate epistemic act. It only happens when we explicitly run it.”
+
+          ## 6. Open Counterpedia Terminal
+
+          Open the **Counterpedia Terminal** tab and inspect the local record-layer view: retained source custody, provenance, CHECK / receipts, graph or entity context, and the rest of the demo session that the current Terminal exposes.
+
+          Do not imply that Terminal gains authority merely by displaying a record.
+
+          ## 7. Close
+
+          **Say:** “The page was where we read. Counterpedia became the record of what we encountered, retained, checked, and can later verify.”
+
+          When finished, double-click **Reset Counterpedia Demo.command**. Ordinary reset stops only the demo-owned processes/profile state and does not purge retained Acquisition custody.
+
+          ## Certification pass
+
+          For a clean-Mac recipient certification run, execute this script from the emitted kit itself and require **Check Counterpedia Demo.command** to report ready. A packaging-green build is not recipient-certified until this real recipient journey has run successfully from the artifact being shipped.
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          builder = Path('tools/counterpedia-local/demo_kit_builder.py')
+          text = builder.read_text(encoding='utf-8')
+          old = '        _write_text(output_dir / "README.md", _readme())\n'
+          new = old + '        demo_path = Path(__file__).resolve().with_name("DEMO.md")\n        _write_text(output_dir / "DEMO.md", demo_path.read_text(encoding="utf-8"))\n'
+          if text.count(old) != 1:
+              raise SystemExit('REFUSE: builder README emission marker drifted')
+          builder.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('tools/counterpedia-local/test_demo_kit_builder.py')
+          text = test.read_text(encoding='utf-8')
+          old_import = 'import unittest\nfrom pathlib import Path\n'
+          new_import = 'import unittest\nimport zipfile\nfrom pathlib import Path\n'
+          if text.count(old_import) != 1:
+              raise SystemExit('REFUSE: test import marker drifted')
+          text = text.replace(old_import, new_import, 1)
+
+          old_assert = '        self.assertTrue(output.with_suffix(".zip").is_file())\n'
+          new_assert = '''        demo = output / "DEMO.md"\n        self.assertTrue(demo.is_file())\n        demo_text = demo.read_text(encoding="utf-8")\n        self.assertIn("Five-Minute Wikipedia Demo", demo_text)\n        self.assertIn("UNADMITTED", demo_text)\n        self.assertIn("Run Check", demo_text)\n\n        zip_path = output.with_suffix(".zip")\n        self.assertTrue(zip_path.is_file())\n        with zipfile.ZipFile(zip_path) as zf:\n            self.assertIn(f"{output.name}/DEMO.md", zf.namelist())\n'''
+          if text.count(old_assert) != 1:
+              raise SystemExit('REFUSE: zip assertion marker drifted')
+          test.write_text(text.replace(old_assert, new_assert, 1), encoding='utf-8')
+          PY
+
+      - name: Verify narrow fold
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/counterpedia-local/demo_kit_builder.py tools/counterpedia-local/test_demo_kit_builder.py
+          python3 tools/counterpedia-local/test_demo_kit_builder.py
+          git diff --check
+          git status --short
+
+      - name: Commit and push product branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'thelaplage'
+          git config user.email '19560430+thelaplage@users.noreply.github.com'
+          git add tools/counterpedia-local/DEMO.md tools/counterpedia-local/demo_kit_builder.py tools/counterpedia-local/test_demo_kit_builder.py
+          git diff --cached --quiet && { echo 'REFUSE: no product diff'; exit 1; }
+          git commit -m 'DEMO-KIT0: ship five-minute demo acceptance script'
+          git push origin HEAD:feat/counterpedia-demo-kit0
