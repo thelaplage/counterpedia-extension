@@ -1,0 +1,40 @@
+name: export-demo-current0-cft
+
+on:
+  push:
+    branches:
+      - tmp/export-demo-current0-extension
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve and download Chrome for Testing stable linux64
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          data=json.load(urllib.request.urlopen('https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json'))
+          stable=data['channels']['Stable']
+          item=next(x for x in stable['downloads']['chrome'] if x['platform']=='linux64')
+          print(stable['version'])
+          open('CFT_VERSION.txt','w').write(stable['version']+'\n')
+          open('CFT_URL.txt','w').write(item['url']+'\n')
+          urllib.request.urlretrieve(item['url'],'chrome-linux64.zip')
+          PY
+          unzip -q chrome-linux64.zip
+          ./chrome-linux64/chrome --version | tee CFT_ACTUAL_VERSION.txt
+          tar -czf chrome-for-testing-linux64.tar.gz chrome-linux64 CFT_VERSION.txt CFT_URL.txt CFT_ACTUAL_VERSION.txt
+          sha256sum chrome-for-testing-linux64.tar.gz > chrome-for-testing-linux64.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-current0-chrome-for-testing
+          path: |
+            chrome-for-testing-linux64.tar.gz
+            chrome-for-testing-linux64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
