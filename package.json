@@ -11,6 +11,8 @@
     "demo:chrome": "bash \"tools/counterpedia-local/Start Counterpedia Demo.command\"",
     "demo:check": "python3 tools/counterpedia-local/preflight.py",
     "demo:reset": "bash \"tools/counterpedia-local/Reset Counterpedia Demo.command\"",
+    "demo:kit:build": "python3 tools/counterpedia-local/demo_kit_builder.py",
+    "demo:kit:test": "python3 tools/counterpedia-local/test_demo_kit_builder.py",
     "test": "vitest run",
     "e2e:draft-gate": "bash scripts/draft-e2e-gate.sh",
     "lint": "tsc --noEmit",
