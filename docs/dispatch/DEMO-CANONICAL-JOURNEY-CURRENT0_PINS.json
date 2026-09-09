@@ -1,0 +1,53 @@
+{
+  "schema_version": "counterpedia.demo_canonical_journey_current0_pins/v0.1",
+  "captured_at_utc": "2026-09-09T03:45:00Z",
+  "authority_movement": 0,
+  "admission_effect": "none",
+  "standing_effect": "none",
+  "merge_authorization": "none",
+  "repos": {
+    "counterpedia-extension": {
+      "main_sha": "2dadb1c17d095bcfb90238e0435796608022663a",
+      "owner_seams": {
+        "src/lib/authoringResponseGuard.ts": "ab9fb9d559b8c85e426aec3a5e37ac9303c67bed",
+        "src/lib/checkHandoff.ts": "1828d84abddd316548b24b43b7b2bfe3bca95212"
+      }
+    },
+    "counterpedia-acquisition": {
+      "main_sha": "efc928ca2b564e433adf7602bb2619d142f3a824",
+      "owner_seams": {
+        "scripts/run_acquisition_http_test_fixture.py": "6b7f6cd36041700d91906a8322bf8c1563b54d2a"
+      }
+    },
+    "counterpedia-authoring": {
+      "main_sha": "ea4f49db1616f024d1ceccd78f901722c10c6e74",
+      "owner_seams": {
+        "src/counterpedia_authoring/draft_source_v05.py": "5260da8daa38b01fc5e8943708f2c2eebc95ceb4"
+      }
+    },
+    "counterpedia": {
+      "main_sha": "06667c641a8b51622a949935ed92131f9e5b1845",
+      "owner_seams": {
+        "app/api/counterpedia/reader/proposal/route.ts": "183e07b79409598b21726730f0efbec01094761c",
+        "app/(site)/check/new/page.tsx": "4764ba97fe4397d6ad08cb4293a706629f835690"
+      }
+    }
+  },
+  "historical_browser_donor": {
+    "pr": 73,
+    "browser_commit": "8d1f0a49ab1da68b29de797f10e479ff84537370",
+    "browser_commit_parent": "a2d7fc382480baa188fc2c6a16c747dc9eb7a504",
+    "old_proof_authoring_head": "04cd16e345fff681f35fc9059bcba5d075106d29",
+    "old_proof_is_current_release_proof": false,
+    "reason": "The old browser proof is genuine donor evidence, but its Authoring head was later part of a merge-control breach and was reverted. Fresh current-main execution is required."
+  },
+  "preflight_findings": {
+    "extension_v05_guard": "present_on_current_main",
+    "authoring_v05_role_bearing_draft_from_source": "present_on_current_main",
+    "counterpedia_proposal_reader_route": "present_on_current_main_and_explicitly_read_only_projection",
+    "counterpedia_check_new_surface": "present_on_current_main_and_prefill_does_not_run_check",
+    "acquisition_http_test_fixture": "present_on_current_main_and_test_only_loopback_fixture",
+    "transaction_a_status": "not_executed_on_current_pins",
+    "transaction_b_status": "not_executed_on_current_pins"
+  }
+}
