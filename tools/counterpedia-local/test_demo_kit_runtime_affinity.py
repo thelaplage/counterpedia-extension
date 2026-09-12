@@ -128,33 +128,72 @@ class DemoKitRuntimeAffinityTests(unittest.TestCase):
                     runtime._assert_local_affinity(acquisition, acq_python, authoring)
 
     def test_nested_session_requires_live_local_and_browser_and_exact_profile(self) -> None:
-        state = {
-            "schema_version": runtime.reset_demo.SESSION_STATE_SCHEMA,
-            "local_pid": 303,
-            "local_cmd_signature": "local-signature",
-            "demo_browser_pid": 404,
-            "demo_browser_cmd_signature": "browser-signature",
-            "demo_profile_dir": str(runtime.DEMO_PROFILE_DIR),
-            "started_at": "2026-09-12T00:00:00Z",
-        }
-        with (
-            mock.patch.object(
-                runtime.reset_demo,
-                "load_session_state",
-                return_value=state,
-            ),
-            mock.patch.object(
-                runtime.reset_demo,
-                "get_live_commands",
-                return_value={
-                    303: "/usr/bin/python local-signature",
-                    404: "/tmp/chrome browser-signature",
-                },
-            ),
-        ):
-            result = runtime._assert_nested_session_affinity()
-        self.assertEqual(result["counterpedia_local"], 303)
-        self.assertEqual(result["demo_browser"], 404)
+        with tempfile.TemporaryDirectory() as tmp:
+            extension = Path(tmp) / "counterpedia-extension"
+            (extension / "dist").mkdir(parents=True)
+            (extension / "dist" / "manifest.json").write_text("{}\n", encoding="utf-8")
+            profile_flag, load_flag = runtime._browser_binding_flags(extension)
+            state = {
+                "schema_version": runtime.reset_demo.SESSION_STATE_SCHEMA,
+                "local_pid": 303,
+                "local_cmd_signature": "local-signature",
+                "demo_browser_pid": 404,
+                "demo_browser_cmd_signature": "browser-signature",
+                "demo_profile_dir": str(runtime.DEMO_PROFILE_DIR),
+                "started_at": "2026-09-12T00:00:00Z",
+            }
+            with (
+                mock.patch.object(
+                    runtime.reset_demo,
+                    "load_session_state",
+                    return_value=state,
+                ),
+                mock.patch.object(
+                    runtime.reset_demo,
+                    "get_live_commands",
+                    return_value={
+                        303: "/usr/bin/python local-signature",
+                        404: f"/tmp/chrome browser-signature {profile_flag} {load_flag}",
+                    },
+                ),
+            ):
+                result = runtime._assert_nested_session_affinity(extension)
+            self.assertEqual(result["counterpedia_local"], 303)
+            self.assertEqual(result["demo_browser"], 404)
+
+    def test_nested_session_refuses_tracked_browser_from_other_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extension = root / "new" / "counterpedia-extension"
+            (extension / "dist").mkdir(parents=True)
+            (extension / "dist" / "manifest.json").write_text("{}\n", encoding="utf-8")
+            profile_flag, _ = runtime._browser_binding_flags(extension)
+            state = {
+                "schema_version": runtime.reset_demo.SESSION_STATE_SCHEMA,
+                "local_pid": 303,
+                "local_cmd_signature": "local-signature",
+                "demo_browser_pid": 404,
+                "demo_browser_cmd_signature": "browser-signature",
+                "demo_profile_dir": str(runtime.DEMO_PROFILE_DIR),
+                "started_at": "2026-09-12T00:00:00Z",
+            }
+            other_load = f"--load-extension={(root / 'old' / 'counterpedia-extension' / 'dist').resolve()}"
+            with (
+                mock.patch.object(runtime.reset_demo, "load_session_state", return_value=state),
+                mock.patch.object(
+                    runtime.reset_demo,
+                    "get_live_commands",
+                    return_value={
+                        303: "/usr/bin/python local-signature",
+                        404: f"/tmp/chrome browser-signature {profile_flag} {other_load}",
+                    },
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    runtime.DemoKitRuntimeError,
+                    "tracked demo browser pid is not bound",
+                ):
+                    runtime._assert_nested_session_affinity(extension)
 
     def test_runtime_ready_result_is_after_affinity_gate(self) -> None:
         source = Path(runtime.__file__).read_text(encoding="utf-8")
