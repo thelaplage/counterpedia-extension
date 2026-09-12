@@ -45,7 +45,7 @@ if str(_HERE) not in sys.path:
 
 import session_observe0
 
-FACEBOOK_GRAPH0_ACQUISITION_SHA = "61d0878c65f3c863cf623732a4d42fc2866a0d62"
+FACEBOOK_GRAPH0_ACQUISITION_SHA = "c5e5d18bfac3ec0b12f36e7a52c1298a3845cdbb"
 FACEBOOK_GRAPHQL_HOSTS = frozenset({"www.facebook.com", "facebook.com"})
 BLOCKED_FACEBOOK_PATH_PREFIXES = (
     "/messages",
