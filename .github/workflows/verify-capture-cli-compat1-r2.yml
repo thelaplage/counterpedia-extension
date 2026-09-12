@@ -1,0 +1,47 @@
+name: verify-capture-cli-compat1-r2
+
+on:
+  push:
+    branches:
+      - verify/capture-cli-compat1-r2
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact product-head guard
+        run: |
+          PRODUCT="1a87bf0759b551a4f13ab9592afb3ccce0b34df7"
+          git cat-file -e "$PRODUCT^{commit}"
+          git merge-base --is-ancestor "$PRODUCT" HEAD
+          test "$(git diff --name-only "$PRODUCT"...HEAD)" = ".github/workflows/verify-capture-cli-compat1-r2.yml"
+      - name: Install extension dependencies
+        run: npm ci
+      - name: TypeScript typecheck
+        run: npm run lint
+      - name: Authoring-dev build
+        run: npm run build:authoring-dev
+      - name: Full extension regression
+        run: npm test
+      - name: Demo-kit packaging suites
+        run: npm run demo:kit:test
+      - name: Readiness regression
+        run: |
+          python -m py_compile tools/counterpedia-local/counterpedia_local.py tools/counterpedia-local/preflight.py tools/counterpedia-local/test_preflight.py tools/counterpedia-local/test_preflight_non_object_payload.py
+          python tools/counterpedia-local/test_preflight.py -v
+          python tools/counterpedia-local/test_preflight_non_object_payload.py -v
+      - name: Diff whitespace
+        run: git diff --check 1a87bf0759b551a4f13ab9592afb3ccce0b34df7...HEAD
