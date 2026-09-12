@@ -35,14 +35,21 @@ contract itself.
   infers a target from an allowlist or a "the one open tab that matches"
   heuristic, unlike #78's `_choose_target`, so it cannot encode any
   site-specific notion of "an allowed page" itself;
-- two narrow, host-agnostic hooks, both plain callables:
-  - `RequestMatcher(request, request_id, document_url) -> dict | None` —
-    decides which requests are "a match" and what opaque descriptor to
-    carry through; the kernel never parses a URL, doc_id, or POST body
-    itself;
-  - `TargetValidator(target_url) -> None` (raises to refuse) — an adapter's
-    own target-acceptance policy (e.g. a host allowlist or sensitive-path
-    denylist), applied once before attaching; the kernel ships with none;
+- a closed, explicit-field **credential boundary** at the matcher
+  interface: `RequestMatcher(request: RequestView, request_id, document_url)
+  -> dict | None`. `RequestView` is a frozen dataclass with exactly four
+  fields — `method`, `url`, `post_data`, `has_post_data` — built
+  field-by-field from the raw CDP `request` object by the kernel's one
+  `_request_view()` function. It has **no `headers` field**, so it cannot
+  carry `Authorization` / `Cookie` / `Set-Cookie` / API-key-style headers
+  to a matcher, structurally, not by filtering. `post_data` **is** exposed
+  (a matcher needs the body to classify e.g. a GraphQL operation, and #78's
+  own matcher needs its POST body); rejecting a sensitive body shape is
+  adapter-owned policy, never the kernel's;
+- a separate `TargetValidator(target_url) -> None` hook (raises to refuse)
+  — an adapter's own target-acceptance policy (e.g. a host allowlist or
+  sensitive-path denylist), applied once before attaching; the kernel ships
+  with none;
 - a `SessionObservationSummary` with `authority_movement` pinned at `0` as
   a structural fact of the dataclass, not a value someone can set.
 
@@ -112,10 +119,10 @@ this lane — writing a real Facebook adapter is #78's job, and #78 remains
 untouched here:
 
 ```python
-def facebook_graphql_matcher(request, request_id, document_url):
-    if not is_facebook_graphql_url(request["url"]):
+def facebook_graphql_matcher(request: RequestView, request_id, document_url):
+    if not is_facebook_graphql_url(request.url):
         return None
-    return parse_doc_id_and_variables(request.get("postData"))  # drops fb_dtsg/lsd
+    return parse_doc_id_and_variables(request.post_data)  # drops fb_dtsg/lsd
 
 def facebook_target_validator(target_url):
     if not is_allowed_facebook_surface(target_url):
@@ -139,8 +146,13 @@ carries no Facebook-shaped assumption.
 
 `session_observe0.py` has no code for and no hook that enables:
 
-- reading cookies, auth headers, `chrome.storage`, browser profile data, or
-  any credential/token material;
+- exposing headers, cookies, `chrome.storage`, browser profile data, or any
+  other credential/token material to an adapter's matcher — the matcher's
+  entire view of a request is the closed `RequestView` dataclass
+  (`method`/`url`/`post_data`/`has_post_data`), which structurally has no
+  headers field; POST bodies are the one exception and are exposed
+  deliberately (see above), with adapter-owned sensitive-body rejection as
+  the adapter's responsibility, not this kernel's;
 - DOM/page-content/screenshot/text extraction;
 - navigation, clicking, form submission, replay, or crawling — the kernel
   only watches network events already produced by operator-driven browsing;
@@ -179,4 +191,6 @@ Run:
 python3 tools/counterpedia-local/test_session_observe0.py -v
 ```
 
-Result at construction time: **13 tests passed**.
+Result at construction time: **14 tests passed** (includes a hostile test
+proving credential-shaped headers on the raw CDP request never reach the
+matcher — see the credential boundary section above).

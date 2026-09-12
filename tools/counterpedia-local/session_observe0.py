@@ -12,9 +12,15 @@ hardcoded here.
 
 What this kernel deliberately does NOT do, by construction:
 
-- it never reads cookies, auth headers, storage, or any credential/token
-  material -- it only sees the fields CDP's Network domain already exposes
-  for a request/response (URL, post body, response body, status);
+- it never exposes cookies, auth headers, storage, or any credential/token
+  material to an adapter's matcher -- the raw CDP ``request`` object (which
+  DOES include a ``headers`` dict, and could carry ``Authorization``/
+  ``Cookie``/API-key-style headers) is never passed through. Matchers only
+  ever see :class:`RequestView`, a closed dataclass with explicit fields
+  (``method``, ``url``, ``post_data``, ``has_post_data``) and structurally
+  no headers field at all. POST bodies ARE exposed to the matcher (a
+  matcher needs the body to classify e.g. a GraphQL operation); rejecting a
+  sensitive POST body shape is adapter-owned policy, not this kernel's;
 - it never extracts DOM/page content -- there is no Runtime.evaluate against
   page state and no Page.* content capture beyond the one no-op event-pump
   call inherited from the existing cdp.CDPConnection primitive;
@@ -46,11 +52,38 @@ class SessionObserveError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class RequestView:
+    """Closed, explicit-field view of a CDP request handed to matchers.
+
+    This is the ONLY request shape a :class:`RequestMatcher` ever receives.
+    It is built field-by-field from the raw CDP ``request`` object -- never
+    by copying/filtering/spreading that object -- so there is no dict-shaped
+    surface that could silently widen to carry a new CDP field (in
+    particular ``headers``) through in some future edit. If an adapter ever
+    legitimately needs a new field, that is a reviewed, explicit addition to
+    this dataclass, not an accidental passthrough.
+
+    Deliberately has NO ``headers`` field: CDP's raw request object includes
+    a ``headers`` dict that can carry ``Authorization``, ``Cookie``,
+    ``Set-Cookie``, API-key-style headers, etc. None of that reaches a
+    matcher. ``post_data`` IS exposed (a matcher needs the body to classify
+    e.g. a GraphQL operation); adapter-specific rejection of a sensitive
+    body shape is the adapter's own policy, not this kernel's.
+    """
+
+    method: str
+    url: str
+    post_data: str | None
+    has_post_data: bool
+
+
 class RequestMatcher(Protocol):
     """Adapter-supplied, host-specific request classifier.
 
     Called once per ``Network.requestWillBeSent`` event for the observed
-    target. Given the CDP ``request`` object, the CDP ``requestId``, and the
+    target. Given a closed :class:`RequestView` (method/url/post body only
+    -- never headers/cookies/storage), the CDP ``requestId``, and the
     request's ``documentURL``, return an opaque, JSON-serializable descriptor
     dict if this request is one the caller wants to observe the response
     for, or ``None`` to ignore it. The kernel never inspects the descriptor's
@@ -59,7 +92,7 @@ class RequestMatcher(Protocol):
     """
 
     def __call__(
-        self, request: dict[str, Any], request_id: str, document_url: str
+        self, request: RequestView, request_id: str, document_url: str
     ) -> dict[str, Any] | None: ...
 
 
@@ -142,6 +175,25 @@ def _select_target(
     raise SessionObserveError(
         f"target id {target_id!r} not found among current CDP targets; "
         "session-observe0 only observes an operator-selected, currently-open target"
+    )
+
+
+def _request_view(request: dict[str, Any]) -> RequestView:
+    """Build the closed matcher-facing view field-by-field.
+
+    Explicitly enumerated fields only -- this function is the one place a
+    raw CDP ``request`` dict is read, and it is the credential boundary:
+    nothing beyond ``method``/``url``/``postData``/``hasPostData`` is ever
+    looked at, so a ``headers`` (or ``cookie``, or similar) entry on the raw
+    CDP object structurally cannot reach a matcher.
+    """
+    post_data = request.get("postData")
+    post_data = post_data if isinstance(post_data, str) else None
+    return RequestView(
+        method=str(request.get("method") or ""),
+        url=str(request.get("url") or ""),
+        post_data=post_data,
+        has_post_data=bool(request.get("hasPostData")) or post_data is not None,
     )
 
 
@@ -230,8 +282,9 @@ def capture(
                     document_url = str(params.get("documentURL") or target_url)
                     if not request_id:
                         continue
+                    view = _request_view(request)
                     try:
-                        match = matcher(request, request_id, document_url)
+                        match = matcher(view, request_id, document_url)
                     except Exception:  # noqa: BLE001 -- an adapter matcher
                         # error refuses this one request, not the whole run.
                         continue

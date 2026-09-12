@@ -11,6 +11,7 @@ Run: python3 tools/counterpedia-local/test_session_observe0.py -v
 """
 from __future__ import annotations
 
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -69,13 +70,27 @@ class _FakeConnection:
         self.closed = True
 
 
-def _request_will_be_sent(request_id: str, url: str, document_url: str) -> dict[str, Any]:
+def _request_will_be_sent(
+    request_id: str,
+    url: str,
+    document_url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    post_data: str | None = None,
+) -> dict[str, Any]:
+    request: dict[str, Any] = {"url": url, "method": method}
+    if headers is not None:
+        request["headers"] = headers
+    if post_data is not None:
+        request["postData"] = post_data
+        request["hasPostData"] = True
     return {
         "method": "Network.requestWillBeSent",
         "params": {
             "requestId": request_id,
             "documentURL": document_url,
-            "request": {"url": url, "method": "GET"},
+            "request": request,
         },
     }
 
@@ -109,8 +124,8 @@ class CaptureLoopTests(unittest.TestCase):
         )
         sunk: list[kernel.ObservedExchange] = []
 
-        def matcher(request: dict[str, Any], request_id: str, document_url: str):
-            if "/api/" in request["url"]:
+        def matcher(request: kernel.RequestView, request_id: str, document_url: str):
+            if "/api/" in request.url:
                 return {"path": "/api/x"}
             return None
 
@@ -226,6 +241,93 @@ class CaptureLoopTests(unittest.TestCase):
         self.assertEqual(summary.observed_exchange_count, 1)
         self.assertEqual(sunk[0].response_bytes, b"{}")
         self.assertTrue(sunk[0].response_base64_encoded)
+
+    def test_matcher_never_receives_headers_cookies_or_credential_material(self) -> None:
+        """Hostile test: a raw CDP request carrying credential-shaped headers
+        must reach the matcher only as a closed RequestView with no headers
+        field at all -- not as a filtered/redacted dict that could silently
+        widen to include them.
+        """
+        credential_headers = {
+            "Authorization": "Bearer super-secret-token",
+            "Cookie": "session=super-secret-session-cookie",
+            "Set-Cookie": "session=super-secret-session-cookie; Secure",
+            "X-Api-Key": "super-secret-api-key",
+        }
+        conn = _FakeConnection(
+            script=[
+                [
+                    _request_will_be_sent(
+                        "r1",
+                        "https://example.test/api/x",
+                        "https://example.test/",
+                        headers=credential_headers,
+                        post_data="doc_id=1&variables=%7B%7D",
+                    ),
+                    _loading_finished("r1"),
+                ],
+                [],
+            ],
+            call_results={"r1": {"body": "{}", "base64Encoded": False}},
+        )
+        received: list[kernel.RequestView] = []
+
+        def recording_matcher(request: kernel.RequestView, request_id: str, document_url: str):
+            received.append(request)
+            return {"seen": True}
+
+        kernel.capture(
+            cdp_port=9222,
+            target_id="t1",
+            duration=1.0,
+            matcher=recording_matcher,
+            sink=lambda exchange: None,
+            connect=lambda ws_url: conn,
+            list_targets_fn=lambda port: [{"id": "t1", "type": "page", "url": "https://example.test/"}],
+            fetch_ws_url=lambda port: "ws://fake/",
+            clock=_make_clock([0.0, 0.0, 2.0]),
+            sleeper=lambda s: None,
+        )
+
+        self.assertEqual(len(received), 1)
+        view = received[0]
+
+        # Structural proof: RequestView is a closed dataclass with exactly
+        # these fields -- there is no headers/cookie field to even carry the
+        # credential values, filtered or not.
+        self.assertIsInstance(view, kernel.RequestView)
+        self.assertEqual(
+            {f.name for f in dataclasses.fields(view)},
+            {"method", "url", "post_data", "has_post_data"},
+        )
+        self.assertFalse(hasattr(view, "headers"))
+        self.assertFalse(hasattr(view, "cookie"))
+        self.assertFalse(hasattr(view, "cookies"))
+
+        # Behavioral proof: no credential string anywhere in what the
+        # matcher actually received (repr + every field value).
+        haystacks = [
+            repr(view),
+            view.method,
+            view.url,
+            view.post_data or "",
+        ]
+        for secret in (
+            "super-secret-token",
+            "super-secret-session-cookie",
+            "super-secret-api-key",
+            "Authorization",
+            "Cookie",
+            "Set-Cookie",
+            "X-Api-Key",
+        ):
+            for haystack in haystacks:
+                self.assertNotIn(secret, haystack)
+
+        # The POST body itself IS exposed (by design -- see module docs);
+        # only header/cookie material is excluded.
+        self.assertEqual(view.post_data, "doc_id=1&variables=%7B%7D")
+        self.assertTrue(view.has_post_data)
 
     def test_target_validator_can_refuse_the_selected_target(self) -> None:
         conn = _FakeConnection(script=[[]], call_results={})
