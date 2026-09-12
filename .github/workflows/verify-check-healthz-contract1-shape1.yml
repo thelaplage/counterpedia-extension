@@ -14,14 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Exact parent guard
+      - name: Exact product-head guard
         run: |
-          PARENT="$(git rev-parse HEAD^)"
-          test "$PARENT" = "ec1ef90f991c82d21849668c110bd4418c4a869f"
+          PRODUCT="ec1ef90f991c82d21849668c110bd4418c4a869f"
+          git cat-file -e "$PRODUCT^{commit}"
+          git merge-base --is-ancestor "$PRODUCT" HEAD
+          test "$(git diff --name-only "$PRODUCT"...HEAD)" = ".github/workflows/verify-check-healthz-contract1-shape1.yml"
       - name: Python syntax
         run: |
           python -m py_compile tools/counterpedia-local/preflight.py tools/counterpedia-local/test_preflight.py tools/counterpedia-local/test_preflight_non_object_payload.py
@@ -30,4 +32,4 @@ jobs:
       - name: Non-object hostile regression
         run: python tools/counterpedia-local/test_preflight_non_object_payload.py -v
       - name: Diff whitespace
-        run: git diff --check HEAD^
+        run: git diff --check ec1ef90f991c82d21849668c110bd4418c4a869f...HEAD
