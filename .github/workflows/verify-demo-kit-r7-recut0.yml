@@ -1,0 +1,54 @@
+name: verify-demo-kit-r7-recut0
+
+on:
+  push:
+    branches:
+      - verify/demo-kit-r7-recut0
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Exact recut structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e src/lib/wikipediaFrontierCapture.ts
+          test ! -e src/panel/wikipediaFrontierCapture.ts
+          test ! -e src/lib/wikipediaCaptureRunRecovery.ts
+          test ! -e tests/wikipediaFrontierCapture.test.ts
+          test ! -e tests/wikipediaFrontierCaptureCompanion.test.ts
+          test ! -e tests/wikipediaCaptureAuthoringBoundary.test.ts
+          test ! -e tests/wikipediaSessionPersistence.test.ts
+          test -e src/lib/governedSourceSelection.ts
+          test -e src/panel/draftFromSourceButton.ts
+          test -e src/panel/wikipediaHarvest.ts
+          git diff --check HEAD^ HEAD
+      - name: Typecheck
+        run: npm run lint
+      - name: Extension build
+        run: npm run build:authoring-dev
+      - name: Demo-kit focused gates
+        run: npm run demo:kit:test
+      - name: Surviving Wikipedia discovery gates
+        run: npx vitest run tests/wikipediaHarvestBridge.test.ts tests/wikipediaLocalCompanionContract.test.ts tests/wikipediaE2EClosure.test.ts
+      - name: Full extension regression
+        run: npm test
+      - name: Counterpedia Local readiness gates
+        run: |
+          python3 tools/counterpedia-local/test_preflight.py
+          python3 tools/counterpedia-local/test_preflight_non_object_payload.py
+          python3 -m py_compile tools/counterpedia-local/counterpedia_local.py
