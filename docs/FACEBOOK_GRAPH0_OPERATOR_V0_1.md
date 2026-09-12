@@ -2,6 +2,14 @@
 
 **Status:** DRAFT / DO NOT MERGE · `AUTHORITY_MOVEMENT=0` · operator tooling only
 
+## Pin reconciliation (2026-09-12)
+
+The operator is now pinned to the reconciled FACEBOOK-GRAPH0 producer head
+`c5e5d18bfac3ec0b12f36e7a52c1298a3845cdbb`, which landed through
+Acquisition PR #226 as merge `39ea8f10e0ba08c0492f258925f32b70fd148d60`.
+This is a pin-only follow-up after the #226/#78 stack landed; no operator
+semantics changed.
+
 ## Purpose
 
 This lane supplies the missing real-evidence leg for `counterpedia-acquisition` PR #226 (`FACEBOOK-GRAPH0`). It does not build `FACEBOOK-GRAPH1` and it does not add Facebook capture to the shipping Counterpedia extension.
@@ -14,11 +22,13 @@ The output is the exact input expected by the already-built FACEBOOK-GRAPH0 norm
 
 ## Live construction basis
 
-Extension base:
+Extension operator composition landed through:
 
 ```text
 thelaplage/counterpedia-extension
-main@2dadb1c17d095bcfb90238e0435796608022663a
+FACEBOOK-GRAPH0-OPERATOR PR #78
+reviewed head e812813a8e88b1a7d8cfe143640a223205e5768a
+merge 5cdeba55c632d9efdcef0407ba43f2195a20622f
 ```
 
 Acquisition consumer/normalizer pin:
@@ -26,10 +36,10 @@ Acquisition consumer/normalizer pin:
 ```text
 thelaplage/counterpedia-acquisition
 FACEBOOK-GRAPH0 PR #226
-61d0878c65f3c863cf623732a4d42fc2866a0d62
+c5e5d18bfac3ec0b12f36e7a52c1298a3845cdbb
 ```
 
-The harness fails closed if the supplied Acquisition checkout is not exactly that commit. This is an evidence pin, not a runtime product dependency.
+The harness fails closed if the supplied Acquisition checkout is not exactly that reviewed producer commit. This is an evidence pin, not a runtime product dependency.
 
 ## Ownership / overlap classification
 
@@ -49,13 +59,7 @@ tools/counterpedia-local/test_facebook_graph_operator.py
 docs/FACEBOOK_GRAPH0_OPERATOR_V0_1.md
 ```
 
-No existing file is modified in this lane. As of the EXT-FB-OPERATOR-RECUT0
-recut onto `main`, `facebook_graph_operator.py` is a thin adapter over the
-generic, already-landed `tools/counterpedia-local/session_observe0.py`
-kernel (SESSION-OBSERVE0, PR #88): the bounded CDP attach/observe/pump loop,
-target listing, and the closed no-headers `RequestView` matcher contract now
-live in that kernel. `session_observe0.py` itself is composed (imported),
-not modified, by this lane.
+As of the EXT-FB-OPERATOR-RECUT0 recut, `facebook_graph_operator.py` is a thin adapter over the generic, already-landed `tools/counterpedia-local/session_observe0.py` kernel (SESSION-OBSERVE0, PR #88): the bounded CDP attach/observe/pump loop, target listing, and the closed no-headers `RequestView` matcher contract live in that kernel. `session_observe0.py` itself is composed (imported), not modified, by this lane.
 
 ## What the harness does
 
@@ -199,15 +203,7 @@ Do not label an authenticated observation `public_reproducible` merely because t
 
 ## Hermetic tests
 
-`test_facebook_graph_operator.py` uses no browser or network and tests:
-
-1. exact HTTPS Facebook GraphQL endpoint restriction;
-2. ordinary-content URL acceptance;
-3. sensitive-path refusal;
-4. request parsing that discards top-level session fields (`fb_dtsg`, `lsd`) rather than carrying them into the operation object;
-5. object-shaped GraphQL variable requirement;
-6. strict CDP base64-body decoding;
-7. exact Acquisition producer pin.
+`test_facebook_graph_operator.py` uses no browser or network and tests endpoint restriction, ordinary-content URL acceptance, sensitive-path refusal, request parsing/session-field exclusion, object-shaped GraphQL variables, strict CDP base64-body decoding, and the exact Acquisition producer pin.
 
 Run:
 
@@ -215,21 +211,13 @@ Run:
 python3 tools/counterpedia-local/test_facebook_graph_operator.py
 ```
 
-Construction-seat result before push: **6 tests passed**.
+The recut was previously verified with the operator suite and the SESSION-OBSERVE0 kernel suite green. This pin-only follow-up changes no executable logic other than the exact expected producer SHA.
 
 ## Real evidence gate
 
 This lane makes the operator pass executable, but a real Facebook corpus/census is not fabricated in git.
 
-The real gate is satisfied only when the operator-run output shows, from several ordinary UI surfaces:
-
-- nonzero normalized GraphQL observations;
-- the actual friendly-operation/doc-id census;
-- actual `__typename` populations;
-- recurring typed-ID digests across independently observed operations/surfaces, if any;
-- actual source-near JSON relationship paths;
-- access-class breakdown;
-- census digest from the pinned #226 producer.
+The real gate is satisfied only when operator-run output shows, from several ordinary UI surfaces, nonzero normalized GraphQL observations, the actual friendly-operation/doc-id census, actual `__typename` populations, recurring typed-ID digests across independently observed operations/surfaces if any, actual source-near JSON relationship paths, access-class breakdown, and a census digest from the pinned #226 producer.
 
 The resulting live response bodies belong in controlled local/custody storage, not git fixtures.
 
