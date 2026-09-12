@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import reader_demo
 import reset_demo
 
 INSTALL_STATE_SCHEMA = "counterpedia.demo_kit_install_state.v0.1"
@@ -68,6 +69,15 @@ def _component(root: Path, name: str) -> Path:
     if not path.is_dir():
         raise DemoKitRuntimeError(f"bundle component missing: {path}")
     return path
+
+
+def _same_path(actual: Any, expected: Path) -> bool:
+    if not isinstance(actual, str) or not actual:
+        return False
+    try:
+        return Path(actual).expanduser().resolve() == expected.expanduser().resolve()
+    except OSError:
+        return False
 
 
 def _port_open(port: int) -> bool:
@@ -138,6 +148,144 @@ def _owned_live_terminal_pid(state: dict[str, Any]) -> int:
     return disposition.pid
 
 
+def _assert_terminal_affinity(state: dict[str, Any], terminal_dir: Path) -> int:
+    if not _same_path(state.get("terminal_dir"), terminal_dir):
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: live Counterpedia Terminal belongs to a different "
+            "bundle component; refusing cross-kit reuse"
+        )
+    return _owned_live_terminal_pid(state)
+
+
+def _reader_state_affinity(counterpedia_dir: Path) -> dict[str, Any]:
+    if not reader_demo.probe_reader():
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: canonical Counterpedia reader is not ready"
+        )
+    state = reader_demo._load_state()  # same local-demo ownership subsystem
+    if state is None:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: compatible Counterpedia reader is live but untracked; "
+            "refusing to assume ownership or bundle identity"
+        )
+    if not _same_path(state.get("repo_dir"), counterpedia_dir):
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: live Counterpedia reader belongs to a different "
+            "bundle component; refusing cross-kit reuse"
+        )
+    pid = state.get("pid")
+    signature = state.get("cmd_signature")
+    live_commands = reset_demo.get_live_commands()
+    live_command = live_commands.get(pid) if isinstance(pid, int) else None
+    disposition = reset_demo.classify_tracked_process(
+        "counterpedia_reader", pid, signature, live_command
+    )
+    if disposition.classification != "owned_stop" or disposition.pid is None:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia reader state does not bind to the live "
+            f"process ({disposition.classification})"
+        )
+    return {
+        "pid": disposition.pid,
+        "repo_dir": str(counterpedia_dir.resolve()),
+        "live_signature": "matched",
+    }
+
+
+def _refuse_reader_reuse_conflict(counterpedia_dir: Path) -> None:
+    """Fail before nested launch if :3000 is already a compatible reader from another kit."""
+    if reader_demo.probe_reader():
+        _reader_state_affinity(counterpedia_dir)
+
+
+def _local_supervisor_status(timeout: float = 1.0) -> dict[str, Any]:
+    url = "http://127.0.0.1:8790/v0/status"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if response.status != 200:
+                raise DemoKitRuntimeError(
+                    "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local status is not HTTP 200"
+                )
+            payload = json.loads(response.read().decode("utf-8"))
+    except DemoKitRuntimeError:
+        raise
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local status is unavailable or malformed"
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("service") != "counterpedia-local":
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: :8790 is not the Counterpedia Local supervisor"
+        )
+    return payload
+
+
+def _assert_local_affinity(
+    acquisition_dir: Path,
+    acquisition_python: Path,
+    authoring_dir: Path,
+) -> dict[str, Any]:
+    status = _local_supervisor_status()
+    dependencies = status.get("dependencies")
+    if not isinstance(dependencies, dict):
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local dependency report is missing"
+        )
+    expected = {
+        "acquisition_dir": acquisition_dir.resolve(),
+        "acquisition_python": acquisition_python.resolve(),
+        "authoring_dir": authoring_dir.resolve(),
+    }
+    for key, path in expected.items():
+        if not _same_path(dependencies.get(key), path):
+            raise DemoKitRuntimeError(
+                "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local dependency "
+                f"{key} does not point into this bundle"
+            )
+    return {
+        "acquisition_dir": str(expected["acquisition_dir"]),
+        "acquisition_python": str(expected["acquisition_python"]),
+        "authoring_dir": str(expected["authoring_dir"]),
+    }
+
+
+def _assert_nested_session_affinity(extension: Path) -> dict[str, Any]:
+    state = reset_demo.load_session_state(reset_demo.SESSION_STATE_PATH)
+    if state is None:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: nested Local/browser session state is missing"
+        )
+    if not _same_path(state.get("demo_profile_dir"), DEMO_PROFILE_DIR):
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: tracked demo browser profile is not the canonical "
+            "Counterpedia Local profile"
+        )
+    live_commands = reset_demo.get_live_commands()
+    results: dict[str, Any] = {}
+    for role, pid_key, sig_key in (
+        ("counterpedia_local", "local_pid", "local_cmd_signature"),
+        ("demo_browser", "demo_browser_pid", "demo_browser_cmd_signature"),
+    ):
+        pid = state.get(pid_key)
+        live = live_commands.get(pid) if isinstance(pid, int) else None
+        disposition = reset_demo.classify_tracked_process(role, pid, state.get(sig_key), live)
+        if disposition.classification != "owned_stop" or disposition.pid is None:
+            raise DemoKitRuntimeError(
+                "DEMO_RUNTIME_AFFINITY_REFUSED: tracked "
+                f"{role} state does not bind to the live process ({disposition.classification})"
+            )
+        if role == "demo_browser":
+            profile_flag, load_flag = _browser_binding_flags(extension)
+            if live is None or profile_flag not in live or load_flag not in live:
+                raise DemoKitRuntimeError(
+                    "DEMO_RUNTIME_AFFINITY_REFUSED: tracked demo browser pid is not bound to "
+                    "this bundle's exact profile + extension dist"
+                )
+        results[role] = disposition.pid
+    results["demo_profile_dir"] = str(DEMO_PROFILE_DIR)
+    return results
+
+
 def _start_terminal(terminal_dir: Path, timeout: float = 10.0) -> tuple[bool, int | None]:
     state = _load_terminal_state()
     if _terminal_ready():
@@ -146,7 +294,7 @@ def _start_terminal(terminal_dir: Path, timeout: float = 10.0) -> tuple[bool, in
                 f"port {TERMINAL_PORT} already serves a Terminal-like endpoint but this kit did not start it; "
                 "refusing to assume ownership"
             )
-        return False, _owned_live_terminal_pid(state)
+        return False, _assert_terminal_affinity(state, terminal_dir)
     if _port_open(TERMINAL_PORT):
         raise DemoKitRuntimeError(
             f"port {TERMINAL_PORT} is occupied by a foreign/incompatible process; refusing to replace it"
@@ -316,6 +464,40 @@ def _reset_nested_after_failed_binding(extension: Path, env: dict[str, str]) -> 
         pass
 
 
+def _assert_runtime_affinity(
+    *,
+    extension: Path,
+    acquisition: Path,
+    acquisition_python: Path,
+    authoring: Path,
+    counterpedia: Path,
+    terminal: Path,
+) -> dict[str, Any]:
+    terminal_state = _load_terminal_state()
+    if terminal_state is None:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Terminal state is missing"
+        )
+    terminal_pid = _assert_terminal_affinity(terminal_state, terminal)
+    reader = _reader_state_affinity(counterpedia)
+    local = _assert_local_affinity(acquisition, acquisition_python, authoring)
+    nested = _assert_nested_session_affinity(extension)
+    browser_command = _live_extension_bound_browser_command(extension)
+    if browser_command is None:
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: no live browser is bound to this bundle's exact "
+            "extension dist"
+        )
+    return {
+        "terminal_pid": terminal_pid,
+        "terminal_dir": str(terminal.resolve()),
+        "reader": reader,
+        "local": local,
+        "nested_session": nested,
+        "browser_extension_command": browser_command,
+    }
+
+
 def start(bundle_root: Path) -> dict[str, Any]:
     root = bundle_root.expanduser().resolve()
     _assert_installed(root)
@@ -333,6 +515,10 @@ def start(bundle_root: Path) -> dict[str, Any]:
     acq_python = acquisition / ".venv" / "bin" / "python"
     if not acq_python.is_file():
         raise DemoKitRuntimeError("Acquisition runtime is not installed; rerun the kit installer")
+
+    # A compatible reader already running from a different kit must be refused
+    # before this launch starts or reuses any additional runtime process.
+    _refuse_reader_reuse_conflict(counterpedia)
 
     DAGR_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -388,6 +574,18 @@ def start(bundle_root: Path) -> dict[str, Any]:
         # Fail closed after the convenience-tab invocations too. A live browser
         # on the expected profile without the bundled extension is NOT ready.
         browser_binding = _wait_for_extension_binding(extension)
+
+        # READY is stronger than endpoint compatibility: every reused/live
+        # runtime owner must still bind to THIS installed bundle's component
+        # directories and tracked live process signatures.
+        runtime_affinity = _assert_runtime_affinity(
+            extension=extension,
+            acquisition=acquisition,
+            acquisition_python=acq_python,
+            authoring=authoring,
+            counterpedia=counterpedia,
+            terminal=terminal,
+        )
     except DemoKitRuntimeError:
         _reset_nested_after_failed_binding(extension, env)
         if terminal_started:
@@ -402,6 +600,8 @@ def start(bundle_root: Path) -> dict[str, Any]:
         "terminal_pid": terminal_pid,
         "browser_extension_binding": "ready",
         "browser_extension_command": browser_binding,
+        "runtime_affinity": "ready",
+        "runtime_affinity_evidence": runtime_affinity,
         "dagr_factory": DAGR_FACTORY,
         "dagr_evidence_dir": str(DAGR_EVIDENCE_DIR),
         "authority_movement": 0,
@@ -410,6 +610,7 @@ def start(bundle_root: Path) -> dict[str, Any]:
     print()
     print("Counterpedia Demo Kit is ready.")
     print("Browser extension binding: READY")
+    print("Runtime affinity: READY")
     print("Use the Wikipedia tab for the canonical browse -> scan -> capture walkthrough.")
     print("Use the Terminal tab to inspect the local/private record-layer surface.")
     return result
