@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Bounded operator-only Facebook GraphQL observation harness.
 
-This tool is NOT part of the shipping extension runtime. It attaches to an
-already-running Chrome DevTools Protocol endpoint chosen by the operator,
-observes Facebook web-client GraphQL responses for a bounded interval, and
-hands each completed response directly to counterpedia-acquisition's
-FACEBOOK-GRAPH0 normalizer at a pinned commit.
+This tool is NOT part of the shipping extension runtime. It is a thin,
+Facebook-specific adapter over SESSION-OBSERVE0 (session_observe0.py): the
+bounded CDP attach/observe/pump loop, the closed no-headers ``RequestView``
+matcher contract, and the strict base64-aware response-body decode all live
+in the generic kernel now. This module owns exactly the Facebook-specific
+policy layered on top of that kernel: recognizing a Facebook GraphQL request
+(matcher), the sensitive-path denylist + host allowlist (target validator),
+the GraphQL doc_id/variables parser, the access-class vocabulary, and the
+Acquisition FACEBOOK-GRAPH0 subprocess/normalizer handoff (the kernel's
+``sink``).
 
 No login automation, cookie extraction, token extraction, GraphQL replay,
 DOM capture, page-content scraping, crawler loop, or anti-bot logic exists.
@@ -16,7 +21,7 @@ observations and the Acquisition object store are the durable outputs.
 from __future__ import annotations
 
 import argparse
-import base64
+import dataclasses
 import json
 import os
 import subprocess
@@ -28,7 +33,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from cdp import CDPConnection, CDPError, fetch_browser_ws_url, list_targets
+from cdp import CDPError
+
+# session_observe0 is a sibling module in this same directory, not an
+# installed package -- make sure this directory is importable regardless of
+# how this file itself was loaded (direct script run, pytest, or
+# importlib.util.spec_from_file_location as the hermetic test does).
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import session_observe0
 
 FACEBOOK_GRAPH0_ACQUISITION_SHA = "61d0878c65f3c863cf623732a4d42fc2866a0d62"
 FACEBOOK_GRAPHQL_HOSTS = frozenset({"www.facebook.com", "facebook.com"})
@@ -135,14 +150,18 @@ def _parse_graphql_post_data(
 
 
 def _response_body_bytes(body: str, base64_encoded: bool) -> bytes:
-    if base64_encoded:
-        try:
-            return base64.b64decode(body, validate=True)
-        except Exception as exc:
-            raise OperatorError(
-                "CDP response body declared base64 but failed strict decode"
-            ) from exc
-    return body.encode("utf-8")
+    """Thin operator-error-typed wrapper over the kernel's strict decoder.
+
+    The actual base64-aware decode logic lives in
+    ``session_observe0.response_body_bytes`` (SESSION-OBSERVE0 kernel); this
+    wrapper only translates that kernel's ``SessionObserveError`` into this
+    module's ``OperatorError`` so existing operator callers/tests keep a
+    single, stable exception type.
+    """
+    try:
+        return session_observe0.response_body_bytes(body, base64_encoded)
+    except session_observe0.SessionObserveError as exc:
+        raise OperatorError(str(exc)) from exc
 
 
 def _git_head(repo: Path) -> str:
@@ -173,7 +192,7 @@ def _validate_acquisition_repo(repo: Path, expected_sha: str) -> None:
 
 
 def _choose_target(cdp_port: int, target_id: str | None) -> dict[str, Any]:
-    targets = [t for t in list_targets(cdp_port) if t.get("type") == "page"]
+    targets = session_observe0.list_page_targets(cdp_port)
     if target_id:
         for target in targets:
             if target.get("id") == target_id:
@@ -304,22 +323,76 @@ def _build_census(
     return census_path
 
 
-def _drain_network_events(
-    conn: CDPConnection, session_id: str
-) -> list[dict[str, Any]]:
-    # CDPConnection queues interleaved events while waiting for matching command
-    # responses. A no-op Runtime.evaluate is therefore the bounded event pump.
-    conn.call(
-        "Runtime.evaluate",
-        {"expression": "0", "returnByValue": True},
-        session_id=session_id,
-        timeout=2.0,
-    )
-    return [
-        event
-        for event in conn.drain_events()
-        if event.get("sessionId") in (None, session_id)
-    ]
+def _facebook_graphql_matcher() -> session_observe0.RequestMatcher:
+    """The Facebook-owned request classifier handed to the kernel.
+
+    Receives only the kernel's closed ``RequestView`` (method/url/post_data/
+    has_post_data -- structurally no headers/cookies). Recognizes a Facebook
+    GraphQL request by URL, then defers to ``_parse_graphql_post_data`` for
+    the doc_id/variables/friendly_name extraction and the sensitive-page
+    denylist check. The returned descriptor is a plain dict (the kernel
+    carries it through opaquely) so the observed exchange can be turned back
+    into a :class:`GraphQLOperation` in the sink below.
+    """
+
+    def matcher(
+        request: session_observe0.RequestView, request_id: str, document_url: str
+    ) -> dict[str, Any] | None:
+        if not _is_facebook_graphql_url(request.url):
+            return None
+        if request.post_data is None:
+            return None
+        try:
+            operation = _parse_graphql_post_data(
+                request.post_data,
+                request_id=request_id,
+                document_url=document_url,
+            )
+        except OperatorError:
+            return None
+        return dataclasses.asdict(operation)
+
+    return matcher
+
+
+def _facebook_normalize_sink(
+    *,
+    acquisition_root: Path,
+    object_store: Path,
+    output_dir: Path,
+    surface_class: str,
+    access_class: str,
+    producer_revision: str,
+    normalized: list[Path],
+) -> session_observe0.ExchangeSink:
+    """The Acquisition FACEBOOK-GRAPH0 handoff, as the kernel's ``sink``.
+
+    A normalizer rejection for one observed exchange is swallowed here (not
+    re-raised) to preserve the original harness's per-exchange behavior: one
+    bad observation must not abort the rest of the bounded observation
+    window. Response bytes arrive already strictly base64-decoded by the
+    kernel; this sink does no CDP or byte-decoding work of its own.
+    """
+
+    def sink(exchange: session_observe0.ObservedExchange) -> None:
+        operation = GraphQLOperation(**exchange.match)
+        try:
+            normalized.append(
+                _normalize_one(
+                    acquisition_root=acquisition_root,
+                    object_store=object_store,
+                    output_dir=output_dir,
+                    surface_class=surface_class,
+                    access_class=access_class,
+                    producer_revision=producer_revision,
+                    operation=operation,
+                    response_bytes=exchange.response_bytes,
+                )
+            )
+        except OperatorError:
+            pass
+
+    return sink
 
 
 def _capture(args: argparse.Namespace) -> int:
@@ -332,78 +405,26 @@ def _capture(args: argparse.Namespace) -> int:
 
     target = _choose_target(args.cdp_port, args.target_id)
     target_id = str(target["id"])
-    target_url = str(target.get("url") or "")
-    _assert_operator_page_allowed(target_url)
+    _assert_operator_page_allowed(str(target.get("url") or ""))
 
-    conn = CDPConnection(fetch_browser_ws_url(args.cdp_port))
     normalized: list[Path] = []
-    matched: dict[str, GraphQLOperation] = {}
-    try:
-        session_id = conn.attach(target_id)
-        conn.call(
-            "Network.enable",
-            {"maxPostDataSize": 1048576},
-            session_id=session_id,
-            timeout=5.0,
-        )
-        deadline = time.monotonic() + args.duration
-        while time.monotonic() < deadline:
-            for event in _drain_network_events(conn, session_id):
-                method = event.get("method")
-                params = event.get("params") or {}
-                if method == "Network.requestWillBeSent":
-                    request = params.get("request") or {}
-                    if not _is_facebook_graphql_url(str(request.get("url") or "")):
-                        continue
-                    post_data = request.get("postData")
-                    request_id = str(params.get("requestId") or "")
-                    document_url = str(params.get("documentURL") or target_url)
-                    if not request_id or not isinstance(post_data, str):
-                        continue
-                    try:
-                        matched[request_id] = _parse_graphql_post_data(
-                            post_data,
-                            request_id=request_id,
-                            document_url=document_url,
-                        )
-                    except OperatorError:
-                        continue
-
-                elif method == "Network.loadingFinished":
-                    request_id = str(params.get("requestId") or "")
-                    operation = matched.pop(request_id, None)
-                    if operation is None:
-                        continue
-                    try:
-                        body_result = conn.call(
-                            "Network.getResponseBody",
-                            {"requestId": request_id},
-                            session_id=session_id,
-                            timeout=5.0,
-                        )
-                        body = body_result.get("body")
-                        if not isinstance(body, str):
-                            continue
-                        response_bytes = _response_body_bytes(
-                            body, bool(body_result.get("base64Encoded"))
-                        )
-                        normalized.append(
-                            _normalize_one(
-                                acquisition_root=acquisition_root,
-                                object_store=object_store,
-                                output_dir=output_dir,
-                                surface_class=args.surface_class,
-                                access_class=args.access_class,
-                                producer_revision=args.producer_revision,
-                                operation=operation,
-                                response_bytes=response_bytes,
-                            )
-                        )
-                    except (CDPError, OperatorError):
-                        continue
-            time.sleep(args.poll_interval)
-    finally:
-        conn.close()
+    summary = session_observe0.capture(
+        cdp_port=args.cdp_port,
+        target_id=target_id,
+        duration=args.duration,
+        matcher=_facebook_graphql_matcher(),
+        sink=_facebook_normalize_sink(
+            acquisition_root=acquisition_root,
+            object_store=object_store,
+            output_dir=output_dir,
+            surface_class=args.surface_class,
+            access_class=args.access_class,
+            producer_revision=args.producer_revision,
+            normalized=normalized,
+        ),
+        poll_interval=args.poll_interval,
+        target_validator=_assert_operator_page_allowed,
+    )
 
     observation_files = list((output_dir / "observations").glob("*.json"))
     census_path = (
@@ -421,7 +442,7 @@ def _capture(args: argparse.Namespace) -> int:
         "authority_movement": 0,
         "shipping_extension_runtime_modified": False,
         "target_id": target_id,
-        "target_url": target_url,
+        "target_url": summary.target_url,
         "surface_class": args.surface_class,
         "access_class": args.access_class,
         "duration_seconds": args.duration,
@@ -440,9 +461,7 @@ def _capture(args: argparse.Namespace) -> int:
 
 def _list(args: argparse.Namespace) -> int:
     rows = []
-    for target in list_targets(args.cdp_port):
-        if target.get("type") != "page":
-            continue
+    for target in session_observe0.list_page_targets(args.cdp_port):
         url = str(target.get("url") or "")
         try:
             _assert_operator_page_allowed(url)
@@ -495,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--poll-interval must be > 0")
     try:
         return int(args.func(args))
-    except (OperatorError, CDPError) as exc:
+    except (OperatorError, CDPError, session_observe0.SessionObserveError) as exc:
         print(f"FACEBOOK-GRAPH0 OPERATOR ERROR: {exc}", file=sys.stderr)
         return 2
 

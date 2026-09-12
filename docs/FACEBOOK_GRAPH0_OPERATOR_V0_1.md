@@ -49,7 +49,13 @@ tools/counterpedia-local/test_facebook_graph_operator.py
 docs/FACEBOOK_GRAPH0_OPERATOR_V0_1.md
 ```
 
-No existing file is modified in this lane.
+No existing file is modified in this lane. As of the EXT-FB-OPERATOR-RECUT0
+recut onto `main`, `facebook_graph_operator.py` is a thin adapter over the
+generic, already-landed `tools/counterpedia-local/session_observe0.py`
+kernel (SESSION-OBSERVE0, PR #88): the bounded CDP attach/observe/pump loop,
+target listing, and the closed no-headers `RequestView` matcher contract now
+live in that kernel. `session_observe0.py` itself is composed (imported),
+not modified, by this lane.
 
 ## What the harness does
 
