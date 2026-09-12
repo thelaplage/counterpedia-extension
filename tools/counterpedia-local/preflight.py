@@ -96,6 +96,14 @@ def check_counterpedia_local(host: str = base.HOST, port: int = base.COMPANION_P
         return ReadinessLine(
             "counterpedia_local", "Counterpedia Local", "not_ready", f"http://{host}:{port} unreachable"
         )
+    if not isinstance(payload, dict):
+        return ReadinessLine(
+            "counterpedia_local",
+            "Counterpedia Local",
+            "not_ready",
+            f"http://{host}:{port} responded but is not the counterpedia-local supervisor document "
+            "(malformed or foreign server on this port)",
+        )
     required_keys = {"service", "paired", "acquisition", "recovery", "authoring", "dependencies"}
     if payload.get("service") != "counterpedia-local" or not required_keys.issubset(payload.keys()):
         return ReadinessLine(
