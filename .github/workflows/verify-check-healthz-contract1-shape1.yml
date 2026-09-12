@@ -1,0 +1,31 @@
+name: verify-check-healthz-contract1-shape1
+
+on:
+  push:
+    branches:
+      - verify/check-healthz-contract1-shape1
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact parent guard
+        run: |
+          PARENT="$(git rev-parse HEAD^)"
+          test "$PARENT" = "ec1ef90f991c82d21849668c110bd4418c4a869f"
+      - name: Python syntax
+        run: |
+          python -m py_compile tools/counterpedia-local/preflight.py tools/counterpedia-local/test_preflight.py tools/counterpedia-local/test_preflight_non_object_payload.py
+      - name: Existing preflight suite
+        run: python tools/counterpedia-local/test_preflight.py -v
+      - name: Non-object hostile regression
+        run: python tools/counterpedia-local/test_preflight_non_object_payload.py -v
+      - name: Diff whitespace
+        run: git diff --check HEAD^
