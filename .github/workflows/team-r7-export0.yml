@@ -1,0 +1,30 @@
+name: team-r7-export0
+on:
+  push:
+    branches: [proof/team-r7-export0]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 14cb91d9d0a9f6ef3628b56225968f9d1a6ef739
+          fetch-depth: 0
+          path: source
+      - shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "14cb91d9d0a9f6ef3628b56225968f9d1a6ef739"
+          test -z "$(git -C source status --porcelain)"
+          tar -czf counterpedia-extension.tar.gz source
+          sha256sum counterpedia-extension.tar.gz > counterpedia-extension.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: team-r7-counterpedia-extension-source
+          path: |
+            counterpedia-extension.tar.gz
+            counterpedia-extension.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 2
