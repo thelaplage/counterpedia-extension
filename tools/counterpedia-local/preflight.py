@@ -75,10 +75,47 @@ def check_extension(ext_root: Path) -> ReadinessLine:
 
 
 def check_counterpedia_local(host: str = base.HOST, port: int = base.COMPANION_PORT) -> ReadinessLine:
+    """Validates the DIFFERENT contract this port actually serves.
+
+    ``/healthz`` (and ``/v0/status``) on ``COMPANION_PORT`` return the
+    supervisor document produced by ``LocalSupervisor.status()`` -- it has
+    NEVER carried a top-level ``status`` key (that predicate belongs to the
+    separate, frozen acquisition-transport contract on ``ACQUISITION_PORT``;
+    see ``acquisition_capabilities`` -- do not reuse or fold that check
+    here). The supervisor document's readiness signal is its own ``paired``
+    boolean, gated behind a structural shape check so a foreign/malformed
+    server on the port cannot be mistaken for "ready".
+
+    Deliberately does NOT fold ``acquisition.ready``/``recovery.ready`` into
+    this line -- those are already independent report lines
+    (``check_acquisition`` / ``check_recovery``); folding them in here would
+    double-count the same signal under two keys.
+    """
     payload = base.http_json(f"http://{host}:{port}/healthz")
-    if not isinstance(payload, dict) or payload.get("status") != "ok":
+    if payload is None:
         return ReadinessLine(
             "counterpedia_local", "Counterpedia Local", "not_ready", f"http://{host}:{port} unreachable"
+        )
+    if not isinstance(payload, dict):
+        return ReadinessLine(
+            "counterpedia_local",
+            "Counterpedia Local",
+            "not_ready",
+            f"http://{host}:{port} responded but is not the counterpedia-local supervisor document "
+            "(malformed or foreign server on this port)",
+        )
+    required_keys = {"service", "paired", "acquisition", "recovery", "authoring", "dependencies"}
+    if payload.get("service") != "counterpedia-local" or not required_keys.issubset(payload.keys()):
+        return ReadinessLine(
+            "counterpedia_local",
+            "Counterpedia Local",
+            "not_ready",
+            f"http://{host}:{port} responded but is not the counterpedia-local supervisor document "
+            "(malformed or foreign server on this port)",
+        )
+    if payload.get("paired") is not True:
+        return ReadinessLine(
+            "counterpedia_local", "Counterpedia Local", "not_ready", f"http://{host}:{port} not paired"
         )
     return ReadinessLine("counterpedia_local", "Counterpedia Local", "ready", f"http://{host}:{port}")
 

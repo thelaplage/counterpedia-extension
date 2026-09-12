@@ -9,7 +9,6 @@ import { initResearcherProfiles } from "./researcherProfiles";
 import { initResearcherTeaching } from "./researcherTeaching";
 import { initHistoryControls } from "./historyControls";
 import { initWikipediaHarvestPanel } from "./wikipediaHarvest";
-import { initWikipediaFrontierCapturePanel } from "./wikipediaFrontierCapture";
 import { initOperatorSnapshotCapture } from "./operatorSnapshotCapture";
 
 // Product semantics stay in Counterpedia: once Authoring returns a guarded
@@ -30,6 +29,5 @@ void import("./panel").then(() => {
   initResearcherTeaching();
   void initHistoryControls();
   void initWikipediaHarvestPanel();
-  void initWikipediaFrontierCapturePanel();
   initOperatorSnapshotCapture();
 });

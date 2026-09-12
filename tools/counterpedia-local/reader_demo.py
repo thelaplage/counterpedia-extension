@@ -13,11 +13,13 @@ canonical `proposal_projection_refused` code. A generic web server on :3000
 is not sufficient.
 
 Finder-launched .command files do not inherit a developer shell's environment.
-When COUNTERPEDIA_DIR / COUNTERPEDIA_REPO_DIR is absent, this helper first
-checks the normal sibling checkout. If that checkout does not contain the
-reader route, it inspects its linked git worktrees and will auto-select ONLY
-when exactly one reader-capable worktree exists. Multiple matches fail closed
-rather than guessing which DRAFT stack is accepted.
+When COUNTERPEDIA_DIR / COUNTERPEDIA_REPO_DIR is absent, this helper resolves
+the PRIMARY counterpedia-extension checkout first (even when this file is
+running from a linked extension worktree), then checks the Counterpedia sibling
+of that primary checkout. If that checkout does not contain the reader route,
+it inspects its linked git worktrees and will auto-select ONLY when exactly one
+reader-capable worktree exists. Multiple matches fail closed rather than
+guessing which DRAFT stack is accepted.
 """
 from __future__ import annotations
 
@@ -76,13 +78,54 @@ def _linked_worktrees(primary_repo: Path) -> list[Path]:
     return paths
 
 
+def _primary_checkout_root(repo_dir: Path) -> Path:
+    """Resolve the primary checkout for a git repo or linked worktree.
+
+    `git rev-parse --git-common-dir` points every linked worktree back to the
+    primary checkout's `.git` directory. That gives us a stable sibling base
+    instead of accidentally treating `~/Developer/worktrees/...` as the repo
+    family root. Non-git/source-snapshot installs fail soft to `repo_dir`; those
+    installs normally provide COUNTERPEDIA_DIR explicitly.
+    """
+
+    repo_dir = repo_dir.expanduser().resolve()
+    if not repo_dir.is_dir():
+        return repo_dir
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return repo_dir
+    if result.returncode != 0:
+        return repo_dir
+
+    raw = result.stdout.strip()
+    if not raw:
+        return repo_dir
+    common = Path(raw).expanduser()
+    if not common.is_absolute():
+        common = (repo_dir / common).resolve()
+    else:
+        common = common.resolve()
+    if common.name != ".git":
+        return repo_dir
+    primary = common.parent
+    return primary if primary.is_dir() else repo_dir
+
+
 def default_counterpedia_dir(ext_root: Path | None = None) -> Path:
     override = os.environ.get("COUNTERPEDIA_DIR") or os.environ.get("COUNTERPEDIA_REPO_DIR")
     if override:
         return Path(override).expanduser()
 
     ext_root = (ext_root or Path(__file__).resolve().parent.parent.parent).resolve()
-    primary = ext_root.parent / "counterpedia"
+    primary_ext_root = _primary_checkout_root(ext_root)
+    primary = primary_ext_root.parent / "counterpedia"
     if _has_reader_route(primary):
         return primary
 
