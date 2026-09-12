@@ -106,7 +106,7 @@ class FacebookGraphOperatorPureTests(unittest.TestCase):
     def test_acquisition_pin_is_exact(self) -> None:
         self.assertEqual(
             module.FACEBOOK_GRAPH0_ACQUISITION_SHA,
-            "61d0878c65f3c863cf623732a4d42fc2866a0d62",
+            "c5e5d18bfac3ec0b12f36e7a52c1298a3845cdbb",
         )
 
 
