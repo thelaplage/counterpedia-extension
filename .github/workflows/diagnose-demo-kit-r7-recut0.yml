@@ -1,0 +1,52 @@
+name: diagnose-demo-kit-r7-recut0
+
+on:
+  push:
+    branches:
+      - verify/demo-kit-r7-recut0
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Full regression with captured output
+        id: regression
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee npm-test.log
+      - name: Readiness tests even if regression red
+        id: readiness
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          {
+            python3 tools/counterpedia-local/test_preflight.py
+            python3 tools/counterpedia-local/test_preflight_non_object_payload.py
+            python3 -m py_compile tools/counterpedia-local/counterpedia_local.py
+          } 2>&1 | tee readiness.log
+      - name: Record verdict
+        shell: bash
+        run: |
+          printf 'regression=%s\nreadiness=%s\n' '${{ steps.regression.outcome }}' '${{ steps.readiness.outcome }}' | tee verdict.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-kit-r7-recut0-diagnostics
+          path: |
+            npm-test.log
+            readiness.log
+            verdict.txt
+          if-no-files-found: error
+          retention-days: 2
