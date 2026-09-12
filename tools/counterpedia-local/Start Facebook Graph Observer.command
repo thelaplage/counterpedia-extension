@@ -14,7 +14,7 @@ CDP_PORT="${COUNTERPEDIA_FACEBOOK_CDP_PORT:-9222}"
 PROFILE="${COUNTERPEDIA_FACEBOOK_PROFILE:-$HOME/.counterpedia-facebook-observer}"
 OUTPUT_DIR="${COUNTERPEDIA_FACEBOOK_OUTPUT_DIR:-$HOME/.counterpedia/facebook-graph0/operator}"
 OBJECT_STORE="${COUNTERPEDIA_FACEBOOK_OBJECT_STORE:-$HOME/.counterpedia/facebook-graph0/objects}"
-ACQ_SHA="61d0878c65f3c863cf623732a4d42fc2866a0d62"
+ACQ_SHA="c5e5d18bfac3ec0b12f36e7a52c1298a3845cdbb"
 DEFAULT_ACQ="$(cd "$REPO_ROOT/.." && pwd)/counterpedia-acquisition"
 
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
@@ -191,4 +191,50 @@ else
   echo "No census exists yet; no normalized Facebook GraphQL observations were captured."
 fi
 
-echo "Operator session complete. No merge or GRAPH1 authorization implied."
+PACK_BUILDER="$HERE/facebook_graph_evidence_pack.py"
+if [[ -f "$OUTPUT_DIR/census.json" && -f "$PACK_BUILDER" ]]; then
+  echo
+  read -r -p "Build the full pinned Facebook evidence pack now? [Y/n]: " BUILD_PACK
+  case "$BUILD_PACK" in
+    n|N|no|NO)
+      echo "Evidence-pack build skipped. The operator observations remain intact."
+      ;;
+    *)
+      PACK_ARGS=(
+        --operator-output "$OUTPUT_DIR"
+        --object-store "$OBJECT_STORE"
+        --acquisition-g0-root "$ACQ_ROOT"
+      )
+      if [[ -n "${COUNTERPEDIA_FB_STABILITY_ROOT:-}" ]]; then
+        PACK_ARGS+=(--stability-root "$COUNTERPEDIA_FB_STABILITY_ROOT")
+      fi
+      if [[ -n "${COUNTERPEDIA_FB_DESCENT_ROOT:-}" ]]; then
+        PACK_ARGS+=(--descent-root "$COUNTERPEDIA_FB_DESCENT_ROOT")
+      fi
+      if [[ -n "${COUNTERPEDIA_FB_REGISTRY_ROOT:-}" ]]; then
+        PACK_ARGS+=(--registry-root "$COUNTERPEDIA_FB_REGISTRY_ROOT")
+      fi
+
+      echo "Building run-specific censuses, longitudinal report, outbound-reference sets, and REG0 crosswalk proposals ..."
+      if PACK_MANIFEST="$("$PYTHON" "$PACK_BUILDER" "${PACK_ARGS[@]}")"; then
+        PACK_DIR="$(dirname "$PACK_MANIFEST")"
+        echo "FACEBOOK-EVIDENCE-PACK0 ready: $PACK_MANIFEST"
+        read -r -p "Reveal the evidence pack in Finder? [Y/n]: " OPEN_PACK
+        case "$OPEN_PACK" in
+          n|N|no|NO) ;;
+          *) open "$PACK_DIR" ;;
+        esac
+      else
+        echo
+        echo "FACEBOOK-EVIDENCE-PACK0 was not built. Your captured observations are unchanged." >&2
+        echo "The pack builder fails closed when an exact #229/#230/#38 checkout/worktree is unavailable." >&2
+        echo "See docs/FACEBOOK_EVIDENCE_PACK0_V0_1.md for the required pins or set:" >&2
+        echo "  COUNTERPEDIA_FB_STABILITY_ROOT" >&2
+        echo "  COUNTERPEDIA_FB_DESCENT_ROOT" >&2
+        echo "  COUNTERPEDIA_FB_REGISTRY_ROOT" >&2
+      fi
+      ;;
+  esac
+fi
+
+echo "Operator session complete. No merge, admission, or GRAPH1 authorization implied."
