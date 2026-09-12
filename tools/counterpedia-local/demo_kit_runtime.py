@@ -80,6 +80,20 @@ def _same_path(actual: Any, expected: Path) -> bool:
         return False
 
 
+def _same_lexical_path(actual: Any, expected: Path) -> bool:
+    """Compare absolute path identity without following the final symlink chain."""
+    if not isinstance(actual, str) or not actual:
+        return False
+    try:
+        actual_path = Path(actual).expanduser()
+        expected_path = expected.expanduser()
+    except (OSError, RuntimeError):
+        return False
+    if not actual_path.is_absolute() or not expected_path.is_absolute():
+        return False
+    return os.path.normpath(str(actual_path)) == os.path.normpath(str(expected_path))
+
+
 def _port_open(port: int) -> bool:
     try:
         with socket.create_connection((TERMINAL_HOST, port), timeout=0.3):
@@ -231,21 +245,25 @@ def _assert_local_affinity(
         raise DemoKitRuntimeError(
             "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local dependency report is missing"
         )
-    expected = {
+    expected_dirs = {
         "acquisition_dir": acquisition_dir.resolve(),
-        "acquisition_python": acquisition_python.resolve(),
         "authoring_dir": authoring_dir.resolve(),
     }
-    for key, path in expected.items():
+    for key, path in expected_dirs.items():
         if not _same_path(dependencies.get(key), path):
             raise DemoKitRuntimeError(
                 "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local dependency "
                 f"{key} does not point into this bundle"
             )
+    if not _same_lexical_path(dependencies.get("acquisition_python"), acquisition_python):
+        raise DemoKitRuntimeError(
+            "DEMO_RUNTIME_AFFINITY_REFUSED: Counterpedia Local dependency "
+            "acquisition_python does not point to this bundle's exact venv interpreter path"
+        )
     return {
-        "acquisition_dir": str(expected["acquisition_dir"]),
-        "acquisition_python": str(expected["acquisition_python"]),
-        "authoring_dir": str(expected["authoring_dir"]),
+        "acquisition_dir": str(expected_dirs["acquisition_dir"]),
+        "acquisition_python": str(acquisition_python),
+        "authoring_dir": str(expected_dirs["authoring_dir"]),
     }
 
 
