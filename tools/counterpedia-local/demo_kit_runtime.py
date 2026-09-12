@@ -249,7 +249,7 @@ def _assert_local_affinity(
     }
 
 
-def _assert_nested_session_affinity() -> dict[str, Any]:
+def _assert_nested_session_affinity(extension: Path) -> dict[str, Any]:
     state = reset_demo.load_session_state(reset_demo.SESSION_STATE_PATH)
     if state is None:
         raise DemoKitRuntimeError(
@@ -274,6 +274,13 @@ def _assert_nested_session_affinity() -> dict[str, Any]:
                 "DEMO_RUNTIME_AFFINITY_REFUSED: tracked "
                 f"{role} state does not bind to the live process ({disposition.classification})"
             )
+        if role == "demo_browser":
+            profile_flag, load_flag = _browser_binding_flags(extension)
+            if live is None or profile_flag not in live or load_flag not in live:
+                raise DemoKitRuntimeError(
+                    "DEMO_RUNTIME_AFFINITY_REFUSED: tracked demo browser pid is not bound to "
+                    "this bundle's exact profile + extension dist"
+                )
         results[role] = disposition.pid
     results["demo_profile_dir"] = str(DEMO_PROFILE_DIR)
     return results
@@ -474,7 +481,7 @@ def _assert_runtime_affinity(
     terminal_pid = _assert_terminal_affinity(terminal_state, terminal)
     reader = _reader_state_affinity(counterpedia)
     local = _assert_local_affinity(acquisition, acquisition_python, authoring)
-    nested = _assert_nested_session_affinity()
+    nested = _assert_nested_session_affinity(extension)
     browser_command = _live_extension_bound_browser_command(extension)
     if browser_command is None:
         raise DemoKitRuntimeError(
