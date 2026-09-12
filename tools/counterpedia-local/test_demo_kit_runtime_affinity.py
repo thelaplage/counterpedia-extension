@@ -127,6 +127,52 @@ class DemoKitRuntimeAffinityTests(unittest.TestCase):
                 ):
                     runtime._assert_local_affinity(acquisition, acq_python, authoring)
 
+    def test_local_supervisor_accepts_exact_bundle_venv_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            acquisition = root / "counterpedia-acquisition"
+            authoring = root / "counterpedia-authoring"
+            acq_python = acquisition / ".venv" / "bin" / "python"
+            status = {
+                "service": "counterpedia-local",
+                "dependencies": {
+                    "acquisition_dir": str(acquisition),
+                    "acquisition_python": str(acq_python),
+                    "authoring_dir": str(authoring),
+                },
+            }
+            with mock.patch.object(runtime, "_local_supervisor_status", return_value=status):
+                result = runtime._assert_local_affinity(acquisition, acq_python, authoring)
+            self.assertEqual(result["acquisition_python"], str(acq_python))
+
+    def test_local_supervisor_refuses_other_venv_with_same_python_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            acquisition = root / "new" / "counterpedia-acquisition"
+            authoring = root / "new" / "counterpedia-authoring"
+            expected_python = acquisition / ".venv" / "bin" / "python"
+            other_python = root / "old" / "counterpedia-acquisition" / ".venv" / "bin" / "python"
+            target = root / "python-real"
+            target.write_text("#!/bin/sh\n", encoding="utf-8")
+            expected_python.parent.mkdir(parents=True)
+            other_python.parent.mkdir(parents=True)
+            expected_python.symlink_to(target)
+            other_python.symlink_to(target)
+            status = {
+                "service": "counterpedia-local",
+                "dependencies": {
+                    "acquisition_dir": str(acquisition),
+                    "acquisition_python": str(other_python),
+                    "authoring_dir": str(authoring),
+                },
+            }
+            with mock.patch.object(runtime, "_local_supervisor_status", return_value=status):
+                with self.assertRaisesRegex(
+                    runtime.DemoKitRuntimeError,
+                    "acquisition_python does not point to this bundle's exact venv interpreter path",
+                ):
+                    runtime._assert_local_affinity(acquisition, expected_python, authoring)
+
     def test_nested_session_requires_live_local_and_browser_and_exact_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             extension = Path(tmp) / "counterpedia-extension"
