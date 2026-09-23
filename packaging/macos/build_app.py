@@ -196,7 +196,6 @@ def _resign_app(app: Path, identity: str | None) -> None:
         run([
             "codesign",
             "--force",
-            "--deep",
             "--options",
             "runtime",
             "--timestamp",
@@ -205,7 +204,7 @@ def _resign_app(app: Path, identity: str | None) -> None:
             str(app),
         ])
     else:
-        run(["codesign", "--force", "--deep", "--sign", "-", str(app)])
+        run(["codesign", "--force", "--sign", "-", str(app)])
     run(["codesign", "--verify", "--deep", "--strict", "--verbose=4", str(app)])
 
 
@@ -336,9 +335,10 @@ def build(
             codesign_identity=codesign_identity,
         )
         resources = app / "Contents" / "Resources"
-        acq_bin = resources / "runtime" / "counterpedia-acquisition" / ".venv" / "bin"
-        auth_bin = resources / "runtime" / "counterpedia-authoring" / ".venv" / "bin"
-        acq_scripts = resources / "runtime" / "counterpedia-acquisition" / "scripts"
+        helpers_root = app / "Contents" / "Helpers"
+        acq_bin = helpers_root / "runtime" / "counterpedia-acquisition" / ".venv" / "bin"
+        auth_bin = helpers_root / "runtime" / "counterpedia-authoring" / ".venv" / "bin"
+        acq_scripts = helpers_root / "runtime" / "counterpedia-acquisition" / "scripts"
 
         _copy_executable(helpers["python"], acq_bin / "python")
         for name in (

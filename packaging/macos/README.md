@@ -29,7 +29,7 @@ capture permissions.
 The reviewed Local contract currently resolves child commands at checkout-style
 paths. Rather than rewrite that supervisor while the Demo Kit lane owns the broad
 runtime surface, MACOS-APP0 embeds signed standalone helpers under an internal
-`Contents/Resources/runtime/.../.venv/bin/` layout.
+`Contents/Helpers/runtime/.../.venv/bin/` layout. `Contents/Helpers` is used because the embedded helpers are executable code, not resource data.
 
 The file named `counterpedia-acquisition/.venv/bin/python` is deliberately a
 **single-purpose signed adapter**, not a general Python interpreter. It accepts
@@ -92,8 +92,7 @@ the returned ticket, validates the staple, and runs Gatekeeper assessment.
 
 Apple requires Developer ID signing, Hardened Runtime, and a secure timestamp for
 software submitted for notarization. The signed build path passes the Developer ID
-identity to PyInstaller for nested code and re-signs the final app after the
-runtime helpers are embedded.
+identity to PyInstaller for each frozen helper and the app. After the helpers are embedded under `Contents/Helpers`, the builder re-signs only the top-level app seal (without `codesign --deep`); recursive `--deep` is used for verification only.
 
 ## Current hold / stacking
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -22,15 +23,15 @@ builder = load("cp_macos_builder", "build_app.py")
 
 
 class LauncherTests(unittest.TestCase):
-    def test_app_resources_requires_contents_macos_shape(self) -> None:
+    def test_app_helpers_root_requires_contents_macos_shape(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            resources = root / "Counterpedia Local.app" / "Contents" / "Resources"
+            helpers = root / "Counterpedia Local.app" / "Contents" / "Helpers"
             executable = root / "Counterpedia Local.app" / "Contents" / "MacOS" / "Counterpedia Local"
-            resources.mkdir(parents=True)
+            helpers.mkdir(parents=True)
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("x")
-            self.assertEqual(launcher.app_resources(executable), resources)
+            self.assertEqual(launcher.app_helpers_root(executable), helpers)
 
     def test_runtime_layout_fails_closed_on_missing_helper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -58,10 +59,10 @@ class LauncherTests(unittest.TestCase):
 
 class ShimTests(unittest.TestCase):
     def test_expected_script_is_checkout_contract_path(self) -> None:
-        exe = Path("/App/Contents/Resources/runtime/counterpedia-acquisition/.venv/bin/python")
+        exe = Path("/App/Contents/Helpers/runtime/counterpedia-acquisition/.venv/bin/python")
         self.assertEqual(
             shim._expected_script(exe),
-            Path("/App/Contents/Resources/runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py"),
+            Path("/App/Contents/Helpers/runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py"),
         )
 
 
@@ -76,6 +77,17 @@ class BuilderTests(unittest.TestCase):
             launcher.DAGR_FACTORY,
             "dagr_mcp_local_demo.counterpedia_acquisition:build_adapter",
         )
+
+    def test_final_app_signing_is_not_deep_but_verification_is(self) -> None:
+        calls: list[list[str]] = []
+        with mock.patch.object(builder, "run", side_effect=lambda command, **_kwargs: calls.append(command) or ""):
+            builder._resign_app(Path("/tmp/Counterpedia Local.app"), "Developer ID Application: Test")
+        self.assertNotIn("--deep", calls[0])
+        self.assertIn("--options", calls[0])
+        self.assertIn("runtime", calls[0])
+        self.assertIn("--timestamp", calls[0])
+        self.assertIn("--deep", calls[1])
+        self.assertIn("--verify", calls[1])
 
 
 if __name__ == "__main__":

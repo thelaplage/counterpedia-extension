@@ -18,20 +18,20 @@ DAGR_FACTORY = "dagr_mcp_local_demo.counterpedia_acquisition:build_adapter"
 DAGR_EVIDENCE_DIR = Path.home() / ".counterpedia" / "local" / "dagr-evidence" / "macos-app0"
 
 
-def app_resources(executable: Path | None = None) -> Path:
-    """Resolve ``Contents/Resources`` from a frozen app executable path."""
+def app_helpers_root(executable: Path | None = None) -> Path:
+    """Resolve ``Contents/Helpers`` from a frozen app executable path."""
     exe = Path(sys.executable if executable is None else executable).absolute()
     if exe.parent.name != "MacOS" or exe.parent.parent.name != "Contents":
         raise RuntimeError("Counterpedia Local must run from its macOS .app bundle")
-    resources = exe.parent.parent / "Resources"
-    if not resources.is_dir():
-        raise RuntimeError(f"Counterpedia Local app resources are missing: {resources}")
-    return resources
+    helpers = exe.parent.parent / "Helpers"
+    if not helpers.is_dir():
+        raise RuntimeError(f"Counterpedia Local app helpers are missing: {helpers}")
+    return helpers
 
 
-def runtime_layout(resources: Path) -> tuple[Path, Path]:
-    acquisition = resources / "runtime" / "counterpedia-acquisition"
-    authoring = resources / "runtime" / "counterpedia-authoring"
+def runtime_layout(helpers: Path) -> tuple[Path, Path]:
+    acquisition = helpers / "runtime" / "counterpedia-acquisition"
+    authoring = helpers / "runtime" / "counterpedia-authoring"
     required = (
         acquisition / ".venv" / "bin" / "python",
         acquisition / "scripts" / "run_counterpedia_local_transport.py",
@@ -65,9 +65,9 @@ def _load_keychain_key(env: dict[str, str]) -> None:
         env["OPENAI_API_KEY"] = completed.stdout.strip()
 
 
-def configure_environment(resources: Path, env: dict[str, str] | None = None) -> dict[str, str]:
+def configure_environment(helpers: Path, env: dict[str, str] | None = None) -> dict[str, str]:
     target = os.environ if env is None else env
-    acquisition, authoring = runtime_layout(resources)
+    acquisition, authoring = runtime_layout(helpers)
     target["COUNTERPEDIA_ACQUISITION_DIR"] = str(acquisition)
     target["COUNTERPEDIA_ACQUISITION_PYTHON"] = str(acquisition / ".venv" / "bin" / "python")
     target["COUNTERPEDIA_AUTHORING_DIR"] = str(authoring)
@@ -82,8 +82,8 @@ def configure_environment(resources: Path, env: dict[str, str] | None = None) ->
 
 
 def main() -> int:
-    resources = app_resources()
-    configure_environment(resources)
+    helpers = app_helpers_root()
+    configure_environment(helpers)
     from counterpedia_local_operator import main as local_main
 
     return local_main(["--open"])
