@@ -18,8 +18,8 @@ The existing Counterpedia search surface may send:
 
 - **Normalized page URL**: while the side panel is open, the extension may send
   the normalized URL (lowercase hostname, no fragment, no credentials) to the
-  Counterpedia search service at `www.garpedia.org` to find matching governed
-  records.
+  Counterpedia search service at `counterpedia.vercel.app` to find matching
+  governed records.
 - **Selected text** (up to 300 characters): when you use the right-click
   "Check selection in Counterpedia" action, the selected text is sent to the
   search service. This is an explicit user action.
@@ -28,7 +28,7 @@ When History is ON, the local corpus resolver may additionally fetch this one
 fixed public artifact:
 
 ```text
-https://www.garpedia.org/counterpedia/source-resolution-index.json
+https://counterpedia.vercel.app/counterpedia/source-resolution-index.json
 ```
 
 The encountered page URL, CourtListener docket id, Wikipedia title, Archive
@@ -111,9 +111,16 @@ History ledger, and are cleared with browser session storage.
 
 ## Third-party services
 
-The current search/resolver surfaces use `www.garpedia.org` for public static
-Counterpedia artifacts. Standard HTTP access logs may apply on the server side,
-governed by Counterpedia's own privacy policy.
+The current search/resolver surfaces use `counterpedia.vercel.app` for public
+static Counterpedia artifacts. That host is Counterpedia's **pre-public
+deployment endpoint**, not a third-party service and not Counterpedia's
+canonical public identity; it is where the product currently runs. Standard HTTP
+access logs may apply on the server side, governed by Counterpedia's own privacy
+policy.
+
+This document names the endpoint the extension actually contacts. If that
+endpoint changes, this disclosure changes in the same commit — enforced by
+`tests/privacyDisclosureMatchesRuntime.test.ts`.
 
 This draft does not add automatic Wayback preservation, CourtListener API
 hydration, a History-reporting endpoint, or an Amnesiac/Countergraph upload.

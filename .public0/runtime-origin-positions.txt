@@ -1,0 +1,30 @@
+# Positions permitted to carry the pre-public deployment origin
+# (counterpedia.vercel.app), per COUNTERPEDIA-DOMAIN-POSTURE0 v0.3.
+#
+# The vendor host is a DEPLOYMENT LOCATOR — where the product currently runs.
+# It is never Counterpedia's canonical or public identity. Gate C
+# (`dagr-ops-domain-posture --gate C`) reads this file to tell sanctioned
+# pre-public runtime use apart from stray identity leakage: any occurrence in
+# src/ that is NOT listed here is a failure, and an absent file classifies
+# nothing, so everything is stray. Fail-closed by construction.
+#
+# This list is expected to EMPTY OUT, not grow. When the owner records
+# `status: CUTOVER_AUTHORIZED` in dagr-ops config/public_site_cutover.txt, every
+# entry below must migrate to https://counterpedia.org and this file is deleted.
+#
+# One path per line.
+
+# The single source of the runtime origin every content client derives from.
+src/lib/runtimeOrigin.ts
+
+# Check API bindings. A SEPARATE binding from the content origin above — these
+# predate the consolidation and were already on this host before it was
+# classified.
+src/lib/checkApiConsumer.ts
+src/lib/checkHandoff.ts
+
+# Panel footer link to the running deployment. User-facing, and deliberately
+# so: it points at where Counterpedia actually is today, verified 200. It is a
+# link to the product, not a claim that this hostname is the product's identity.
+# The broken /privacy link that shipped alongside it has been removed.
+src/panel/index.html

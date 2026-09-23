@@ -8,7 +8,7 @@
  */
 
 import { search } from "../lib/counterpediaClient";
-import { COUNTERPEDIA_PUBLIC_ORIGIN } from "../lib/publicOrigin";
+import { COUNTERPEDIA_RUNTIME_ORIGIN } from "../lib/runtimeOrigin";
 import { getActivityFeed } from "../lib/activityClient";
 import { normalizeUrl, isRestrictedUrl } from "../lib/search";
 import { validateMessage } from "../lib/messaging";
@@ -28,7 +28,7 @@ import type {
 } from "../lib/activityFeedModel";
 import type { BrowserPageCapture } from "../lib/browserPageCapture";
 
-const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
+const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_RUNTIME_ORIGIN;
 
 // ---------------------------------------------------------------------------
 // State
