@@ -94,31 +94,21 @@ describe("manifest.json", () => {
         "activeTab",
         "storage",
         "contextMenus",
-        "scripting",  // CAP1: required for user-gesture executeScript
+        "scripting",  // CAP1: required for user-gesture executeScript; no host_permissions added
       ]);
       for (const perm of manifest.permissions ?? []) {
         expect(allowedPermissions.has(perm)).toBe(true);
       }
     });
 
-    it("declares exactly the single Counterpedia public origin host", () => {
-      // DOMAIN-CONSUMER-FIX0: the content clients fetch the public Counterpedia
-      // indexes (search / activity / source-resolution) and the Check API from
-      // https://counterpedia.vercel.app. MV3 requires a matching host permission
-      // for that cross-origin fetch; it must be exactly this one host.
-      expect(manifest.host_permissions).toEqual([
-        "https://counterpedia.vercel.app/*",
-      ]);
-    });
-
-    it("never widens beyond that host — no wildcards, loopback, or counterpedia.org", () => {
+    it("does not have host_permissions with <all_urls>", () => {
       const hostPerms = manifest.host_permissions ?? [];
       expect(hostPerms).not.toContain("<all_urls>");
       expect(hostPerms).not.toContain("*://*/*");
-      const asText = JSON.stringify(hostPerms);
-      expect(asText).not.toMatch(/127\.0\.0\.1|localhost/);
-      // counterpedia.org is the RESERVED future apex; no consumer may depend on it yet.
-      expect(asText).not.toContain("counterpedia.org");
+    });
+
+    it("has no host_permissions at all (v0.1 requirement)", () => {
+      expect(manifest.host_permissions).toBeUndefined();
     });
   });
 
@@ -134,10 +124,10 @@ describe("manifest.json", () => {
 });
 
 // ---------------------------------------------------------------------------
-// EXT-BROWSER1 / DOMAIN-CONSUMER-FIX0: the source-workbench DEEP LINK is plain
-// navigation and needs no host permission. The production manifest carries
-// exactly ONE host permission — the Counterpedia public content origin the
-// fetch consumers require — and the demo loopback host never leaks into it.
+// EXT-BROWSER1: the source-workbench lane must NOT widen the PRODUCTION manifest.
+// The deep-link handoff is plain navigation (a URL), so it requires no host
+// permission. This pins that the production manifest permission set is exactly
+// the pre-EXT-BROWSER1 set and that the demo host permission never leaks into it.
 // ---------------------------------------------------------------------------
 
 describe("manifest.json — EXT-BROWSER1 permission byte audit", () => {
@@ -146,19 +136,12 @@ describe("manifest.json — EXT-BROWSER1 permission byte audit", () => {
     expect([...(manifest.permissions ?? [])].sort()).toEqual([...EXPECTED].sort());
   });
 
-  it("declares exactly the one content-origin host permission and nothing wider", () => {
-    // The source-workbench deep-link handoff is plain navigation and needs no
-    // host permission. The ONLY production host permission is the single
-    // Counterpedia public content origin that the fetch consumers require
-    // (DOMAIN-CONSUMER-FIX0). It never carries <all_urls>, loopback, or demo bytes.
-    expect(manifest.host_permissions).toEqual([
-      "https://counterpedia.vercel.app/*",
-    ]);
+  it("declares no host_permissions and no <all_urls> in production", () => {
+    expect(manifest.host_permissions).toBeUndefined();
     const asText = JSON.stringify(manifest);
     expect(asText).not.toContain("<all_urls>");
     expect(asText).not.toContain("127.0.0.1");
     expect(asText).not.toContain("_demo_mode");
-    expect(asText).not.toContain("counterpedia.org");
   });
 });
 
