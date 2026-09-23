@@ -23,13 +23,14 @@ import {
   type ActivityIndex,
   type ActivityFeedProjection,
 } from "./activityFeedModel";
+import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
 
 // ---------------------------------------------------------------------------
 // Configuration — same base URL as the search client (same origin, so no new
 // host permission is required).
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE_URL = "https://www.garpedia.org";
+const DEFAULT_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
 const ACTIVITY_INDEX_PATH = "/counterpedia/activity-index.json";
 const SESSION_CACHE_KEY = "counterpedia_activity_index_v1";
 const SESSION_CACHE_FETCHED_KEY = "counterpedia_activity_index_fetched_at";

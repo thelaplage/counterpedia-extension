@@ -115,7 +115,7 @@ describe("getActivityFeed — fetch + cache", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://www.garpedia.org/counterpedia/activity-index.json");
+    expect(url).toBe("https://counterpedia.vercel.app/counterpedia/activity-index.json");
     expect(opts.credentials).toBe("omit");
     expect(opts.cache).toBe("no-store");
     // Honest-empty

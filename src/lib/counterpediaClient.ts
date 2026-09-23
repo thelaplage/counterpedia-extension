@@ -12,12 +12,13 @@
 
 import type { SearchResult } from "../types";
 import { validateCardModel, PINNED_CARD_SCHEMA_VERSION } from "./cardModel";
+import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE_URL = "https://www.garpedia.org";
+const DEFAULT_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
 const SEARCH_INDEX_PATH = "/counterpedia/search-index.json";
 const SESSION_CACHE_KEY = "counterpedia_search_index_v1";
 const SESSION_CACHE_FETCHED_KEY = "counterpedia_search_index_fetched_at";

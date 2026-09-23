@@ -8,6 +8,7 @@
  */
 
 import { search } from "../lib/counterpediaClient";
+import { COUNTERPEDIA_PUBLIC_ORIGIN } from "../lib/publicOrigin";
 import { getActivityFeed } from "../lib/activityClient";
 import { normalizeUrl, isRestrictedUrl } from "../lib/search";
 import { validateMessage } from "../lib/messaging";
@@ -27,7 +28,7 @@ import type {
 } from "../lib/activityFeedModel";
 import type { BrowserPageCapture } from "../lib/browserPageCapture";
 
-const COUNTERPEDIA_BASE_URL = "https://www.garpedia.org";
+const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
 
 // ---------------------------------------------------------------------------
 // State
@@ -187,7 +188,7 @@ function renderResults(results: SearchResult[], query: string): void {
     const card = document.createElement("article");
     card.className = "result-card";
 
-    const baseUrl = "https://www.garpedia.org";
+    const baseUrl = COUNTERPEDIA_BASE_URL;
     const href = `${baseUrl}${result.record_url}`;
 
     card.innerHTML = `
