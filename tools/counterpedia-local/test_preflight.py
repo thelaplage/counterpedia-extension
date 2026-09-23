@@ -10,11 +10,48 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
 import unittest
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import counterpedia_local as cl  # noqa: E402
 import preflight  # noqa: E402
+
+
+@contextmanager
+def _serving_json(payload: Any, status: int = 200):
+    """Bind an ephemeral fake HTTP server that serves ``payload`` as JSON on
+    every GET (including ``/healthz``). Used to exercise ``check_counterpedia_local``
+    against exact response bodies without a real Counterpedia Local process.
+    """
+
+    body = json.dumps(payload).encode("utf-8")
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_a: Any) -> None:  # silence test noise
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer((cl.HOST, 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield port
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
 
 
 class CheckExtensionTests(unittest.TestCase):
@@ -71,11 +108,82 @@ class CheckChromeForTestingTests(unittest.TestCase):
             self.assertEqual(line.detail, str(fake))
 
 
+def _real_supervisor_status() -> dict[str, Any]:
+    """Build the exact literal shape LocalSupervisor.status() emits, using the
+    real class (never a hand-authored duplicate of its logic) so this test
+    file breaks the moment status()'s shape changes.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        supervisor = cl.LocalSupervisor(
+            acquisition_dir=Path(tmp) / "acq",
+            authoring_dir=Path(tmp) / "authoring",
+            store_root=Path(tmp) / "store",
+        )
+        return supervisor.status()
+
+
 class CheckCounterpediaLocalTests(unittest.TestCase):
     def test_not_ready_when_unreachable(self) -> None:
         # Port 8790 is almost certainly not serving in the test sandbox.
         line = preflight.check_counterpedia_local(port=8791)
         self.assertEqual(line.status, "not_ready")
+        self.assertIn("unreachable", line.detail)
+
+    def test_not_ready_when_foreign_server_lacks_supervisor_shape(self) -> None:
+        # Hostile: a fake server returns 200 JSON, proving this is not "any 2xx".
+        # It lacks paired/acquisition/recovery/authoring/dependencies entirely.
+        with _serving_json({"status": "ok", "something_else": True}) as port:
+            line = preflight.check_counterpedia_local(port=port)
+            self.assertEqual(line.status, "not_ready")
+            self.assertIn("not the counterpedia-local supervisor document", line.detail)
+            self.assertNotIn("unreachable", line.detail)
+
+    def test_not_ready_when_faithfully_shaped_but_unpaired(self) -> None:
+        body = _real_supervisor_status()
+        self.assertIs(body["paired"], False)  # sanity: never paired in this sandbox
+        with _serving_json(body) as port:
+            line = preflight.check_counterpedia_local(port=port)
+            self.assertEqual(line.status, "not_ready")
+            self.assertIn("not paired", line.detail)
+
+    def test_ready_when_faithfully_shaped_and_paired(self) -> None:
+        body = _real_supervisor_status()
+        # Contract-binding assertion: the fixture's key set must match the
+        # real LocalSupervisor.status() output. If status() is ever
+        # reshaped, this test breaks instead of silently drifting.
+        self.assertEqual(
+            set(body.keys()),
+            {"service", "version", "authority_posture", "admission", "paired",
+             "paired_extension_id", "acquisition", "recovery", "authoring", "dependencies"},
+        )
+        body["paired"] = True
+        body["paired_extension_id"] = "a" * 32
+        with _serving_json(body) as port:
+            line = preflight.check_counterpedia_local(port=port)
+            self.assertEqual(line.status, "ready")
+
+    def test_acquisition_and_recovery_readiness_do_not_fold_into_this_line(self) -> None:
+        # paired=True but acquisition.ready=False must still yield a ready
+        # counterpedia_local line -- the acquisition line is a SEPARATE
+        # report line and must go not_ready independently, never folded in
+        # here (double-counting the same signal under two keys is forbidden).
+        body = _real_supervisor_status()
+        body["paired"] = True
+        body["paired_extension_id"] = "a" * 32
+        body["acquisition"]["ready"] = False
+        body["recovery"]["ready"] = False
+        with _serving_json(body) as port:
+            local_line = preflight.check_counterpedia_local(port=port)
+            self.assertEqual(local_line.status, "ready")
+            # The acquisition/recovery lines are derived from a DIFFERENT
+            # port (ACQUISITION_PORT) and a different frozen contract
+            # (acquisition_capabilities); confirm they go not_ready via
+            # their own check when that port is unreachable, independent of
+            # the counterpedia_local line above.
+            acq_line = preflight.check_acquisition(port=8792)
+            rec_line = preflight.check_recovery(port=8792)
+            self.assertEqual(acq_line.status, "not_ready")
+            self.assertEqual(rec_line.status, "not_ready")
 
 
 class CheckAcquisitionRecoveryTests(unittest.TestCase):

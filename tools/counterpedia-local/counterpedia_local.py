@@ -3,18 +3,25 @@
 
 Operational boundary only: this starts the existing acquisition and authoring
 processes, pairs one Chrome extension instance to local transport, exposes one
-explicit Wikipedia-reference discovery proxy and one explicit discovered-source
-capture proxy into the existing acquisition producer, and reports bounded health.
-It performs no admission, publication, verification, standing, or corpus writes.
+explicit Wikipedia-reference discovery proxy into the existing acquisition
+producer, and reports bounded health. It performs no admission, publication,
+verification, standing, or corpus writes.
+
+CAPTURE-CLI-COMPAT1: the explicit discovered-source capture proxy
+(`POST /v0/capture-url`, `LocalSupervisor.capture_url()`) that previously
+delegated to the producer-owned `counterpedia-capture-url` command has been
+removed. `counterpedia-acquisition` PR #141 (ACQ-DAGR-DIRECT0) intentionally
+abolished that command's execution contract (plan-only CLI; live-fetch
+options removed), leaving this proxy an orphaned consumer of a producer
+surface that no longer executes. Wikipedia reference *discovery* is
+unaffected and remains below.
 
 Security posture:
 - binds only to 127.0.0.1;
 - pairing accepts only chrome-extension:// origins whose runtime id matches the
   request body;
-- Wikipedia harvesting and discovered-source capture accept only the currently
-  paired extension origin and run only after separate explicit browser actions;
-- discovered-source capture delegates to the producer-owned counterpedia-capture-url
-  command; this companion never fabricates BrowserPageCapture objects or receipts;
+- Wikipedia harvesting accepts only the currently paired extension origin and
+  runs only after a separate explicit browser action;
 - acquisition transport credentials are generated in memory and never logged;
 - OPENAI_API_KEY is read from this process environment only and never returned;
 - pairing values are transport/runtime configuration, never epistemic authority.
@@ -51,32 +58,6 @@ LOG_ROOT = LOCAL_ROOT / "logs"
 EXTENSION_ID_RE = re.compile(r"^[a-p]{32}$")
 CHROME_ORIGIN_RE = re.compile(r"^chrome-extension://([a-p]{32})$")
 MAX_WIKIPEDIA_HARVEST_BYTES = 5_000_000
-MAX_CAPTURE_RESULT_BYTES = 1_000_000
-_CAPTURE_RESULT_KEYS = {
-    "tool",
-    "surface_schema",
-    "capture_status",
-    "capture_id",
-    "source_id",
-    "source_locator",
-    "captured_object_address",
-    "byte_count",
-    "failure_detail",
-    "capture_receipt",
-}
-_FORBIDDEN_AUTHORITY_KEYS = {
-    "standing",
-    "admitted",
-    "admission",
-    "published",
-    "publication",
-    "verified",
-    "verification",
-    "support_type",
-    "governance_state",
-    "authority",
-    "authorized",
-}
 
 
 def default_acquisition_dir() -> Path:
@@ -199,19 +180,6 @@ def safe_tail(path: Path, limit: int = 12) -> list[str]:
     return safe
 
 
-def contains_forbidden_authority(value: Any) -> bool:
-    if isinstance(value, list):
-        return any(contains_forbidden_authority(item) for item in value)
-    if not isinstance(value, dict):
-        return False
-    for key, child in value.items():
-        if str(key).lower() in _FORBIDDEN_AUTHORITY_KEYS:
-            return True
-        if contains_forbidden_authority(child):
-            return True
-    return False
-
-
 @dataclass
 class ManagedProcess:
     name: str
@@ -281,7 +249,6 @@ class LocalSupervisor:
         wiki_harvester = (
             self.acquisition_dir / ".venv" / "bin" / "counterpedia-wikipedia-harvest"
         )
-        capture_url_cli = self.acquisition_dir / ".venv" / "bin" / "counterpedia-capture-url"
         author_cmd = self.authoring_dir / ".venv" / "bin" / "counterpedia-authoring-live-source"
         return {
             "acquisition_dir": str(self.acquisition_dir),
@@ -290,7 +257,6 @@ class LocalSupervisor:
             "acquisition_transport_launcher_present": transport_launcher.is_file(),
             "acquisition_mcp_present": acq_mcp.is_file(),
             "wikipedia_harvester_present": wiki_harvester.is_file(),
-            "capture_url_cli_present": capture_url_cli.is_file(),
             "authoring_dir": str(self.authoring_dir),
             "authoring_launcher_present": author_cmd.is_file(),
             "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
@@ -652,77 +618,6 @@ class LocalSupervisor:
             raise RuntimeError("Wikipedia reference harvester crossed its discovery boundary")
         return payload
 
-    def capture_url(self, url: str) -> dict[str, Any]:
-        if not isinstance(url, str) or not url.strip() or len(url) > 4096:
-            raise ValueError("capture URL must be a bounded non-empty string")
-        capture_cli = self.acquisition_dir / ".venv" / "bin" / "counterpedia-capture-url"
-        if not capture_cli.is_file():
-            raise RuntimeError("Counterpedia explicit URL capture producer is not installed")
-        user_agent = os.environ.get(
-            "CP_DISCOVERED_SOURCE_CAPTURE_USER_AGENT",
-            "Counterpedia Local/0.1 (explicit discovered-source capture)",
-        ).strip()
-        if not user_agent:
-            raise RuntimeError("discovered-source capture User-Agent is not configured")
-
-        try:
-            completed = subprocess.run(
-                [
-                    str(capture_cli),
-                    url,
-                    "--store-root",
-                    str(self.store_root),
-                    "--user-agent",
-                    user_agent,
-                ],
-                cwd=self.acquisition_dir,
-                env=os.environ.copy(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=45,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("explicit source capture timed out") from exc
-        except OSError as exc:
-            raise RuntimeError("explicit source capture producer could not start") from exc
-
-        if completed.returncode != 0:
-            raise RuntimeError("explicit source capture producer failed")
-        encoded = completed.stdout.encode("utf-8")
-        if not encoded or len(encoded) > MAX_CAPTURE_RESULT_BYTES:
-            raise RuntimeError("explicit source capture output size refused")
-        try:
-            payload = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("explicit source capture producer returned invalid JSON") from exc
-        if not isinstance(payload, dict) or set(payload) != _CAPTURE_RESULT_KEYS:
-            raise RuntimeError("explicit source capture producer returned an unexpected shape")
-        if contains_forbidden_authority(payload):
-            raise RuntimeError("explicit source capture producer crossed the authority boundary")
-        if payload.get("tool") != "acquisition.capture_url":
-            raise RuntimeError("explicit source capture producer returned an unexpected tool")
-        if payload.get("surface_schema") != "acquisition.mcp_surface.v0.1":
-            raise RuntimeError("explicit source capture producer returned an unexpected schema")
-        status = payload.get("capture_status")
-        if status not in {"captured", "capture_failed"}:
-            raise RuntimeError("explicit source capture producer returned an unexpected status")
-        if payload.get("source_locator") != url:
-            raise RuntimeError("explicit source capture producer returned a mismatched source locator")
-        receipt = payload.get("capture_receipt")
-        address = payload.get("captured_object_address")
-        if status == "captured":
-            if not isinstance(receipt, dict) or not isinstance(address, str) or not address:
-                raise RuntimeError("captured producer result omitted its receipt/address")
-            if payload.get("capture_id") != receipt.get("capture_id"):
-                raise RuntimeError("captured producer result has mismatched capture identity")
-            if receipt.get("source_locator") != url:
-                raise RuntimeError("captured producer receipt has mismatched source locator")
-        elif receipt is not None or address is not None:
-            raise RuntimeError("capture_failed producer result carried a receipt/address")
-        return payload
-
     def restart_authoring(self) -> bool:
         with self._lock:
             return self.start_authoring()
@@ -898,28 +793,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(503, {"error": "wikipedia_harvest_failed", "detail": str(exc)})
                 return
             self.send_json(200, manifest)
-            return
-
-        if self.path == "/v0/capture-url":
-            origin_id = self.extension_origin_id()
-            if not self.supervisor.is_paired_extension(origin_id):
-                self.send_json(403, {"error": "paired_extension_origin_required"})
-                return
-            try:
-                data = self.read_json()
-                if set(data) != {"url"}:
-                    raise ValueError("capture request accepts only url")
-                url = data.get("url")
-                if not isinstance(url, str):
-                    raise ValueError("capture url must be a string")
-                result = self.supervisor.capture_url(url)
-            except (ValueError, json.JSONDecodeError) as exc:
-                self.send_json(400, {"error": "invalid_capture_url_request", "detail": str(exc)})
-                return
-            except RuntimeError as exc:
-                self.send_json(503, {"error": "capture_url_failed", "detail": str(exc)})
-                return
-            self.send_json(200, result)
             return
 
         if self.path == "/v0/restart-authoring":

@@ -81,6 +81,55 @@ class ReaderCheckoutDiscoveryTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"COUNTERPEDIA_DIR": str(explicit)}, clear=False):
                 self.assertEqual(reader_demo.default_counterpedia_dir(Path(tmp) / "extension"), explicit)
 
+    def test_primary_checkout_root_follows_linked_worktree_common_git_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            linked = root / "worktrees" / "counterpedia-extension-demo"
+            linked.mkdir(parents=True)
+            primary = root / "repos" / "counterpedia-extension"
+            (primary / ".git").mkdir(parents=True)
+            completed = mock.Mock(
+                returncode=0,
+                stdout=f"{primary / '.git'}\n",
+            )
+            with mock.patch.object(reader_demo.subprocess, "run", return_value=completed) as run:
+                selected = reader_demo._primary_checkout_root(linked)
+            self.assertEqual(selected, primary.resolve())
+            run.assert_called_once_with(
+                ["git", "-C", str(linked.resolve()), "rev-parse", "--git-common-dir"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+
+    def test_linked_extension_worktree_uses_primary_extension_sibling_counterpedia(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            linked_ext = root / "worktrees" / "counterpedia-extension-demo"
+            linked_ext.mkdir(parents=True)
+            primary_ext = root / "repos" / "counterpedia-extension"
+            primary_ext.mkdir(parents=True)
+            primary_counterpedia = root / "repos" / "counterpedia"
+            _make_reader_route(primary_counterpedia)
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {"COUNTERPEDIA_DIR": "", "COUNTERPEDIA_REPO_DIR": ""},
+                    clear=False,
+                ),
+                mock.patch.object(
+                    reader_demo,
+                    "_primary_checkout_root",
+                    return_value=primary_ext,
+                ) as primary_resolver,
+                mock.patch.object(reader_demo, "_linked_worktrees") as linked_worktrees,
+            ):
+                selected = reader_demo.default_counterpedia_dir(linked_ext)
+            self.assertEqual(selected, primary_counterpedia)
+            primary_resolver.assert_called_once_with(linked_ext.resolve())
+            linked_worktrees.assert_not_called()
+
     def test_primary_checkout_wins_when_it_contains_reader_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
