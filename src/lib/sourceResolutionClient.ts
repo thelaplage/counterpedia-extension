@@ -2,9 +2,9 @@ import type {
   CorpusPresence,
   PassiveEncounterObservation,
 } from "./history";
+import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
 
-export const SOURCE_RESOLUTION_INDEX_URL =
-  "https://www.garpedia.org/counterpedia/source-resolution-index.json";
+export const SOURCE_RESOLUTION_INDEX_URL = `${COUNTERPEDIA_PUBLIC_ORIGIN}/counterpedia/source-resolution-index.json`;
 export const SOURCE_RESOLUTION_CACHE_KEY =
   "counterpedia_source_resolution_index_v0_1";
 export const SOURCE_RESOLUTION_SCHEMA =

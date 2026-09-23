@@ -32,11 +32,13 @@
  * presence of public material — those are different facts.
  */
 
+import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-export const COUNTERPEDIA_BASE_URL = "https://www.garpedia.org";
+export const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
 
 /** The Counterpedia Source Workbench entry path the deep link targets. */
 export const SOURCE_WORKBENCH_PATH = "/counterpedia/source-workbench";

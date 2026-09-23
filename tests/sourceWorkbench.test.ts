@@ -187,7 +187,7 @@ describe("deep link — locator is a hint, never identity or proof", () => {
 
   it("only ever targets the Counterpedia origin", () => {
     const url = new URL(buildSourceDeepLink(LOCATOR));
-    expect(url.origin).toBe("https://www.garpedia.org");
+    expect(url.origin).toBe("https://counterpedia.vercel.app");
   });
 });
 
@@ -205,8 +205,8 @@ describe("authoritative resolution", () => {
     });
     expect(p.source_work).toBe("available");
     expect(p.receipt).toBe("available");
-    expect(p.workbench_object_url).toBe("https://www.garpedia.org/counterpedia/source/abc123");
-    expect(p.receipt_url).toBe("https://www.garpedia.org/counterpedia/receipt/def456");
+    expect(p.workbench_object_url).toBe("https://counterpedia.vercel.app/counterpedia/source/abc123");
+    expect(p.receipt_url).toBe("https://counterpedia.vercel.app/counterpedia/receipt/def456");
   });
 
   it("advances postures independently (work available, receipt not)", () => {

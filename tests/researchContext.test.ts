@@ -198,7 +198,7 @@ describe("public source link — HELD by default, fixture-driven when supplied",
       publicSourceLink: fixture("public_object_link.available.json"),
     });
     expect(p.public_source_link_url).toBe(
-      "https://www.garpedia.org/sources/faa-directive-2026-01",
+      "https://counterpedia.vercel.app/sources/faa-directive-2026-01",
     );
   });
 
