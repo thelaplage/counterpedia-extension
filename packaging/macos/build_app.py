@@ -27,6 +27,18 @@ PYINSTALLER_VERSION = "6.22.3"
 BUNDLE_ID = "org.counterpedia.local"
 APP_NAME = "Counterpedia Local"
 MANIFEST_SCHEMA = "counterpedia.local_macos_bundle.v0.1"
+ACQUISITION_MCP_HIDDEN_IMPORTS = (
+    "mcp.types",
+    "mcp.server.lowlevel",
+    "mcp.server.stdio",
+    "mcp.shared.context",
+)
+AUTHORING_MCP_HIDDEN_IMPORTS = (
+    "mcp",
+    "mcp.client.session",
+    "mcp.client.stdio",
+    "mcp.types",
+)
 
 
 class BuildError(RuntimeError):
@@ -138,6 +150,7 @@ def build_onefile(
     work: Path,
     specs: Path,
     collect_all: Iterable[str],
+    hidden_imports: Iterable[str] = (),
     codesign_identity: str | None,
 ) -> Path:
     command = _pyinstaller_base(
@@ -146,6 +159,8 @@ def build_onefile(
     command += ["--onefile", "--console", "--name", name]
     for package in collect_all:
         command += ["--collect-all", package]
+    for module in hidden_imports:
+        command += ["--hidden-import", module]
     command.append(str(script))
     run(command)
     output = dist / name
@@ -286,7 +301,7 @@ def build(
                 dist=dist,
                 work=work,
                 specs=specs,
-                collect_all=("acquisition", "acquisition_adapters", "mcp"),
+                collect_all=("acquisition", "acquisition_adapters"),
                 codesign_identity=codesign_identity,
             ),
             "counterpedia-acquisition-mcp": build_onefile(
@@ -299,12 +314,12 @@ def build(
                 collect_all=(
                     "acquisition",
                     "acquisition_adapters",
-                    "mcp",
                     "dagr_sdk",
                     "dagr_mcp",
                     "dagr_mcp_sdk_binding",
                     "dagr_mcp_local_demo",
                 ),
+                hidden_imports=ACQUISITION_MCP_HIDDEN_IMPORTS,
                 codesign_identity=codesign_identity,
             ),
             "counterpedia-wikipedia-harvest": build_onefile(
@@ -334,7 +349,8 @@ def build(
                 dist=dist,
                 work=work,
                 specs=specs,
-                collect_all=("counterpedia_authoring", "mcp"),
+                collect_all=("counterpedia_authoring",),
+                hidden_imports=AUTHORING_MCP_HIDDEN_IMPORTS,
                 codesign_identity=codesign_identity,
             ),
         }

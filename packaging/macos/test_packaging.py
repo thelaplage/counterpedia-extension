@@ -108,6 +108,53 @@ class BuilderTests(unittest.TestCase):
                     expected,
                 )
 
+    def test_mcp_collection_is_bounded_and_excludes_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dist = root / "dist"
+            work = root / "work"
+            specs = root / "specs"
+            dist.mkdir(); work.mkdir(); specs.mkdir()
+            script = root / "entry.py"
+            script.write_text("pass\n")
+            calls: list[list[str]] = []
+
+            def fake_run(command, **_kwargs):
+                calls.append(command)
+                (dist / "helper").write_text("binary")
+                return ""
+
+            with mock.patch.object(builder, "run", side_effect=fake_run):
+                builder.build_onefile(
+                    Path("/build/python"),
+                    script,
+                    "helper",
+                    dist=dist,
+                    work=work,
+                    specs=specs,
+                    collect_all=("acquisition",),
+                    hidden_imports=builder.ACQUISITION_MCP_HIDDEN_IMPORTS,
+                    codesign_identity=None,
+                )
+
+            command = calls[0]
+            collect_all_values = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--collect-all"
+            ]
+            hidden_import_values = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--hidden-import"
+            ]
+            self.assertNotIn("mcp", collect_all_values)
+            self.assertNotIn("mcp.cli", hidden_import_values)
+            self.assertEqual(
+                hidden_import_values,
+                list(builder.ACQUISITION_MCP_HIDDEN_IMPORTS),
+            )
+
     def test_final_app_signing_is_not_deep_but_verification_is(self) -> None:
         calls: list[list[str]] = []
         with mock.patch.object(builder, "run", side_effect=lambda command, **_kwargs: calls.append(command) or ""):
