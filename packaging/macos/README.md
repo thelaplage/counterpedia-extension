@@ -49,8 +49,15 @@ Requirements on the build Mac:
 - clean local checkouts of `counterpedia-extension`, `counterpedia-acquisition`,
   and `counterpedia-authoring`, plus the exact `dagr-sdk` and `dagr-mcp` source checkouts used for the build
 
-The builder creates an isolated build venv and pins `PyInstaller==6.22.3`.
-PyInstaller is build machinery only; it is not a runtime authority.
+The builder creates an isolated temporary build venv and installs the pinned
+`PyInstaller==6.22.3` there. A system/global PyInstaller install is neither
+required nor consumed. PyInstaller is build machinery only; it is not a runtime
+authority.
+
+Every source checkout is fail-closed against an explicit 40-character expected
+commit SHA. A clean checkout at the wrong commit is refused with
+`SOURCE_PIN_MISMATCH`; the manifest therefore records only the caller-supplied
+release pinset that was actually proven at build time.
 
 Local/ad-hoc build:
 
@@ -60,6 +67,11 @@ python3 packaging/macos/build_app.py \
   --authoring-dir ~/Developer/repos/counterpedia-authoring \
   --dagr-sdk-dir ~/Developer/repos/dagr-sdk \
   --dagr-mcp-dir ~/Developer/repos/dagr-mcp \
+  --expected-extension-sha "$EXT_SHA" \
+  --expected-acquisition-sha "$ACQ_SHA" \
+  --expected-authoring-sha "$AUTH_SHA" \
+  --expected-dagr-sdk-sha "$SDK_SHA" \
+  --expected-dagr-mcp-sha "$MCP_SHA" \
   --output-dir ./dist-macos
 ```
 
@@ -72,6 +84,11 @@ python3 packaging/macos/build_app.py \
   --authoring-dir ~/Developer/repos/counterpedia-authoring \
   --dagr-sdk-dir ~/Developer/repos/dagr-sdk \
   --dagr-mcp-dir ~/Developer/repos/dagr-mcp \
+  --expected-extension-sha "$EXT_SHA" \
+  --expected-acquisition-sha "$ACQ_SHA" \
+  --expected-authoring-sha "$AUTH_SHA" \
+  --expected-dagr-sdk-sha "$SDK_SHA" \
+  --expected-dagr-mcp-sha "$MCP_SHA" \
   --output-dir ./dist-macos
 ```
 

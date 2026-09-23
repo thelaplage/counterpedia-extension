@@ -78,6 +78,36 @@ class BuilderTests(unittest.TestCase):
             "dagr_mcp_local_demo.counterpedia_acquisition:build_adapter",
         )
 
+    def test_git_pin_refuses_clean_checkout_at_wrong_head(self) -> None:
+        actual = "a" * 40
+        expected = "b" * 40
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            clean = mock.Mock(returncode=0)
+            with (
+                mock.patch.object(builder, "run", return_value=actual),
+                mock.patch.object(builder.subprocess, "run", return_value=clean),
+            ):
+                with self.assertRaisesRegex(
+                    builder.BuildError,
+                    f"SOURCE_PIN_MISMATCH counterpedia-acquisition expected={expected} actual={actual}",
+                ):
+                    builder.git_pin(repo, expected, "counterpedia-acquisition")
+
+    def test_git_pin_accepts_exact_clean_head(self) -> None:
+        expected = "c" * 40
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            clean = mock.Mock(returncode=0)
+            with (
+                mock.patch.object(builder, "run", return_value=expected),
+                mock.patch.object(builder.subprocess, "run", return_value=clean),
+            ):
+                self.assertEqual(
+                    builder.git_pin(repo, expected, "dagr-sdk"),
+                    expected,
+                )
+
     def test_final_app_signing_is_not_deep_but_verification_is(self) -> None:
         calls: list[list[str]] = []
         with mock.patch.object(builder, "run", side_effect=lambda command, **_kwargs: calls.append(command) or ""):

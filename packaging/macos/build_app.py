@@ -74,13 +74,20 @@ def require_python_312(python_executable: Path) -> None:
         )
 
 
-def git_pin(repo: Path) -> str:
+def git_pin(repo: Path, expected_sha: str, component: str) -> str:
     repo = repo.expanduser().resolve()
     if not repo.is_dir():
         raise BuildError(f"checkout missing: {repo}")
-    sha = run(["git", "-C", str(repo), "rev-parse", "HEAD"])
+    normalized_expected = expected_sha.strip().lower()
+    if len(normalized_expected) != 40 or any(ch not in "0123456789abcdef" for ch in normalized_expected):
+        raise BuildError(f"invalid expected source pin for {component}: {expected_sha!r}")
+    sha = run(["git", "-C", str(repo), "rev-parse", "HEAD"]).lower()
     if len(sha) != 40:
         raise BuildError(f"invalid git HEAD for {repo}")
+    if sha != normalized_expected:
+        raise BuildError(
+            f"SOURCE_PIN_MISMATCH {component} expected={normalized_expected} actual={sha}"
+        )
     if subprocess.run(["git", "-C", str(repo), "diff", "--quiet"], check=False).returncode != 0:
         raise BuildError(f"tracked working-tree changes present: {repo}")
     if subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--quiet"], check=False).returncode != 0:
@@ -218,6 +225,7 @@ def build(
     output_dir: Path,
     python_executable: Path,
     codesign_identity: str | None,
+    expected_pins: dict[str, str],
 ) -> Path:
     require_macos()
     extension_dir = extension_dir.expanduser().resolve()
@@ -232,11 +240,17 @@ def build(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     pins = {
-        "counterpedia-extension": git_pin(extension_dir),
-        "counterpedia-acquisition": git_pin(acquisition_dir),
-        "counterpedia-authoring": git_pin(authoring_dir),
-        "dagr-sdk": git_pin(dagr_sdk_dir),
-        "dagr-mcp": git_pin(dagr_mcp_dir),
+        "counterpedia-extension": git_pin(
+            extension_dir, expected_pins["counterpedia-extension"], "counterpedia-extension"
+        ),
+        "counterpedia-acquisition": git_pin(
+            acquisition_dir, expected_pins["counterpedia-acquisition"], "counterpedia-acquisition"
+        ),
+        "counterpedia-authoring": git_pin(
+            authoring_dir, expected_pins["counterpedia-authoring"], "counterpedia-authoring"
+        ),
+        "dagr-sdk": git_pin(dagr_sdk_dir, expected_pins["dagr-sdk"], "dagr-sdk"),
+        "dagr-mcp": git_pin(dagr_mcp_dir, expected_pins["dagr-mcp"], "dagr-mcp"),
     }
     source_dir = Path(__file__).resolve().parent
 
@@ -389,6 +403,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--dagr-sdk-dir", type=Path, required=True)
     p.add_argument("--dagr-mcp-dir", type=Path, required=True)
     p.add_argument("--output-dir", type=Path, required=True)
+    p.add_argument("--expected-extension-sha", required=True)
+    p.add_argument("--expected-acquisition-sha", required=True)
+    p.add_argument("--expected-authoring-sha", required=True)
+    p.add_argument("--expected-dagr-sdk-sha", required=True)
+    p.add_argument("--expected-dagr-mcp-sha", required=True)
     p.add_argument("--python", type=Path, default=Path(sys.executable))
     p.add_argument("--codesign-identity", default=os.environ.get("COUNTERPEDIA_CODESIGN_IDENTITY"))
     return p
@@ -406,6 +425,13 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
             python_executable=args.python,
             codesign_identity=args.codesign_identity,
+            expected_pins={
+                "counterpedia-extension": args.expected_extension_sha,
+                "counterpedia-acquisition": args.expected_acquisition_sha,
+                "counterpedia-authoring": args.expected_authoring_sha,
+                "dagr-sdk": args.expected_dagr_sdk_sha,
+                "dagr-mcp": args.expected_dagr_mcp_sha,
+            },
         )
     except BuildError as exc:
         print(f"COUNTERPEDIA_MACOS_BUILD_REFUSED: {exc}", file=sys.stderr)
