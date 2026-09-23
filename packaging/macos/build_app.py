@@ -1,0 +1,531 @@
+#!/usr/bin/env python3
+"""Build a self-contained Counterpedia Local macOS .app.
+
+This is a packaging layer over already-owned runtime entrypoints. It does not
+reimplement acquisition or authoring. The resulting app embeds frozen executables
+for the exact commands the existing Counterpedia Local supervisor expects.
+
+A Developer ID identity is optional for local build verification. Distribution
+must use one and then run ``notarize_app.sh``.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Iterable
+
+PYINSTALLER_VERSION = "6.22.3"
+BUNDLE_ID = "org.counterpedia.local"
+APP_NAME = "Counterpedia Local"
+MANIFEST_SCHEMA = "counterpedia.local_macos_bundle.v0.1"
+ACQUISITION_MCP_HIDDEN_IMPORTS = (
+    "mcp.types",
+    "mcp.server.lowlevel",
+    "mcp.server.stdio",
+    "mcp.shared.context",
+)
+AUTHORING_MCP_HIDDEN_IMPORTS = (
+    "mcp",
+    "mcp.client.session",
+    "mcp.client.stdio",
+    "mcp.types",
+)
+
+
+class BuildError(RuntimeError):
+    pass
+
+
+def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd) if cwd else None,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BuildError(f"could not run {' '.join(command)}") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise BuildError(f"command failed ({completed.returncode}): {' '.join(command)}\n{detail}")
+    return completed.stdout.strip()
+
+
+def require_macos() -> None:
+    if platform.system() != "Darwin":
+        raise BuildError("Counterpedia Local .app builds must run on macOS")
+
+
+def require_python_312(python_executable: Path) -> None:
+    version = run([
+        str(python_executable),
+        "-c",
+        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+    ])
+    try:
+        major, minor = (int(part) for part in version.split(".", 1))
+    except (ValueError, TypeError) as exc:
+        raise BuildError(f"could not determine build Python version from {python_executable}") from exc
+    if (major, minor) < (3, 12):
+        raise BuildError(
+            f"Counterpedia Local macOS build requires Python 3.12+; got {version}"
+        )
+
+
+def git_pin(repo: Path, expected_sha: str, component: str) -> str:
+    repo = repo.expanduser().resolve()
+    if not repo.is_dir():
+        raise BuildError(f"checkout missing: {repo}")
+    normalized_expected = expected_sha.strip().lower()
+    if len(normalized_expected) != 40 or any(ch not in "0123456789abcdef" for ch in normalized_expected):
+        raise BuildError(f"invalid expected source pin for {component}: {expected_sha!r}")
+    sha = run(["git", "-C", str(repo), "rev-parse", "HEAD"]).lower()
+    if len(sha) != 40:
+        raise BuildError(f"invalid git HEAD for {repo}")
+    if sha != normalized_expected:
+        raise BuildError(
+            f"SOURCE_PIN_MISMATCH {component} expected={normalized_expected} actual={sha}"
+        )
+    if subprocess.run(["git", "-C", str(repo), "diff", "--quiet"], check=False).returncode != 0:
+        raise BuildError(f"tracked working-tree changes present: {repo}")
+    if subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--quiet"], check=False).returncode != 0:
+        raise BuildError(f"staged changes present: {repo}")
+    return sha
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _pyinstaller_base(
+    python: Path,
+    *,
+    dist: Path,
+    work: Path,
+    specs: Path,
+    codesign_identity: str | None,
+) -> list[str]:
+    command = [
+        str(python),
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--distpath",
+        str(dist),
+        "--workpath",
+        str(work),
+        "--specpath",
+        str(specs),
+    ]
+    if codesign_identity:
+        command += ["--codesign-identity", codesign_identity]
+    return command
+
+
+def build_onefile(
+    python: Path,
+    script: Path,
+    name: str,
+    *,
+    dist: Path,
+    work: Path,
+    specs: Path,
+    collect_all: Iterable[str],
+    hidden_imports: Iterable[str] = (),
+    codesign_identity: str | None,
+) -> Path:
+    command = _pyinstaller_base(
+        python, dist=dist, work=work / name, specs=specs, codesign_identity=codesign_identity
+    )
+    command += ["--onefile", "--console", "--name", name]
+    for package in collect_all:
+        command += ["--collect-all", package]
+    for module in hidden_imports:
+        command += ["--hidden-import", module]
+    command.append(str(script))
+    run(command)
+    output = dist / name
+    if not output.is_file():
+        raise BuildError(f"PyInstaller did not produce {output}")
+    return output
+
+
+def build_main_app(
+    python: Path,
+    launcher: Path,
+    extension_dir: Path,
+    *,
+    dist: Path,
+    work: Path,
+    specs: Path,
+    codesign_identity: str | None,
+) -> Path:
+    command = _pyinstaller_base(
+        python,
+        dist=dist,
+        work=work / "counterpedia-local-app",
+        specs=specs,
+        codesign_identity=codesign_identity,
+    )
+    command += [
+        "--windowed",
+        "--name",
+        APP_NAME,
+        "--osx-bundle-identifier",
+        BUNDLE_ID,
+        "--paths",
+        str(extension_dir / "tools" / "counterpedia-local"),
+        "--hidden-import",
+        "counterpedia_local",
+        "--hidden-import",
+        "counterpedia_local_operator",
+        str(launcher),
+    ]
+    run(command)
+    app = dist / f"{APP_NAME}.app"
+    if not app.is_dir():
+        raise BuildError(f"PyInstaller did not produce {app}")
+    return app
+
+
+MACHO_MAGICS = {
+    bytes.fromhex("feedface"),
+    bytes.fromhex("cefaedfe"),
+    bytes.fromhex("feedfacf"),
+    bytes.fromhex("cffaedfe"),
+    bytes.fromhex("cafebabe"),
+    bytes.fromhex("bebafeca"),
+    bytes.fromhex("cafebabf"),
+    bytes.fromhex("bfbafeca"),
+}
+
+
+def _copy_executable(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _symlink_relative(target: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(os.path.relpath(target, start=destination.parent))
+
+
+def _assert_helpers_flat_macho_only(helpers_root: Path) -> None:
+    offenders: list[str] = []
+    for path in helpers_root.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.is_symlink():
+            offenders.append(f"{path} (symlink)")
+            continue
+        if not path.is_file():
+            offenders.append(f"{path} (non-file)")
+            continue
+        if path.parent != helpers_root:
+            offenders.append(f"{path} (nested)")
+            continue
+        try:
+            with path.open("rb") as handle:
+                magic = handle.read(4)
+        except OSError as exc:
+            raise BuildError(f"could not inspect helper code: {path}") from exc
+        if magic not in MACHO_MAGICS:
+            offenders.append(f"{path} (non-Mach-O)")
+    if offenders:
+        raise BuildError(
+            "Contents/Helpers must be a flat list of Mach-O code: "
+            + ", ".join(offenders)
+        )
+
+
+def _resign_app(app: Path, identity: str | None) -> None:
+    if identity:
+        run([
+            "codesign",
+            "--force",
+            "--options",
+            "runtime",
+            "--timestamp",
+            "--sign",
+            identity,
+            str(app),
+        ])
+    else:
+        run(["codesign", "--force", "--sign", "-", str(app)])
+    run(["codesign", "--verify", "--deep", "--strict", "--verbose=4", str(app)])
+
+
+def build(
+    *,
+    extension_dir: Path,
+    acquisition_dir: Path,
+    authoring_dir: Path,
+    dagr_sdk_dir: Path,
+    dagr_mcp_dir: Path,
+    output_dir: Path,
+    python_executable: Path,
+    codesign_identity: str | None,
+    expected_pins: dict[str, str],
+) -> Path:
+    require_macos()
+    extension_dir = extension_dir.expanduser().resolve()
+    acquisition_dir = acquisition_dir.expanduser().resolve()
+    authoring_dir = authoring_dir.expanduser().resolve()
+    dagr_sdk_dir = dagr_sdk_dir.expanduser().resolve()
+    dagr_mcp_dir = dagr_mcp_dir.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    require_python_312(python_executable)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise BuildError(f"output directory must be empty: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pins = {
+        "counterpedia-extension": git_pin(
+            extension_dir, expected_pins["counterpedia-extension"], "counterpedia-extension"
+        ),
+        "counterpedia-acquisition": git_pin(
+            acquisition_dir, expected_pins["counterpedia-acquisition"], "counterpedia-acquisition"
+        ),
+        "counterpedia-authoring": git_pin(
+            authoring_dir, expected_pins["counterpedia-authoring"], "counterpedia-authoring"
+        ),
+        "dagr-sdk": git_pin(dagr_sdk_dir, expected_pins["dagr-sdk"], "dagr-sdk"),
+        "dagr-mcp": git_pin(dagr_mcp_dir, expected_pins["dagr-mcp"], "dagr-mcp"),
+    }
+    source_dir = Path(__file__).resolve().parent
+
+    with tempfile.TemporaryDirectory(prefix="counterpedia-macos-build-") as tmp_text:
+        tmp = Path(tmp_text)
+        venv = tmp / "venv"
+        run([str(python_executable), "-m", "venv", str(venv)])
+        build_python = venv / "bin" / "python"
+        run([str(build_python), "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip"])
+        run([
+            str(build_python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            f"pyinstaller=={PYINSTALLER_VERSION}",
+            f"{acquisition_dir}[mcp]",
+            f"{authoring_dir}[mcp]",
+            str(dagr_sdk_dir),
+            f"{dagr_mcp_dir}[official-sdk]",
+        ])
+
+        dist = tmp / "dist"
+        work = tmp / "work"
+        specs = tmp / "specs"
+        dist.mkdir(); work.mkdir(); specs.mkdir()
+
+        helpers = {
+            "python": build_onefile(
+                build_python,
+                source_dir / "acquisition_python_shim.py",
+                "python",
+                dist=dist,
+                work=work,
+                specs=specs,
+                collect_all=("acquisition", "acquisition_adapters"),
+                codesign_identity=codesign_identity,
+            ),
+            "counterpedia-acquisition-mcp": build_onefile(
+                build_python,
+                source_dir / "entry_acquisition_mcp.py",
+                "counterpedia-acquisition-mcp",
+                dist=dist,
+                work=work,
+                specs=specs,
+                collect_all=(
+                    "acquisition",
+                    "acquisition_adapters",
+                    "dagr_sdk",
+                    "dagr_mcp",
+                    "dagr_mcp_sdk_binding",
+                    "dagr_mcp_local_demo",
+                ),
+                hidden_imports=ACQUISITION_MCP_HIDDEN_IMPORTS,
+                codesign_identity=codesign_identity,
+            ),
+            "counterpedia-wikipedia-harvest": build_onefile(
+                build_python,
+                source_dir / "entry_wikipedia_harvest.py",
+                "counterpedia-wikipedia-harvest",
+                dist=dist,
+                work=work,
+                specs=specs,
+                collect_all=("acquisition", "acquisition_adapters"),
+                codesign_identity=codesign_identity,
+            ),
+            "counterpedia-ingest-operator-snapshot": build_onefile(
+                build_python,
+                source_dir / "entry_operator_snapshot.py",
+                "counterpedia-ingest-operator-snapshot",
+                dist=dist,
+                work=work,
+                specs=specs,
+                collect_all=("acquisition", "acquisition_adapters"),
+                codesign_identity=codesign_identity,
+            ),
+            "counterpedia-authoring-live-source": build_onefile(
+                build_python,
+                source_dir / "entry_authoring_live_source.py",
+                "counterpedia-authoring-live-source",
+                dist=dist,
+                work=work,
+                specs=specs,
+                collect_all=("counterpedia_authoring",),
+                hidden_imports=AUTHORING_MCP_HIDDEN_IMPORTS,
+                codesign_identity=codesign_identity,
+            ),
+        }
+
+        app = build_main_app(
+            build_python,
+            source_dir / "launcher.py",
+            extension_dir,
+            dist=dist,
+            work=work,
+            specs=specs,
+            codesign_identity=codesign_identity,
+        )
+        resources = app / "Contents" / "Resources"
+        helpers_root = app / "Contents" / "Helpers"
+        resources_runtime = resources / "runtime"
+        acq_resources = resources_runtime / "counterpedia-acquisition"
+        auth_resources = resources_runtime / "counterpedia-authoring"
+        acq_resource_bin = acq_resources / ".venv" / "bin"
+        auth_resource_bin = auth_resources / ".venv" / "bin"
+        acq_scripts = acq_resources / "scripts"
+
+        helper_destinations = {
+            "python": helpers_root / "counterpedia-acquisition-python",
+            "counterpedia-acquisition-mcp": helpers_root / "counterpedia-acquisition-mcp",
+            "counterpedia-wikipedia-harvest": helpers_root / "counterpedia-wikipedia-harvest",
+            "counterpedia-ingest-operator-snapshot": helpers_root / "counterpedia-ingest-operator-snapshot",
+            "counterpedia-authoring-live-source": helpers_root / "counterpedia-authoring-live-source",
+        }
+        for name, destination in helper_destinations.items():
+            _copy_executable(helpers[name], destination)
+
+        # Resources owns the checkout-shaped compatibility view. It contains
+        # provenance data plus relative symlinks to the flat, signed Mach-O
+        # helpers. No executable bytes are duplicated into Resources.
+        _symlink_relative(
+            helper_destinations["python"],
+            acq_resource_bin / "python",
+        )
+        for name in (
+            "counterpedia-acquisition-mcp",
+            "counterpedia-wikipedia-harvest",
+            "counterpedia-ingest-operator-snapshot",
+        ):
+            _symlink_relative(helper_destinations[name], acq_resource_bin / name)
+        _symlink_relative(
+            helper_destinations["counterpedia-authoring-live-source"],
+            auth_resource_bin / "counterpedia-authoring-live-source",
+        )
+
+        acq_scripts.mkdir(parents=True, exist_ok=True)
+        provenance_script = acq_scripts / "run_counterpedia_local_transport.py"
+        shutil.copy2(
+            acquisition_dir / "scripts" / "run_counterpedia_local_transport.py",
+            provenance_script,
+        )
+
+        _assert_helpers_flat_macho_only(helpers_root)
+
+        manifest = {
+            "schema_version": MANIFEST_SCHEMA,
+            "bundle_id": BUNDLE_ID,
+            "authority_movement": 0,
+            "admission_effect": "none",
+            "standing_effect": "none",
+            "pyinstaller_version": PYINSTALLER_VERSION,
+            "components": pins,
+            "runtime_helpers": {
+                f"Contents/Helpers/{path.name}": sha256(path)
+                for _name, path in sorted(helper_destinations.items())
+            },
+            "runtime_resources": {
+                "counterpedia-acquisition/scripts/run_counterpedia_local_transport.py": sha256(provenance_script),
+            },
+        }
+        (resources / "counterpedia-local-bundle-manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+        _resign_app(app, codesign_identity)
+        destination = output_dir / app.name
+        shutil.copytree(app, destination, symlinks=True)
+        return destination
+
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    default_extension = Path(__file__).resolve().parents[2]
+    p.add_argument("--extension-dir", type=Path, default=default_extension)
+    p.add_argument("--acquisition-dir", type=Path, required=True)
+    p.add_argument("--authoring-dir", type=Path, required=True)
+    p.add_argument("--dagr-sdk-dir", type=Path, required=True)
+    p.add_argument("--dagr-mcp-dir", type=Path, required=True)
+    p.add_argument("--output-dir", type=Path, required=True)
+    p.add_argument("--expected-extension-sha", required=True)
+    p.add_argument("--expected-acquisition-sha", required=True)
+    p.add_argument("--expected-authoring-sha", required=True)
+    p.add_argument("--expected-dagr-sdk-sha", required=True)
+    p.add_argument("--expected-dagr-mcp-sha", required=True)
+    p.add_argument("--python", type=Path, default=Path(sys.executable))
+    p.add_argument("--codesign-identity", default=os.environ.get("COUNTERPEDIA_CODESIGN_IDENTITY"))
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        app = build(
+            extension_dir=args.extension_dir,
+            acquisition_dir=args.acquisition_dir,
+            authoring_dir=args.authoring_dir,
+            dagr_sdk_dir=args.dagr_sdk_dir,
+            dagr_mcp_dir=args.dagr_mcp_dir,
+            output_dir=args.output_dir,
+            python_executable=args.python,
+            codesign_identity=args.codesign_identity,
+            expected_pins={
+                "counterpedia-extension": args.expected_extension_sha,
+                "counterpedia-acquisition": args.expected_acquisition_sha,
+                "counterpedia-authoring": args.expected_authoring_sha,
+                "dagr-sdk": args.expected_dagr_sdk_sha,
+                "dagr-mcp": args.expected_dagr_mcp_sha,
+            },
+        )
+    except BuildError as exc:
+        print(f"COUNTERPEDIA_MACOS_BUILD_REFUSED: {exc}", file=sys.stderr)
+        return 1
+    print(app)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
