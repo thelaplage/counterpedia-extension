@@ -13,15 +13,15 @@
 import type { SearchResult } from "../types";
 import { validateCardModel, PINNED_CARD_SCHEMA_VERSION } from "./cardModel";
 import {
-  COUNTERPEDIA_PUBLIC_ORIGIN,
-  COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY,
-} from "./publicOrigin";
+  COUNTERPEDIA_RUNTIME_ORIGIN,
+  COUNTERPEDIA_RUNTIME_ORIGIN_OVERRIDE_KEY,
+} from "./runtimeOrigin";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
+const DEFAULT_BASE_URL = COUNTERPEDIA_RUNTIME_ORIGIN;
 const SEARCH_INDEX_PATH = "/counterpedia/search-index.json";
 const SESSION_CACHE_KEY = "counterpedia_search_index_v1";
 const SESSION_CACHE_FETCHED_KEY = "counterpedia_search_index_fetched_at";
@@ -121,10 +121,10 @@ let inMemoryIndex: SearchIndex | null = null;
 async function getBaseUrl(): Promise<string> {
   try {
     const result = await chrome.storage.sync.get([
-      COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY,
+      COUNTERPEDIA_RUNTIME_ORIGIN_OVERRIDE_KEY,
     ]);
     return (
-      (result[COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY] as string) || DEFAULT_BASE_URL
+      (result[COUNTERPEDIA_RUNTIME_ORIGIN_OVERRIDE_KEY] as string) || DEFAULT_BASE_URL
     );
   } catch {
     return DEFAULT_BASE_URL;

@@ -51,7 +51,7 @@
  */
 
 import type { SearchResult } from "../types";
-import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
+import { COUNTERPEDIA_RUNTIME_ORIGIN } from "./runtimeOrigin";
 import { buildSourceDeepLink, type SourceLocator } from "./sourceWorkbench";
 
 // ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ export function buildResearchContextPresentation(
     input.publicSourceLink === undefined ? null : tryValidatePublicObjectLink(input.publicSourceLink);
   const public_source_link_url =
     publicLink && publicLink.public_status === "public_link_available" && publicLink.href
-      ? new URL(publicLink.href, input.baseUrl ?? COUNTERPEDIA_PUBLIC_ORIGIN).toString()
+      ? new URL(publicLink.href, input.baseUrl ?? COUNTERPEDIA_RUNTIME_ORIGIN).toString()
       : null;
 
   const gapPacket =

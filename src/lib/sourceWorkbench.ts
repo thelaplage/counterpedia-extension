@@ -32,13 +32,13 @@
  * presence of public material — those are different facts.
  */
 
-import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
+import { COUNTERPEDIA_RUNTIME_ORIGIN } from "./runtimeOrigin";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-export const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_PUBLIC_ORIGIN;
+export const COUNTERPEDIA_BASE_URL = COUNTERPEDIA_RUNTIME_ORIGIN;
 
 /** The Counterpedia Source Workbench entry path the deep link targets. */
 export const SOURCE_WORKBENCH_PATH = "/counterpedia/source-workbench";
