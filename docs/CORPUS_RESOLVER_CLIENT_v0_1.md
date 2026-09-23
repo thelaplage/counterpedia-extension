@@ -30,7 +30,7 @@ canonical ref     LOCAL_ONLY miss
 The extension fetches exactly one public artifact URL:
 
 ```text
-https://www.garpedia.org/counterpedia/source-resolution-index.json
+https://counterpedia.vercel.app/counterpedia/source-resolution-index.json
 ```
 
 and caches the validated index in `chrome.storage.session`.
