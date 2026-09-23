@@ -35,35 +35,75 @@ class LauncherTests(unittest.TestCase):
 
     def test_runtime_layout_fails_closed_on_missing_helper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
+            helpers = Path(td) / "Counterpedia Local.app" / "Contents" / "Helpers"
+            helpers.mkdir(parents=True)
             with self.assertRaisesRegex(RuntimeError, "bundled runtime is incomplete"):
-                launcher.runtime_layout(Path(td))
+                launcher.runtime_layout(helpers)
 
-    def test_runtime_layout_accepts_only_complete_expected_shape(self) -> None:
+    def test_runtime_layout_preserves_checkout_contract_across_helpers_and_resources(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            paths = [
-                root / "runtime/counterpedia-acquisition/.venv/bin/python",
-                root / "runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py",
-                root / "runtime/counterpedia-acquisition/.venv/bin/counterpedia-acquisition-mcp",
-                root / "runtime/counterpedia-acquisition/.venv/bin/counterpedia-wikipedia-harvest",
-                root / "runtime/counterpedia-acquisition/.venv/bin/counterpedia-ingest-operator-snapshot",
-                root / "runtime/counterpedia-authoring/.venv/bin/counterpedia-authoring-live-source",
-            ]
-            for path in paths:
-                path.parent.mkdir(parents=True, exist_ok=True)
+            contents = Path(td) / "Counterpedia Local.app" / "Contents"
+            helpers = contents / "Helpers"
+            resources = contents / "Resources"
+            acq_resource_bin = resources / "runtime/counterpedia-acquisition/.venv/bin"
+            auth_resource_bin = resources / "runtime/counterpedia-authoring/.venv/bin"
+            script = resources / "runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py"
+
+            physical = {
+                "counterpedia-acquisition-python": helpers / "counterpedia-acquisition-python",
+                "counterpedia-acquisition-mcp": helpers / "counterpedia-acquisition-mcp",
+                "counterpedia-wikipedia-harvest": helpers / "counterpedia-wikipedia-harvest",
+                "counterpedia-ingest-operator-snapshot": helpers / "counterpedia-ingest-operator-snapshot",
+                "counterpedia-authoring-live-source": helpers / "counterpedia-authoring-live-source",
+            }
+            helpers.mkdir(parents=True)
+            for path in physical.values():
                 path.write_text("x")
-            acquisition, authoring = launcher.runtime_layout(root)
-            self.assertEqual(acquisition, root / "runtime/counterpedia-acquisition")
-            self.assertEqual(authoring, root / "runtime/counterpedia-authoring")
+            script.parent.mkdir(parents=True, exist_ok=True)
+            script.write_text("provenance")
+            builder._symlink_relative(
+                physical["counterpedia-acquisition-python"],
+                acq_resource_bin / "python",
+            )
+            for name in (
+                "counterpedia-acquisition-mcp",
+                "counterpedia-wikipedia-harvest",
+                "counterpedia-ingest-operator-snapshot",
+            ):
+                builder._symlink_relative(physical[name], acq_resource_bin / name)
+            builder._symlink_relative(
+                physical["counterpedia-authoring-live-source"],
+                auth_resource_bin / "counterpedia-authoring-live-source",
+            )
+
+            acquisition, authoring, acquisition_python = launcher.runtime_layout(helpers)
+            self.assertEqual(
+                acquisition,
+                resources / "runtime/counterpedia-acquisition",
+            )
+            self.assertEqual(
+                authoring,
+                resources / "runtime/counterpedia-authoring",
+            )
+            self.assertEqual(
+                acquisition_python,
+                helpers / "counterpedia-acquisition-python",
+            )
+            self.assertTrue((acq_resource_bin / "counterpedia-acquisition-mcp").is_symlink())
+            self.assertTrue((auth_resource_bin / "counterpedia-authoring-live-source").is_symlink())
 
 
 class ShimTests(unittest.TestCase):
-    def test_expected_script_is_checkout_contract_path(self) -> None:
-        exe = Path("/App/Contents/Helpers/runtime/counterpedia-acquisition/.venv/bin/python")
+    def test_expected_script_is_resource_checkout_contract_path(self) -> None:
+        exe = Path("/App/Contents/Helpers/counterpedia-acquisition-python")
         self.assertEqual(
             shim._expected_script(exe),
-            Path("/App/Contents/Helpers/runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py"),
+            Path("/App/Contents/Resources/runtime/counterpedia-acquisition/scripts/run_counterpedia_local_transport.py"),
         )
+
+    def test_expected_script_refuses_non_bundle_helper_layout(self) -> None:
+        with self.assertRaisesRegex(ValueError, "outside the expected app layout"):
+            shim._expected_script(Path("/tmp/python"))
 
 
 class BuilderTests(unittest.TestCase):
@@ -154,6 +194,34 @@ class BuilderTests(unittest.TestCase):
                 hidden_import_values,
                 list(builder.ACQUISITION_MCP_HIDDEN_IMPORTS),
             )
+
+    def test_helpers_require_flat_macho_only_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            helpers = Path(td) / "Helpers"
+            helpers.mkdir()
+            helper = helpers / "counterpedia-acquisition-python"
+            helper.write_bytes(bytes.fromhex("cffaedfe") + b"stub")
+            builder._assert_helpers_flat_macho_only(helpers)
+
+            nested = helpers / "runtime" / "nested-helper"
+            nested.parent.mkdir()
+            nested.write_bytes(bytes.fromhex("cffaedfe") + b"stub")
+            with self.assertRaisesRegex(
+                builder.BuildError,
+                "Contents/Helpers must be a flat list of Mach-O code",
+            ):
+                builder._assert_helpers_flat_macho_only(helpers)
+
+    def test_helpers_reject_flat_non_macho_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            helpers = Path(td) / "Helpers"
+            helpers.mkdir()
+            (helpers / "launcher.py").write_text("print('resource, not Mach-O')\n")
+            with self.assertRaisesRegex(
+                builder.BuildError,
+                "Contents/Helpers must be a flat list of Mach-O code",
+            ):
+                builder._assert_helpers_flat_macho_only(helpers)
 
     def test_final_app_signing_is_not_deep_but_verification_is(self) -> None:
         calls: list[list[str]] = []

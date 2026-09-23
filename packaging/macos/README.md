@@ -28,14 +28,26 @@ capture permissions.
 
 The reviewed Local contract currently resolves child commands at checkout-style
 paths. Rather than rewrite that supervisor while the Demo Kit lane owns the broad
-runtime surface, MACOS-APP0 embeds signed standalone helpers under an internal
-`Contents/Helpers/runtime/.../.venv/bin/` layout. `Contents/Helpers` is used because the embedded helpers are executable code, not resource data.
+runtime surface, MACOS-APP0 embeds the five frozen Mach-O helpers as a **flat**
+list directly under `Contents/Helpers/`. No source, data file, symlink, dot-named
+directory, or nested helper hierarchy is permitted there.
 
-The file named `counterpedia-acquisition/.venv/bin/python` is deliberately a
-**single-purpose signed adapter**, not a general Python interpreter. It accepts
-only the exact existing `scripts/run_counterpedia_local_transport.py` path and
-then delegates to `acquisition.local_transport_launcher.main()`. Any other argv is
-refused. The exact provenance script is copied into the bundle and must be present.
+The logical Acquisition and Authoring checkout roots live under
+`Contents/Resources/runtime/`. Their checkout-shaped `.venv/bin/` command
+entries are relative symlinks to the signed flat executables in
+`Contents/Helpers`; the Acquisition provenance
+`scripts/run_counterpedia_local_transport.py` remains inert resource data.
+This preserves the existing Local checkout contract without duplicating
+executable bytes or placing data inside a code location.
+
+The physical helper named
+`Contents/Helpers/counterpedia-acquisition-python` is deliberately a
+**single-purpose signed adapter**, not a general Python interpreter.
+It accepts only the exact resource-side
+`scripts/run_counterpedia_local_transport.py` path and then delegates to
+`acquisition.local_transport_launcher.main()`. Any other argv is refused. The
+exact provenance script is copied into Resources, recorded in the bundle manifest,
+and must be present.
 
 This preserves the Local launch contract without shipping a relocatability-fragile
 virtualenv or teaching Local a second runtime dialect.
@@ -92,8 +104,9 @@ python3 packaging/macos/build_app.py \
   --output-dir ./dist-macos
 ```
 
-The bundle manifest records the five exact source HEADs and SHA-256 digests of
-all packaged helper executables.
+The bundle manifest records the five exact source HEADs, SHA-256 digests of the
+five flat `Contents/Helpers/*` Mach-O executables, and the SHA-256 digest of the
+resource-side acquisition transport provenance script.
 
 ## Notarization
 

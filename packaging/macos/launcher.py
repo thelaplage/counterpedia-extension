@@ -29,11 +29,24 @@ def app_helpers_root(executable: Path | None = None) -> Path:
     return helpers
 
 
-def runtime_layout(helpers: Path) -> tuple[Path, Path]:
-    acquisition = helpers / "runtime" / "counterpedia-acquisition"
-    authoring = helpers / "runtime" / "counterpedia-authoring"
+def runtime_layout(helpers: Path) -> tuple[Path, Path, Path]:
+    """Resolve resource-side checkout roots and the physical acquisition adapter.
+
+    All executable bytes are a flat list directly under Contents/Helpers.
+    Checkout-shaped Acquisition/Authoring paths live under Contents/Resources
+    and point back to those signed helpers with relative symlinks.
+    """
+    contents = helpers.parent
+    if helpers.name != "Helpers" or contents.name != "Contents":
+        raise RuntimeError("Counterpedia Local helpers are outside the expected app layout")
+
+    resources_runtime = contents / "Resources" / "runtime"
+    acquisition = resources_runtime / "counterpedia-acquisition"
+    authoring = resources_runtime / "counterpedia-authoring"
+    acquisition_python = helpers / "counterpedia-acquisition-python"
+
     required = (
-        acquisition / ".venv" / "bin" / "python",
+        acquisition_python,
         acquisition / "scripts" / "run_counterpedia_local_transport.py",
         acquisition / ".venv" / "bin" / "counterpedia-acquisition-mcp",
         acquisition / ".venv" / "bin" / "counterpedia-wikipedia-harvest",
@@ -43,7 +56,7 @@ def runtime_layout(helpers: Path) -> tuple[Path, Path]:
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise RuntimeError("Counterpedia Local bundled runtime is incomplete: " + ", ".join(missing))
-    return acquisition, authoring
+    return acquisition, authoring, acquisition_python
 
 
 def _load_keychain_key(env: dict[str, str]) -> None:
@@ -67,9 +80,9 @@ def _load_keychain_key(env: dict[str, str]) -> None:
 
 def configure_environment(helpers: Path, env: dict[str, str] | None = None) -> dict[str, str]:
     target = os.environ if env is None else env
-    acquisition, authoring = runtime_layout(helpers)
+    acquisition, authoring, acquisition_python = runtime_layout(helpers)
     target["COUNTERPEDIA_ACQUISITION_DIR"] = str(acquisition)
-    target["COUNTERPEDIA_ACQUISITION_PYTHON"] = str(acquisition / ".venv" / "bin" / "python")
+    target["COUNTERPEDIA_ACQUISITION_PYTHON"] = str(acquisition_python)
     target["COUNTERPEDIA_AUTHORING_DIR"] = str(authoring)
     # Same explicit local-demo DAGR composition already owned by the stacked
     # Demo Kit lane. This is execution governance for the acquisition MCP call,

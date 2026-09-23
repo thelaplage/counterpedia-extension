@@ -207,10 +207,55 @@ def build_main_app(
     return app
 
 
+MACHO_MAGICS = {
+    bytes.fromhex("feedface"),
+    bytes.fromhex("cefaedfe"),
+    bytes.fromhex("feedfacf"),
+    bytes.fromhex("cffaedfe"),
+    bytes.fromhex("cafebabe"),
+    bytes.fromhex("bebafeca"),
+    bytes.fromhex("cafebabf"),
+    bytes.fromhex("bfbafeca"),
+}
+
+
 def _copy_executable(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _symlink_relative(target: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(os.path.relpath(target, start=destination.parent))
+
+
+def _assert_helpers_flat_macho_only(helpers_root: Path) -> None:
+    offenders: list[str] = []
+    for path in helpers_root.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.is_symlink():
+            offenders.append(f"{path} (symlink)")
+            continue
+        if not path.is_file():
+            offenders.append(f"{path} (non-file)")
+            continue
+        if path.parent != helpers_root:
+            offenders.append(f"{path} (nested)")
+            continue
+        try:
+            with path.open("rb") as handle:
+                magic = handle.read(4)
+        except OSError as exc:
+            raise BuildError(f"could not inspect helper code: {path}") from exc
+        if magic not in MACHO_MAGICS:
+            offenders.append(f"{path} (non-Mach-O)")
+    if offenders:
+        raise BuildError(
+            "Contents/Helpers must be a flat list of Mach-O code: "
+            + ", ".join(offenders)
+        )
 
 
 def _resign_app(app: Path, identity: str | None) -> None:
@@ -366,23 +411,49 @@ def build(
         )
         resources = app / "Contents" / "Resources"
         helpers_root = app / "Contents" / "Helpers"
-        acq_bin = helpers_root / "runtime" / "counterpedia-acquisition" / ".venv" / "bin"
-        auth_bin = helpers_root / "runtime" / "counterpedia-authoring" / ".venv" / "bin"
-        acq_scripts = helpers_root / "runtime" / "counterpedia-acquisition" / "scripts"
+        resources_runtime = resources / "runtime"
+        acq_resources = resources_runtime / "counterpedia-acquisition"
+        auth_resources = resources_runtime / "counterpedia-authoring"
+        acq_resource_bin = acq_resources / ".venv" / "bin"
+        auth_resource_bin = auth_resources / ".venv" / "bin"
+        acq_scripts = acq_resources / "scripts"
 
-        _copy_executable(helpers["python"], acq_bin / "python")
+        helper_destinations = {
+            "python": helpers_root / "counterpedia-acquisition-python",
+            "counterpedia-acquisition-mcp": helpers_root / "counterpedia-acquisition-mcp",
+            "counterpedia-wikipedia-harvest": helpers_root / "counterpedia-wikipedia-harvest",
+            "counterpedia-ingest-operator-snapshot": helpers_root / "counterpedia-ingest-operator-snapshot",
+            "counterpedia-authoring-live-source": helpers_root / "counterpedia-authoring-live-source",
+        }
+        for name, destination in helper_destinations.items():
+            _copy_executable(helpers[name], destination)
+
+        # Resources owns the checkout-shaped compatibility view. It contains
+        # provenance data plus relative symlinks to the flat, signed Mach-O
+        # helpers. No executable bytes are duplicated into Resources.
+        _symlink_relative(
+            helper_destinations["python"],
+            acq_resource_bin / "python",
+        )
         for name in (
             "counterpedia-acquisition-mcp",
             "counterpedia-wikipedia-harvest",
             "counterpedia-ingest-operator-snapshot",
         ):
-            _copy_executable(helpers[name], acq_bin / name)
-        _copy_executable(helpers["counterpedia-authoring-live-source"], auth_bin / "counterpedia-authoring-live-source")
+            _symlink_relative(helper_destinations[name], acq_resource_bin / name)
+        _symlink_relative(
+            helper_destinations["counterpedia-authoring-live-source"],
+            auth_resource_bin / "counterpedia-authoring-live-source",
+        )
+
         acq_scripts.mkdir(parents=True, exist_ok=True)
+        provenance_script = acq_scripts / "run_counterpedia_local_transport.py"
         shutil.copy2(
             acquisition_dir / "scripts" / "run_counterpedia_local_transport.py",
-            acq_scripts / "run_counterpedia_local_transport.py",
+            provenance_script,
         )
+
+        _assert_helpers_flat_macho_only(helpers_root)
 
         manifest = {
             "schema_version": MANIFEST_SCHEMA,
@@ -393,11 +464,11 @@ def build(
             "pyinstaller_version": PYINSTALLER_VERSION,
             "components": pins,
             "runtime_helpers": {
-                "counterpedia-acquisition/.venv/bin/python": sha256(acq_bin / "python"),
-                "counterpedia-acquisition/.venv/bin/counterpedia-acquisition-mcp": sha256(acq_bin / "counterpedia-acquisition-mcp"),
-                "counterpedia-acquisition/.venv/bin/counterpedia-wikipedia-harvest": sha256(acq_bin / "counterpedia-wikipedia-harvest"),
-                "counterpedia-acquisition/.venv/bin/counterpedia-ingest-operator-snapshot": sha256(acq_bin / "counterpedia-ingest-operator-snapshot"),
-                "counterpedia-authoring/.venv/bin/counterpedia-authoring-live-source": sha256(auth_bin / "counterpedia-authoring-live-source"),
+                f"Contents/Helpers/{path.name}": sha256(path)
+                for _name, path in sorted(helper_destinations.items())
+            },
+            "runtime_resources": {
+                "counterpedia-acquisition/scripts/run_counterpedia_local_transport.py": sha256(provenance_script),
             },
         }
         (resources / "counterpedia-local-bundle-manifest.json").write_text(
