@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """DOMAIN-CONSUMER-FIX0 — real packaged-extension public-origin fetch smoke.
 
-Loads the built ``dist/`` (the PRODUCTION manifest, which declares
-``host_permissions: ["https://counterpedia.vercel.app/*"]``) into a
-``--load-extension``-honoring Google Chrome for Testing (new headless), attaches
+Loads the built ``dist/`` (the PRODUCTION manifest, which intentionally
+declares no remote ``host_permissions``) into a ``--load-extension``-honoring
+Google Chrome for Testing (new headless), attaches
 to the extension's own service-worker target over CDP, and performs a real
 ``fetch()`` of the three public Counterpedia index files from that
 ``chrome-extension://`` context:
@@ -13,8 +13,10 @@ to the extension's own service-worker target over CDP, and performs a real
     source-resolution-index.json
 
 It asserts all three return HTTP 200. This is NOT a mocked unit test: the fetch
-is issued by the packaged extension itself, exercising the manifest's host
-permission. Stable-channel Chrome (152+) silently ignores ``--load-extension``
+is issued by the packaged extension itself. The public origin currently permits
+these reads through CORS, so this smoke deliberately proves the zero-required-
+host-permission production posture. Stable-channel Chrome (152+) silently ignores
+``--load-extension``
 and cannot be used; resolution requires a Chrome-for-Testing / Chromium build.
 
 Browser resolution order:
@@ -160,7 +162,7 @@ def main() -> int:
         if val is None:
             log(f"no eval value: {res}"); return 6
         data = json.loads(val); allok = True
-        log(f"fetch from chrome-extension://{extid} (production manifest host_permissions):")
+        log(f"fetch from chrome-extension://{extid} (production manifest, zero remote host_permissions):")
         for f in FILES:
             r = data.get(f, {})
             ok = bool(r.get("ok")) and r.get("status") == 200
