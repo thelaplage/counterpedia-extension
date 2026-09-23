@@ -5,6 +5,7 @@
   "description": "Find Counterpedia governed records matching the current page or selected text.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "activeTab", "storage", "contextMenus", "scripting"],
+  "host_permissions": ["https://counterpedia.vercel.app/*"],
   "background": {
     "service_worker": "dist/background/service-worker.js",
     "type": "module"

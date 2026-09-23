@@ -23,7 +23,10 @@ import {
   type ActivityIndex,
   type ActivityFeedProjection,
 } from "./activityFeedModel";
-import { COUNTERPEDIA_PUBLIC_ORIGIN } from "./publicOrigin";
+import {
+  COUNTERPEDIA_PUBLIC_ORIGIN,
+  COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY,
+} from "./publicOrigin";
 
 // ---------------------------------------------------------------------------
 // Configuration — same base URL as the search client (same origin, so no new
@@ -45,8 +48,12 @@ let inMemoryIndex: ActivityIndex | null = null;
 
 async function getBaseUrl(): Promise<string> {
   try {
-    const result = await chrome.storage.sync.get(["counterpedia_base_url"]);
-    return (result["counterpedia_base_url"] as string) || DEFAULT_BASE_URL;
+    const result = await chrome.storage.sync.get([
+      COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY,
+    ]);
+    return (
+      (result[COUNTERPEDIA_PUBLIC_ORIGIN_OVERRIDE_KEY] as string) || DEFAULT_BASE_URL
+    );
   } catch {
     return DEFAULT_BASE_URL;
   }

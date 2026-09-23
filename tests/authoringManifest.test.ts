@@ -108,9 +108,12 @@ describe("manifest.authoring-dev.json", () => {
 });
 
 describe("locked sibling manifests remain untouched", () => {
-  it("production manifest still carries no host_permissions or loopback", () => {
+  it("production manifest carries only the content-origin host, no loopback or dev bytes", () => {
     const prod = JSON.parse(read("manifest.json")) as Manifest;
-    expect(prod.host_permissions).toBeUndefined();
+    // DOMAIN-CONSUMER-FIX0: production's only host permission is the single
+    // Counterpedia public content origin the fetch consumers require. No dev
+    // loopback service may ever leak into it.
+    expect(prod.host_permissions).toEqual(["https://counterpedia.vercel.app/*"]);
     const text = read("manifest.json");
     expect(text).not.toContain("127.0.0.1");
     expect(text).not.toContain("_authoring_dev");

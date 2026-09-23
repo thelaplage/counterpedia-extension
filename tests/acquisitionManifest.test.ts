@@ -3,7 +3,8 @@
  *
  * The localhost acquisition host permission (127.0.0.1:8787) lives ONLY in the
  * dedicated acquisition-dev manifest. Production stays clean (the locked
- * manifestAudit tests require manifest.json to carry no host_permissions and no
+ * manifestAudit tests pin manifest.json to exactly the single content-origin
+ * host permission (https://counterpedia.vercel.app/*) and no
  * 127.0.0.1), and the demo manifest stays exactly its 4317 permission.
  */
 
